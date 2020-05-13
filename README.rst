@@ -8,7 +8,8 @@ CrateDB_ inside Kubernetes_.
 Development
 ===========
 
-The project requires **Python 3.8**.
+The ``crate-operator`` package requires **Python 3.8**. It is build ontop of
+the `Kopf: Kubernetes Operators Framework`_.
 
 This project uses `pre-commit`_ to ensure proper linting, code formatting, and
 type checking. Tools, such as ``black``, ``flake8``, ``isort``, and ``mypy``
@@ -45,4 +46,5 @@ files.
 
 .. _CrateDB: https://github.com/crate/crate
 .. _Kubernetes: https://kubernetes.io/
+.. _`Kopf: Kubernetes Operators Framework`: https://kopf.readthedocs.io/en/latest/
 .. _pre-commit: https://pre-commit.com/
