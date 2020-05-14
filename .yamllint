@@ -1,0 +1,15 @@
+---
+extends: default
+
+rules:
+  braces:
+    max-spaces-inside: 1
+    min-spaces-inside: 0
+  brackets:
+    max-spaces-inside: 1
+    min-spaces-inside: 0
+  indentation:
+    indent-sequences: consistent
+    spaces: 2
+  key-ordering: enable
+  line-length: disable

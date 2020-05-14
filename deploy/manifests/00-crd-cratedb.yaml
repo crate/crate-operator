@@ -1,0 +1,349 @@
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cratedbs.cloud.crate.io
+spec:
+  group: cloud.crate.io
+  names:
+    kind: CrateDB
+    listKind: CrateDBList
+    plural: cratedbs
+    singular: cratedb
+  scope: Namespaced
+  validation:
+    openAPIV3Schema:
+      properties:
+        spec:
+          properties:
+            backups:
+              properties:
+                aws:
+                  properties:
+                    accessKeyId:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the AWS Access Key ID.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the AWS Access Key ID to be used for backups.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
+                    cron:
+                      description: A crontab formatted string indicating when and how often to perform backups.
+                      pattern: ^(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*) ){4}(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*))$
+                      type: string
+                    secretAccessKey:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the AWS Secret Access Key.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the AWS Secret Access Key to be used for backups.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
+                  required:
+                  - accessKeyId
+                  - cron
+                  - secretAccessKey
+                  type: object
+              type: object
+            cluster:
+              properties:
+                imageRepository:
+                  description: Point to a Docker registry. For the offical image it's 'crate', testing and nightly releases are under 'crate/crate'. Or others under 'https://example.com/path/to/registry'
+                  type: string
+                license:
+                  properties:
+                    secretKeyRef:
+                      properties:
+                        key:
+                          description: The key within the Kubernetes Secret that holds the CrateDB license.
+                          type: string
+                        name:
+                          description: Name of a Kubernetes Secret that contains a valid CrateDB license.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                  required:
+                  - secretKeyRef
+                  type: object
+                name:
+                  description: Name of the cluster
+                  pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+                  type: string
+                settings:
+                  properties:
+                    configMapRef:
+                      description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
+                      type: string
+                  required:
+                  - configMapRef
+                  type: object
+                ssl:
+                  properties:
+                    keystore:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: CrateDB SSL keystore
+                              type: string
+                            name:
+                              description: Keystore name
+                              type: string
+                          type: object
+                      type: object
+                    keystoreKeyPassword:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: Keystore key password
+                              type: string
+                            name:
+                              description: Keystore passwords
+                              type: string
+                          type: object
+                      type: object
+                    keystorePassword:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: Keystore password
+                              type: string
+                            name:
+                              description: Keystore passwords
+                              type: string
+                          type: object
+                      type: object
+                  type: object
+                version:
+                  description: CrateDB version
+                  type: string
+              required:
+              - imageRepository
+              - name
+              - version
+              type: object
+            nodes:
+              properties:
+                data:
+                  minItems: 1
+                  properties:
+                    items:
+                      properties:
+                        annotations:
+                          description: Additional annotations to put on the corresponding pods.
+                          type: object
+                        labels:
+                          description: Additional labels to put on the corresponding pods.
+                          type: object
+                        name:
+                          description: Uniquely identifying name of this type of node.
+                          pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
+                          type: string
+                        replicas:
+                          description: Number of CrateDB nodes of this type.
+                          minimum: 1
+                          type: number
+                        resources:
+                          properties:
+                            cpus:
+                              description: Requested and limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: number
+                            disk:
+                              properties:
+                                count:
+                                  description: Number of disks
+                                  type: number
+                                size:
+                                  description: Size of the disk.
+                                  type: string
+                                storageClass:
+                                  description: The name of a Kubernetes StorageClass
+                                  type: string
+                              required:
+                              - count
+                              - size
+                              - storageClass
+                              type: object
+                            heapRatio:
+                              description: Allocated heap size relative to memory
+                              type: float
+                            memory:
+                              description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: string
+                          required:
+                          - cpus
+                          - disk
+                          - heapRatio
+                          - memory
+                          type: object
+                        settings:
+                          properties:
+                            configMapRef:
+                              description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
+                              type: string
+                          required:
+                          - configMapRef
+                          type: object
+                      required:
+                      - name
+                      - replicas
+                      - resources
+                      type: object
+                  type: list
+                master:
+                  properties:
+                    annotations:
+                      description: Additional annotations to put on the corresponding pods.
+                      type: object
+                    labels:
+                      description: Additional labels to put on the corresponding pods.
+                      type: object
+                    replicas:
+                      description: Number of master nodes. Should be an odd number.
+                      minimum: 3
+                      type: number
+                    resources:
+                      properties:
+                        cpus:
+                          description: Requested and limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                          type: number
+                        disk:
+                          properties:
+                            count:
+                              description: Number of disks
+                              type: number
+                            size:
+                              description: Size of the disk.
+                              type: string
+                            storageClass:
+                              description: The name of a Kubernetes StorageClass
+                              type: string
+                          required:
+                          - count
+                          - size
+                          - storageClass
+                          type: object
+                        heapRatio:
+                          description: Allocated heap size relative to memory
+                          type: float
+                        memory:
+                          description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                          type: string
+                      required:
+                      - cpus
+                      - disk
+                      - heapRatio
+                      - memory
+                      type: object
+                    settings:
+                      properties:
+                        configMapRef:
+                          description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
+                          type: string
+                      required:
+                      - configMapRef
+                      type: object
+                  required:
+                  - replicas
+                  - resources
+                  type: object
+              required:
+              - data
+              type: object
+            ports:
+              properties:
+                exporter:
+                  description: SQL exporter port number
+                  maximum: 65535
+                  minimum: 1
+                  type: number
+                http:
+                  description: HTTP port number
+                  maximum: 65535
+                  minimum: 1
+                  type: number
+                jmx:
+                  description: JMX port number
+                  maximum: 65535
+                  minimum: 1
+                  type: number
+                postgres:
+                  description: PostgreSQL port number
+                  maximum: 65535
+                  minimum: 1
+                  type: number
+                prometheus:
+                  description: Prometheus port number
+                  maximum: 65535
+                  minimum: 1
+                  type: number
+              required:
+              - exporter
+              - http
+              - jmx
+              - postgres
+              - prometheus
+              type: object
+            users:
+              properties:
+                items:
+                  properties:
+                    name:
+                      description: The username for a CrateDB cluster user.
+                      pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
+                      type: string
+                    password:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the user's password.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the password for the user.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
+                  required:
+                  - name
+                  - password
+                  type: object
+              type: list
+          required:
+          - cluster
+          - nodes
+          type: object
+      required:
+      - spec
+  versions:
+  - name: v1
+    served: true
+    storage: true
