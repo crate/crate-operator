@@ -10,6 +10,7 @@ CrateDB_ inside Kubernetes_.
 
    installation
    configuration
+   ref/modules
 
 
 Indices and tables
