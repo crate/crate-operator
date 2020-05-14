@@ -3,7 +3,7 @@ name: Lint
 on: [pull_request]
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -33,3 +33,22 @@ jobs:
     - name: Lint
       run: |
         pre-commit run --all-files
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - name: Install dependencies
+      run: |
+        python -m pip install ".[docs]"
+
+    - name: Generate and test API docs
+      run: |
+        sphinx-apidoc --ext-autodoc --ext-intersphinx --separate --implicit-namespaces -o source/ref ../crate
+        make html
+      env:
+        SPHINXOPTS: "-n -v -W --keep-going"
+      working-directory: ./docs
