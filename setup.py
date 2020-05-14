@@ -26,6 +26,7 @@ setup(
     packages=find_namespace_packages(include=["crate.*"]),
     setup_requires=["setuptools_scm"],
     install_requires=["kopf==0.26"],
+    extras_require={"docs": ["sphinx"]},
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 1 - Beta",
