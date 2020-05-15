@@ -21,3 +21,8 @@ repos:
   rev: "v0.770"
   hooks:
   - id: mypy
+- repo: https://github.com/adrienverge/yamllint
+  rev: "v1.23.0"
+  hooks:
+  - id: yamllint
+    exclude: "^(\\.pre-commit-config\\.yaml|\\.github/workflows/.*)$"
