@@ -189,7 +189,8 @@ spec:
                               type: object
                             heapRatio:
                               description: Allocated heap size relative to memory
-                              type: float
+                              format: float
+                              type: number
                             memory:
                               description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
                               type: string
@@ -212,7 +213,7 @@ spec:
                       - replicas
                       - resources
                       type: object
-                  type: list
+                  type: array
                 master:
                   properties:
                     annotations:
@@ -248,7 +249,8 @@ spec:
                           type: object
                         heapRatio:
                           description: Allocated heap size relative to memory
-                          type: float
+                          format: float
+                          type: number
                         memory:
                           description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
                           type: string
@@ -336,13 +338,14 @@ spec:
                   - name
                   - password
                   type: object
-              type: list
+              type: array
           required:
           - cluster
           - nodes
           type: object
       required:
       - spec
+      type: object
   versions:
   - name: v1
     served: true
