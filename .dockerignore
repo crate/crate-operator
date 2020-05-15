@@ -1,0 +1,11 @@
+.*
+*.egg-info/
+build
+deploy
+dev
+devtools
+dist
+docs
+env
+Dockerfile
+!.git/

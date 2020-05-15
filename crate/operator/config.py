@@ -25,7 +25,12 @@ class Config:
         self._prefix = prefix
 
         self.KUBECONFIG = self.env("KUBECONFIG", default=self.KUBECONFIG)
-        if self.KUBECONFIG is None:
+        if self.KUBECONFIG is not None:
+            # When the CRATEDB_OPERATOR_KUBECONFIG env var is set we need to
+            # ensure that KUBECONFIG env var is set to the same value for
+            # PyKube login of the Kopf framework to work correctly.
+            os.environ["KUBECONFIG"] = self.KUBECONFIG
+        else:
             self.KUBECONFIG = os.getenv("KUBECONFIG")
         if self.KUBECONFIG is not None and not os.path.exists(self.KUBECONFIG):
             raise ConfigurationError(

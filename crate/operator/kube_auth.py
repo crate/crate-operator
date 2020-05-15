@@ -1,7 +1,11 @@
+import logging
+
 import kopf
 from kubernetes_asyncio.config import load_incluster_config, load_kube_config
 
 from crate.operator.config import config
+
+logger = logging.getLogger(__name__)
 
 
 @kopf.on.startup()
@@ -16,6 +20,8 @@ async def configure_kubernetes_client(**kwargs):
     authentication will be tried.
     """
     if config.KUBECONFIG:
+        logger.info("Authenticating with KUBECONFIG='%s'", config.KUBECONFIG)
         await load_kube_config(config_file=config.KUBECONFIG)
     else:
+        logger.info("Authenticating with in-cluster config")
         load_incluster_config()
