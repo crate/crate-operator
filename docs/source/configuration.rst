@@ -53,6 +53,16 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``INFO``.
 
+:``ROLLING_RESTART_TIMEOUT``:
+   A rolling cluster restart takes some time, heavily depending on the cluster
+   size, its number of nodes, amount of data, etc. After some change
+   operations, such as cluster upgrades, the operator will trigger a rolling
+   cluster restart. The operator will wait at most this many seconds until it
+   considers the rolling restart to have failed. Set to ``0`` to disable
+   timeouts.
+
+   The default value is ``3600`` seconds.
+
 :``TESTING``:
    During development or testing, some contraints enforced by the operator may
    be obstructive. An example for that can be the Kubernetes pod anti-affinity

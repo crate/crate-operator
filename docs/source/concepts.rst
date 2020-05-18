@@ -39,10 +39,10 @@ process:
 1. For each data node definition, in the order they are defined in the spec,
    restart each of its nodes in ordinal order.
 
-Restarting CrateDB node works by deleting the corresponding Kubernetes pod. The
-operator will then wait for a new pod to go down and another one to come up and
-join the CrateDB cluster. Lastly, the cluster needs to `report a green health`_
-three times in a row with a 30 second wait time in betweek, for a pod to be
-considered back in service.
+Restarting a CrateDB node works by deleting the corresponding Kubernetes pod.
+The operator will then wait for a new pod to go down and another one to come up
+and join the CrateDB cluster. Lastly, the cluster needs to `report a green
+health`_ three times in a row with a 30 second wait time in between, for a pod
+to be considered back in service.
 
 .. _report a green health: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health

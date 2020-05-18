@@ -40,6 +40,11 @@ class Config:
     #: The log level to use for all CrateDB operator related log messages.
     LOG_LEVEL: str = "INFO"
 
+    #: Time in seconds for which the operator will continue and wait to perform
+    #: a rolling restart of a cluster. Once this threshold has passed, a
+    #: restart is considered failed.
+    ROLLING_RESTART_TIMEOUT = 3600
+
     #: Enable several testing behaviors, such as relaxed pod anti-affinity to
     #: allow for easier testing in smaller Kubernetes clusters.
     TESTING: bool = False
@@ -88,6 +93,22 @@ class Config:
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
         log = logging.getLogger("crate")
         log.setLevel(logging.getLevelName(self.LOG_LEVEL))
+
+        rolling_restart_timeout = self.env(
+            "ROLLING_RESTART_TIMEOUT", default=str(self.ROLLING_RESTART_TIMEOUT)
+        )
+        try:
+            self.ROLLING_RESTART_TIMEOUT = int(rolling_restart_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}ROLLING_RESTART_TIMEOUT="
+                f"'{rolling_restart_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.ROLLING_RESTART_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}ROLLING_RESTART_TIMEOUT="
+                f"'{rolling_restart_timeout}'. Needs to be a positive integer or 0."
+            )
 
         testing = self.env("TESTING", default=str(self.TESTING))
         self.TESTING = testing.lower() == "true"
