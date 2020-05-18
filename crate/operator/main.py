@@ -35,7 +35,8 @@ from crate.operator.create import (
     create_system_user,
 )
 from crate.operator.kube_auth import configure_kubernetes_client
-from crate.operator.operations import get_total_nodes_count
+from crate.operator.operations import get_total_nodes_count, restart_cluster
+from crate.operator.upgrade import upgrade_cluster
 
 logger = logging.getLogger(__name__)
 
@@ -248,3 +249,46 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 "ssl" in spec["cluster"],
             )
         )
+
+
+@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
+async def cluster_update(
+    diff: kopf.Diff, namespace: str, name: str, body: kopf.Body, **kwargs,
+):
+    """
+    Implement any updates to a cluster. The handler will sort out the logic of
+    what to update in which order and when to trigger a restart of a cluster.
+    """
+    # Map fields to (handlers, a weight (bigger is important), requires restart)
+    handlers = {
+        ("spec", "cluster", "imageRegistry"): (upgrade_cluster, 10, True),
+        ("spec", "cluster", "version"): (upgrade_cluster, 10, True),
+    }
+    run_handlers = set()
+
+    requires_restart = False
+    for operation, field_path, old_value, new_value in diff:
+        if field_path in handlers:
+            run_handlers.add(handlers[field_path])
+        else:
+            logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+    # Run through all required handlers in the order of their weight (bigger
+    # weight means running earlier).
+    sorted_handlers = reversed(sorted(run_handlers, key=lambda e: e[1]))
+    for handler, _, restart in sorted_handlers:
+        await handler(namespace, name, body)
+        requires_restart = requires_restart or restart
+
+    if requires_restart:
+        try:
+            timeout = config.ROLLING_RESTART_TIMEOUT
+            awaitable = restart_cluster(namespace, name)
+            if timeout > 0:
+                awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
+            await awaitable
+        except asyncio.TimeoutError:
+            raise kopf.PermanentError(
+                f"Failed to restart cluster {namespace}/{name} after "
+                f"{config.ROLLING_RESTART_TIMEOUT} seconds."
+            ) from None

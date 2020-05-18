@@ -75,6 +75,7 @@ html_static_path = ["_static"]
 intersphinx_mapping = {
     "aiopg": ("https://aiopg.readthedocs.io/en/stable/", None),
     "bitmath": ("https://bitmath.readthedocs.io/en/stable/", None),
+    "kopf": ("https://kopf.readthedocs.io/en/stable/", None),
     "python": ("https://docs.python.org/3.8/", None),
 }
 always_document_param_types = True
