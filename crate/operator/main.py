@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api, CoreV1Api
-from kubernetes_asyncio.client.models import V1LocalObjectReference
+from kubernetes_asyncio.client.models import V1DeleteOptions, V1LocalObjectReference
 
 # Perform Kubernetes authentication during Kopf startup. This also triggers the
 # login for the Kopf framework through PyKube
@@ -212,3 +212,107 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 image_pull_secrets,
             )
         )
+
+
+@kopf.on.delete(API_GROUP, "v1", RESOURCE_CRATEDB)
+async def delete_cluster(namespace, meta, spec, **_):
+    apps = AppsV1Api()
+    batchv1beta1 = BatchV1beta1Api()
+    core = CoreV1Api()
+
+    name = meta["name"]
+
+    to_delete = []
+    to_delete.append(
+        batchv1beta1.delete_namespaced_cron_job(
+            namespace=namespace, name=f"create-snapshot-{name}", body=V1DeleteOptions(),
+        )
+    )
+    to_delete.append(
+        apps.delete_namespaced_deployment(
+            namespace=namespace, name=f"backup-metrics-{name}", body=V1DeleteOptions(),
+        )
+    )
+    master_node_spec = spec["nodes"].get("master")
+    if master_node_spec:
+        to_delete.append(
+            apps.delete_namespaced_stateful_set(
+                namespace=namespace, name=f"crate-master-{name}"
+            )
+        )
+    to_delete.extend(
+        [
+            apps.delete_namespaced_stateful_set(
+                namespace=namespace,
+                name=f"crate-data-{node_spec['name']}-{name}",
+                body=V1DeleteOptions(),
+            )
+            for node_spec in spec["nodes"]["data"]
+        ]
+    )
+    to_delete.extend(
+        [
+            core.delete_namespaced_service(
+                namespace=namespace,
+                name=f"crate-discovery-{name}",
+                body=V1DeleteOptions(),
+            ),
+            core.delete_namespaced_service(
+                namespace=namespace, name=f"crate-{name}", body=V1DeleteOptions(),
+            ),
+        ]
+    )
+    to_delete.extend(
+        [
+            core.delete_namespaced_config_map(
+                namespace=namespace, name=config_map_name, body=V1DeleteOptions(),
+            )
+            for config_map_name in (
+                f"crate-{name}",
+                f"crate-log4j2-{name}",
+                f"crate-sql-exporter-{name}",
+            )
+        ]
+    )
+    to_delete.append(
+        core.delete_namespaced_secret(
+            namespace=namespace, name=f"user-system-{name}", body=V1DeleteOptions(),
+        )
+    )
+
+    if master_node_spec:
+        to_delete.extend(
+            [
+                core.delete_namespaced_persistent_volume_claim(
+                    namespace=namespace,
+                    name=f"data{i}-crate-master-{name}-{replica}",
+                    body=V1DeleteOptions(),
+                )
+                for replica in range(master_node_spec["replicas"])
+                for i in range(master_node_spec["resources"]["disk"]["count"])
+            ]
+        )
+    to_delete.extend(
+        [
+            core.delete_namespaced_persistent_volume_claim(
+                namespace=namespace,
+                name=f"data{i}-crate-data-{node_spec['name']}-{name}-{replica}",
+                body=V1DeleteOptions(),
+            )
+            for node_spec in spec["nodes"]["data"]
+            for replica in range(node_spec["replicas"])
+            for i in range(node_spec["resources"]["disk"]["count"])
+        ]
+    )
+    to_delete.append(
+        core.delete_namespaced_persistent_volume_claim(
+            namespace=namespace, name=f"local-resource-{name}", body=V1DeleteOptions(),
+        )
+    )
+    to_delete.append(
+        core.delete_persistent_volume(
+            name=f"temp-pv-{namespace}-{name}", body=V1DeleteOptions()
+        )
+    )
+
+    await asyncio.gather(*to_delete, return_exceptions=True)
