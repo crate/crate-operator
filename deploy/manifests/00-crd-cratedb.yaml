@@ -66,7 +66,7 @@ spec:
               type: object
             cluster:
               properties:
-                imageRepository:
+                imageRegistry:
                   description: Point to a Docker registry. For the offical image it's 'crate', testing and nightly releases are under 'crate/crate'. Or others under 'https://example.com/path/to/registry'
                   type: string
                 license:
@@ -141,7 +141,7 @@ spec:
                   description: CrateDB version
                   type: string
               required:
-              - imageRepository
+              - imageRegistry
               - name
               - version
               type: object
