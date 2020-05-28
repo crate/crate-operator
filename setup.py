@@ -26,7 +26,7 @@ setup(
     packages=find_namespace_packages(include=["crate.*"]),
     setup_requires=["setuptools_scm"],
     install_requires=["kopf==0.26", "kubernetes-asyncio==11.2.0"],
-    extras_require={"docs": ["sphinx"]},
+    extras_require={"docs": ["sphinx", "sphinx-autodoc-typehints"]},
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 1 - Beta",

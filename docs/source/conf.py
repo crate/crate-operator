@@ -1,3 +1,9 @@
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+#
+import os
+import sys
 from typing import List
 
 from pkg_resources import get_distribution
@@ -10,13 +16,8 @@ from pkg_resources import get_distribution
 
 # -- Path setup --------------------------------------------------------------
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+
+sys.path.insert(0, os.path.abspath("."))
 
 
 # -- Project information -----------------------------------------------------
@@ -33,7 +34,12 @@ version = release = get_distribution("crate-operator").version
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.intersphinx"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx_autodoc_typehints",
+    "k8s_ref_ext",
+    "sphinx.ext.intersphinx",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -42,6 +48,13 @@ templates_path = ["_templates"]
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns: List[str] = []
+
+# Some references just don't exist even though they maybe should. Adding them
+# here.
+nitpick_ignore = [
+    # undoc'd; https://docs.python.org/3/distutils/apiref.html#module-distutils.version
+    ("py:class", "distutils.version.Version"),
+]
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -56,6 +69,11 @@ html_theme = "alabaster"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
+
 # -- Extensions configuration ------------------------------------------------
 
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "bitmath": ("https://bitmath.readthedocs.io/en/latest/", None),
+    "python": ("https://docs.python.org/3", None),
+}
+always_document_param_types = True
