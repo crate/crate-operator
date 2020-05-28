@@ -37,10 +37,47 @@ spec:
                       required:
                       - secretKeyRef
                       type: object
+                    basePath:
+                      description: The base path within the backup under which the snapshots will be placed.
+                      type: string
+                    bucket:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the AWS S3 bucket name.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the AWS S3 bucket name to be used for backups.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
                     cron:
                       description: A crontab formatted string indicating when and how often to perform backups.
                       pattern: ^(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*) ){4}(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*))$
                       type: string
+                    region:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the name of the AWS region to use.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the AWS region to be used for backups.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
                     secretAccessKey:
                       properties:
                         secretKeyRef:
@@ -60,12 +97,17 @@ spec:
                       type: object
                   required:
                   - accessKeyId
+                  - bucket
                   - cron
+                  - region
                   - secretAccessKey
                   type: object
               type: object
             cluster:
               properties:
+                externalDNS:
+                  description: The external DNS name record that should point to the CrateDB cluster.
+                  type: string
                 imageRegistry:
                   description: Point to a Docker registry. For the offical image it's 'crate', testing and nightly releases are under 'crate/crate'. Or others under 'https://example.com/path/to/registry'
                   type: string
@@ -91,12 +133,7 @@ spec:
                   pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
                   type: string
                 settings:
-                  properties:
-                    configMapRef:
-                      description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
-                      type: string
-                  required:
-                  - configMapRef
+                  description: Additional settings to apply to all nodes in the cluster.
                   type: object
                 ssl:
                   properties:
@@ -110,7 +147,12 @@ spec:
                             name:
                               description: Keystore name
                               type: string
+                          required:
+                          - key
+                          - name
                           type: object
+                      required:
+                      - secretKeyRef
                       type: object
                     keystoreKeyPassword:
                       properties:
@@ -122,7 +164,12 @@ spec:
                             name:
                               description: Keystore passwords
                               type: string
+                          required:
+                          - key
+                          - name
                           type: object
+                      required:
+                      - secretKeyRef
                       type: object
                     keystorePassword:
                       properties:
@@ -134,8 +181,17 @@ spec:
                             name:
                               description: Keystore passwords
                               type: string
+                          required:
+                          - key
+                          - name
                           type: object
+                      required:
+                      - secretKeyRef
                       type: object
+                  required:
+                  - keystore
+                  - keystoreKeyPassword
+                  - keystorePassword
                   type: object
                 version:
                   description: CrateDB version
@@ -201,12 +257,7 @@ spec:
                           - memory
                           type: object
                         settings:
-                          properties:
-                            configMapRef:
-                              description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
-                              type: string
-                          required:
-                          - configMapRef
+                          description: Additional settings to apply to all nodes of that type in the cluster.
                           type: object
                       required:
                       - name
@@ -261,12 +312,7 @@ spec:
                       - memory
                       type: object
                     settings:
-                      properties:
-                        configMapRef:
-                          description: Name of a Kubernetes ConfigMap who's key-value pairs should be passed as configuration options to CrateDB.
-                          type: string
-                      required:
-                      - configMapRef
+                      description: Additional settings to apply to all master nodes in the cluster.
                       type: object
                   required:
                   - replicas
