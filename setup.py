@@ -25,8 +25,11 @@ setup(
     long_description_content_type="text/x-rst",
     packages=find_namespace_packages(include=["crate.*"]),
     setup_requires=["setuptools_scm"],
-    install_requires=["kopf==0.26", "kubernetes-asyncio==11.2.0"],
-    extras_require={"docs": ["sphinx", "sphinx-autodoc-typehints"]},
+    install_requires=["bitmath==1.3.3.1", "kopf==0.26", "kubernetes-asyncio==11.2.0"],
+    extras_require={
+        "docs": ["sphinx", "sphinx-autodoc-typehints"],
+        "testing": ["faker==4.1.0", "pytest==5.4.2", "pytest-asyncio==0.12.0"],
+    },
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 1 - Beta",
