@@ -1,0 +1,19 @@
+---
+collector_name: responsivity_collector
+# This metric is intended to alert us to when CrateDB Cloud clusters are unresponsive.
+# This uses a query which involves communication with other nodes to test
+# that the communication between the nodes work.
+# (In this case, all that contain any shards)
+#
+# If nodes are not reachable the query would fail.
+# (Other queries like on `sys.cluster` or `information_schema` can be served
+# by a single node *without* communication with other nodes)
+metrics:
+- help: "Indicates whether the CrateDB node is responding to queries. Will not return if the node is stuck."
+  metric_name: responsivity
+  query: |
+    SELECT count(state) as states, 1 AS responsive
+    FROM sys.shards;
+  type: gauge
+  value_label: responsive
+  values: [responsive, states]

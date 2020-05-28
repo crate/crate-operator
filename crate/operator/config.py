@@ -1,6 +1,8 @@
 import logging
 import os
-from typing import Optional
+from typing import List, Optional
+
+import bitmath
 
 from crate.operator.exceptions import ConfigurationError
 
@@ -15,6 +17,27 @@ class Config:
     :data:`crate.operator.config.config` and access its attributes.
     """
 
+    #: The Docker image that contians scripts to run cluster backups.
+    CLUSTER_BACKUP_IMAGE: str
+
+    #: The Docker image that can bootstrap a cluster, such as setting a license
+    #: key and creating users.
+    CLUSTER_BOOTSTRAP_IMAGE: str
+
+    #: The volume size for the ``PersistentVolume`` that is used as a storage
+    #: location for Java heap dumps.
+    DEBUG_VOLUME_SIZE: bitmath.Byte = bitmath.GiB(256)
+
+    #: The Kubernetes storage class name for the ``PersistentVolume`` that is
+    #: used as a storage location for Java heap dumps.
+    DEBUG_VOLUME_STORAGE_CLASS: str = "crate-local"
+
+    #: A list of image pull secrets. Separate names by ``,``.
+    IMAGE_PULL_SECRETS: Optional[List[str]] = None
+
+    #: JMX exporter version
+    JMX_EXPORTER_VERSION: str
+
     #: The path the Kubernetes configuration to use.
     KUBECONFIG: Optional[str] = None
 
@@ -23,6 +46,33 @@ class Config:
 
     def __init__(self, *, prefix: str):
         self._prefix = prefix
+
+    def load(self):
+        self.CLUSTER_BACKUP_IMAGE = self.env("CLUSTER_BACKUP_IMAGE")
+
+        self.CLUSTER_BOOTSTRAP_IMAGE = self.env("CLUSTER_BOOTSTRAP_IMAGE")
+
+        debug_volume_size = self.env(
+            "DEBUG_VOLUME_SIZE", default=str(self.DEBUG_VOLUME_SIZE)
+        )
+        try:
+            self.DEBUG_VOLUME_SIZE = bitmath.parse_string(debug_volume_size)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}DEBUG_VOLUME_SIZE='{debug_volume_size}'."
+            )
+
+        self.DEBUG_VOLUME_STORAGE_CLASS = self.env(
+            "DEBUG_VOLUME_STORAGE_CLASS", default=self.DEBUG_VOLUME_STORAGE_CLASS
+        )
+
+        secrets = self.env("IMAGE_PULL_SECRETS", default=self.IMAGE_PULL_SECRETS)
+        if secrets is not None:
+            self.IMAGE_PULL_SECRETS = [
+                s for s in (secret.strip() for secret in secrets.split(",")) if s
+            ]
+
+        self.JMX_EXPORTER_VERSION = self.env("JMX_EXPORTER_VERSION")
 
         self.KUBECONFIG = self.env("KUBECONFIG", default=self.KUBECONFIG)
         if self.KUBECONFIG is not None:
@@ -47,15 +97,16 @@ class Config:
         if provided. If no default is provided, a :exc:`~.ConfigurationError` is
         raised.
         """
+        full_name = f"{self._prefix}{name}"
         try:
-            return os.environ[self._prefix + name]
-        except KeyError as e:
+            return os.environ[full_name]
+        except KeyError:
             if default is UNDEFINED:
                 # raise from None - so that the traceback of the original
                 # exception (KeyError) is not printed
                 # https://docs.python.org/3.8/reference/simple_stmts.html#the-raise-statement
                 raise ConfigurationError(
-                    f"Required environment variable '{e}' is not set."
+                    f"Required environment variable '{full_name}' is not set."
                 ) from None
             return default
 

@@ -1,6 +1,5 @@
 import logging
 
-import kopf
 from kubernetes_asyncio.config import load_incluster_config, load_kube_config
 
 from crate.operator.config import config
@@ -8,7 +7,6 @@ from crate.operator.config import config
 logger = logging.getLogger(__name__)
 
 
-@kopf.on.startup()
 async def configure_kubernetes_client(**kwargs):
     """
     Authenticate with the Kubernetes cluster.
