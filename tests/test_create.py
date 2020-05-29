@@ -56,7 +56,7 @@ class TestConfigMaps:
     async def test_create(self, faker, namespace):
         core = CoreV1Api()
         name = faker.domain_word()
-        await create_sql_exporter_config(core, namespace.metadata.name, name, {})
+        await create_sql_exporter_config(core, None, namespace.metadata.name, name, {})
         await assert_wait_for(
             True,
             self.does_configmap_exist,
@@ -91,7 +91,7 @@ class TestDebugVolume:
         )
 
         pv, pvc = await asyncio.gather(
-            *create_debug_volume(core, namespace.metadata.name, name, {})
+            *create_debug_volume(core, None, namespace.metadata.name, name, {})
         )
         await assert_wait_for(
             True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}",
@@ -660,7 +660,7 @@ class TestStatefulSetPVC:
                 }
             }
         }
-        pvcs = get_statefulset_pvc(node_spec)
+        pvcs = get_statefulset_pvc(None, node_spec)
         assert [pvc.metadata.name for pvc in pvcs] == [f"data{i}" for i in range(count)]
         assert [pvc.spec.resources.requests["storage"] for pvc in pvcs] == [s] * count
         assert [pvc.spec.storage_class_name for pvc in pvcs] == [storage_class] * count
@@ -720,6 +720,7 @@ class TestStatefulSet:
         node_name = faker.domain_word()
         await create_statefulset(
             apps,
+            None,
             namespace.metadata.name,
             name,
             {
@@ -804,7 +805,15 @@ class TestServices:
         name = faker.domain_word()
         s_data, s_discovery = await asyncio.gather(
             *create_services(
-                core, namespace.metadata.name, name, {}, 1, 2, 3, faker.domain_name()
+                core,
+                None,
+                namespace.metadata.name,
+                name,
+                {},
+                1,
+                2,
+                3,
+                faker.domain_name(),
             )
         )
         await assert_wait_for(
@@ -830,7 +839,9 @@ class TestSystemUser:
         name = faker.domain_word()
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
-            secret = await create_system_user(core, namespace.metadata.name, name, {})
+            secret = await create_system_user(
+                core, None, namespace.metadata.name, name, {}
+            )
         await assert_wait_for(
             True,
             self.does_secret_exist,

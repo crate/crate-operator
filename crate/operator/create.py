@@ -25,6 +25,7 @@ from kubernetes_asyncio.client import (
     V1LabelSelectorRequirement,
     V1LocalObjectReference,
     V1ObjectMeta,
+    V1OwnerReference,
     V1PersistentVolume,
     V1PersistentVolumeClaim,
     V1PersistentVolumeClaimSpec,
@@ -67,10 +68,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_debug_persistent_volume(
-    namespace: str, name: str, labels: LabelType,
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
 ) -> V1PersistentVolume:
     return V1PersistentVolume(
-        metadata=V1ObjectMeta(name=f"temp-pv-{namespace}-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"temp-pv-{namespace}-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         spec=V1PersistentVolumeSpec(
             access_modes=["ReadWriteOnce"],
             capacity={"storage": format_bitmath(config.DEBUG_VOLUME_SIZE)},
@@ -81,10 +89,14 @@ def get_debug_persistent_volume(
 
 
 def get_debug_persistent_volume_claim(
-    name: str, labels: LabelType
+    owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
 ) -> V1PersistentVolumeClaim:
     return V1PersistentVolumeClaim(
-        metadata=V1ObjectMeta(name=f"local-resource-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"local-resource-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         spec=V1PersistentVolumeClaimSpec(
             access_modes=["ReadWriteOnce"],
             resources=V1ResourceRequirements(
@@ -96,7 +108,11 @@ def get_debug_persistent_volume_claim(
 
 
 def create_debug_volume(
-    core: CoreV1Api, namespace: str, name: str, labels: LabelType,
+    core: CoreV1Api,
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
 ) -> Tuple[Awaitable[V1PersistentVolume], Awaitable[V1PersistentVolumeClaim]]:
     """
     Creates a ``PersistentVolume`` and ``PersistentVolumeClaim`` to be used for
@@ -109,26 +125,32 @@ def create_debug_volume(
             core.create_persistent_volume,
             logger,
             continue_on_conflict=True,
-            body=get_debug_persistent_volume(namespace, name, labels),
+            body=get_debug_persistent_volume(owner_references, namespace, name, labels),
         ),
         call_kubeapi(
             core.create_namespaced_persistent_volume_claim,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
-            body=get_debug_persistent_volume_claim(name, labels),
+            body=get_debug_persistent_volume_claim(owner_references, name, labels),
         ),
     )
 
 
-def get_sql_exporter_config(name: str, labels: LabelType) -> V1ConfigMap:
+def get_sql_exporter_config(
+    owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
+) -> V1ConfigMap:
     sql_exporter_config = pkgutil.get_data("crate.operator", "data/sql-exporter.yaml")
     responsivity_collector_config = pkgutil.get_data(
         "crate.operator", "data/responsivity-collector.yaml",
     )
     if sql_exporter_config and responsivity_collector_config:
         return V1ConfigMap(
-            metadata=V1ObjectMeta(name=f"crate-sql-exporter-{name}", labels=labels),
+            metadata=V1ObjectMeta(
+                name=f"crate-sql-exporter-{name}",
+                labels=labels,
+                owner_references=owner_references,
+            ),
             data={
                 "sql-exporter.yaml": sql_exporter_config.decode(),
                 "responsivity-collector.yaml": responsivity_collector_config.decode(),
@@ -141,14 +163,18 @@ def get_sql_exporter_config(name: str, labels: LabelType) -> V1ConfigMap:
 
 
 def create_sql_exporter_config(
-    core: CoreV1Api, namespace: str, name: str, labels: LabelType,
+    core: CoreV1Api,
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
 ) -> Awaitable[V1ConfigMap]:
     return call_kubeapi(
         core.create_namespaced_config_map,
         logger,
         continue_on_conflict=True,
         namespace=namespace,
-        body=get_sql_exporter_config(name, labels),
+        body=get_sql_exporter_config(owner_references, name, labels),
     )
 
 
@@ -541,14 +567,16 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
     ]
 
 
-def get_statefulset_pvc(node_spec: Dict[str, Any]) -> List[V1PersistentVolumeClaim]:
+def get_statefulset_pvc(
+    owner_references: Optional[List[V1OwnerReference]], node_spec: Dict[str, Any]
+) -> List[V1PersistentVolumeClaim]:
     size = format_bitmath(
         bitmath.parse_string_unsafe(node_spec["resources"]["disk"]["size"])
     )
     storage_class_name = node_spec["resources"]["disk"]["storageClass"]
     return [
         V1PersistentVolumeClaim(
-            metadata=V1ObjectMeta(name=f"data{i}"),
+            metadata=V1ObjectMeta(name=f"data{i}", owner_references=owner_references),
             spec=V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=V1ResourceRequirements(requests={"storage": size}),
@@ -594,6 +622,7 @@ def get_statefulset_volumes(name: str, ssl: Optional[Dict[str, Any]]) -> List[V1
 
 
 def get_statefulset(
+    owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
@@ -659,6 +688,7 @@ def get_statefulset(
             annotations=node_spec.get("annotations"),
             labels=node_labels,
             name=full_pod_name_prefix,
+            owner_references=owner_references,
         ),
         spec=V1StatefulSetSpec(
             pod_management_policy="Parallel",
@@ -684,13 +714,14 @@ def get_statefulset(
                 ),
             ),
             update_strategy=V1StatefulSetUpdateStrategy(type="OnDelete"),
-            volume_claim_templates=get_statefulset_pvc(node_spec),
+            volume_claim_templates=get_statefulset_pvc(owner_references, node_spec),
         ),
     )
 
 
 def create_statefulset(
     apps: AppsV1Api,
+    owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
@@ -719,6 +750,7 @@ def create_statefulset(
         continue_on_conflict=True,
         namespace=namespace,
         body=get_statefulset(
+            owner_references,
             namespace,
             name,
             labels,
@@ -745,6 +777,7 @@ def create_statefulset(
 
 
 def get_data_service(
+    owner_references: Optional[List[V1OwnerReference]],
     name: str,
     labels: LabelType,
     http_port: int,
@@ -757,7 +790,10 @@ def get_data_service(
         annotations = {}
     return V1Service(
         metadata=V1ObjectMeta(
-            annotations=annotations, labels=labels, name=f"crate-{name}",
+            annotations=annotations,
+            labels=labels,
+            name=f"crate-{name}",
+            owner_references=owner_references,
         ),
         spec=V1ServiceSpec(
             ports=[
@@ -771,10 +807,17 @@ def get_data_service(
 
 
 def get_discovery_service(
-    name: str, labels: LabelType, transport_port: int,
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    labels: LabelType,
+    transport_port: int,
 ) -> V1Service:
     return V1Service(
-        metadata=V1ObjectMeta(name=f"crate-discovery-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"crate-discovery-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         spec=V1ServiceSpec(
             ports=[V1ServicePort(name="cluster", port=transport_port)],
             selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
@@ -784,6 +827,7 @@ def get_discovery_service(
 
 def create_services(
     core: CoreV1Api,
+    owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
@@ -798,28 +842,40 @@ def create_services(
             logger,
             continue_on_conflict=True,
             namespace=namespace,
-            body=get_data_service(name, labels, http_port, postgres_port, dns_record),
+            body=get_data_service(
+                owner_references, name, labels, http_port, postgres_port, dns_record
+            ),
         ),
         call_kubeapi(
             core.create_namespaced_service,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
-            body=get_discovery_service(name, labels, transport_port),
+            body=get_discovery_service(owner_references, name, labels, transport_port),
         ),
     )
 
 
-def get_system_user_secret(name: str, labels: LabelType) -> V1Secret:
+def get_system_user_secret(
+    owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
+) -> V1Secret:
     return V1Secret(
         data={"password": b64encode(gen_password(50))},
-        metadata=V1ObjectMeta(name=f"user-system-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"user-system-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         type="Opaque",
     )
 
 
 def create_system_user(
-    core: CoreV1Api, namespace: str, name: str, labels: LabelType,
+    core: CoreV1Api,
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
 ) -> Awaitable[V1Secret]:
     """
     The *CrateDB Operator* will need to perform operations on the CrateDB
@@ -831,5 +887,5 @@ def create_system_user(
         logger,
         continue_on_conflict=True,
         namespace=namespace,
-        body=get_system_user_secret(name, labels),
+        body=get_system_user_secret(owner_references, name, labels),
     )

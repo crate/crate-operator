@@ -17,6 +17,7 @@ from kubernetes_asyncio.client import (
     V1LabelSelector,
     V1LocalObjectReference,
     V1ObjectMeta,
+    V1OwnerReference,
     V1PodSpec,
     V1PodTemplateSpec,
     V1SecretKeySelector,
@@ -68,6 +69,7 @@ def get_backup_env(
 
 
 def get_backup_cronjob(
+    owner_references: Optional[List[V1OwnerReference]],
     name: str,
     labels: LabelType,
     http_port: int,
@@ -99,7 +101,11 @@ def get_backup_cronjob(
         V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
     ] + get_backup_env(name, http_port, backup_aws, has_ssl)
     return V1beta1CronJob(
-        metadata=V1ObjectMeta(name=f"create-snapshot-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"create-snapshot-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         spec=V1beta1CronJobSpec(
             concurrency_policy="Forbid",
             failed_jobs_history_limit=1,
@@ -132,6 +138,7 @@ def get_backup_cronjob(
 
 
 def get_backup_metrics_exporter(
+    owner_references: Optional[List[V1OwnerReference]],
     name: str,
     labels: LabelType,
     http_port: int,
@@ -146,7 +153,11 @@ def get_backup_metrics_exporter(
         V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
     ] + get_backup_env(name, http_port, backup_aws, has_ssl)
     return V1Deployment(
-        metadata=V1ObjectMeta(name=f"backup-metrics-{name}", labels=labels),
+        metadata=V1ObjectMeta(
+            name=f"backup-metrics-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
         spec=V1DeploymentSpec(
             replicas=1,
             selector=V1LabelSelector(
@@ -187,6 +198,7 @@ def get_backup_metrics_exporter(
 def create_backups(
     apps: AppsV1Api,
     batchv1_beta1: BatchV1beta1Api,
+    owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
@@ -205,6 +217,7 @@ def create_backups(
                 continue_on_conflict=True,
                 namespace=namespace,
                 body=get_backup_cronjob(
+                    owner_references,
                     name,
                     labels,
                     http_port,
@@ -219,6 +232,7 @@ def create_backups(
                 continue_on_conflict=True,
                 namespace=namespace,
                 body=get_backup_metrics_exporter(
+                    owner_references,
                     name,
                     labels,
                     http_port,

@@ -4,8 +4,13 @@ import logging
 from typing import Any, Dict, List
 
 import kopf
-from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api, CoreV1Api
-from kubernetes_asyncio.client.models import V1LocalObjectReference
+from kubernetes_asyncio.client import (
+    AppsV1Api,
+    BatchV1beta1Api,
+    CoreV1Api,
+    V1LocalObjectReference,
+    V1OwnerReference,
+)
 
 from crate.operator.backup import create_backups
 from crate.operator.config import config
@@ -99,6 +104,17 @@ async def cluster_create(namespace, meta, spec, **kwargs):
     batchv1_beta1 = BatchV1beta1Api()
     core = CoreV1Api()
 
+    owner_references = [
+        V1OwnerReference(
+            api_version=f"{API_GROUP}/v1",
+            block_owner_deletion=True,
+            controller=True,
+            kind="CrateDB",
+            name=name,
+            uid=meta["uid"],
+        )
+    ]
+
     image_pull_secrets = (
         [V1LocalObjectReference(name=secret) for secret in config.IMAGE_PULL_SECRETS]
         if config.IMAGE_PULL_SECRETS
@@ -129,6 +145,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
         sts.append(
             create_statefulset(
                 apps,
+                owner_references,
                 namespace,
                 name,
                 cratedb_labels,
@@ -158,6 +175,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
         sts.append(
             create_statefulset(
                 apps,
+                owner_references,
                 namespace,
                 name,
                 cratedb_labels,
@@ -184,12 +202,15 @@ async def cluster_create(namespace, meta, spec, **kwargs):
         treat_as_master = False
 
     await asyncio.gather(
-        create_sql_exporter_config(core, namespace, name, cratedb_labels),
-        *create_debug_volume(core, namespace, name, cratedb_labels),
-        create_system_user(core, namespace, name, cratedb_labels),
+        create_sql_exporter_config(
+            core, owner_references, namespace, name, cratedb_labels
+        ),
+        *create_debug_volume(core, owner_references, namespace, name, cratedb_labels),
+        create_system_user(core, owner_references, namespace, name, cratedb_labels),
         *sts,
         *create_services(
             core,
+            owner_references,
             namespace,
             name,
             cratedb_labels,
@@ -208,6 +229,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
             *create_backups(
                 apps,
                 batchv1_beta1,
+                owner_references,
                 namespace,
                 name,
                 backup_metrics_labels,
