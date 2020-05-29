@@ -47,8 +47,7 @@ jobs:
 
     - name: Generate and test API docs
       run: |
-        sphinx-apidoc --ext-autodoc --ext-intersphinx --separate --implicit-namespaces -o source/ref ../crate
-        make html
+        make apidocs html
       env:
         SPHINXOPTS: "-n -v -W --keep-going"
         # Runtime vars needed for config loading to succeed.

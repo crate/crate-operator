@@ -14,6 +14,14 @@ help:
 
 .PHONY: help Makefile
 
+
+apidocs:
+	git clean -fdx "$(SOURCEDIR)/ref"
+	sphinx-apidoc --ext-autodoc --ext-intersphinx --separate --implicit-namespaces --no-toc -o "$(SOURCEDIR)/ref" ../crate
+
+serve: html
+	cd "$(BUILDDIR)/html" && python3 -m http.server
+
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
