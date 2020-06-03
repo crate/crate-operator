@@ -13,6 +13,11 @@ from kubernetes_asyncio.client import (
 )
 
 from crate.operator.backup import create_backups
+from crate.operator.bootstrap import (
+    bootstrap_license,
+    bootstrap_system_user,
+    bootstrap_users,
+)
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
@@ -162,8 +167,6 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 prometheus_port,
                 transport_port,
                 crate_image,
-                spec.get("users"),
-                spec["cluster"].get("license"),
                 spec["cluster"].get("ssl"),
                 spec["cluster"].get("settings"),
                 image_pull_secrets,
@@ -192,8 +195,6 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 prometheus_port,
                 transport_port,
                 crate_image,
-                spec.get("users"),
-                spec["cluster"].get("license"),
                 spec["cluster"].get("ssl"),
                 spec["cluster"].get("settings"),
                 image_pull_secrets,
@@ -220,6 +221,30 @@ async def cluster_create(namespace, meta, spec, **kwargs):
             spec.get("cluster", {}).get("externalDNS"),
         ),
     )
+
+    if has_master_nodes:
+        master_node_pod = f"crate-master-{name}-0"
+    else:
+        node_name = spec["nodes"]["data"][0]["name"]
+        master_node_pod = f"crate-data-{node_name}-{name}-0"
+
+    if "license" in spec["cluster"]:
+        # We first need to set the license, in case the CrateDB cluster
+        # contains more nodes than available in the free license.
+        await bootstrap_license(
+            core,
+            namespace,
+            master_node_pod,
+            "ssl" in spec["cluster"],
+            spec["cluster"]["license"],
+        )
+
+    await bootstrap_system_user(
+        core, namespace, name, master_node_pod, "ssl" in spec["cluster"]
+    )
+
+    if "users" in spec:
+        await bootstrap_users(core, namespace, name, spec["users"])
 
     if "backups" in spec:
         backup_metrics_labels = base_labels.copy()

@@ -1,4 +1,4 @@
-from typing import Dict, TypeVar
+from typing import Dict, TypedDict, TypeVar
 
 from kubernetes_asyncio.client.models import (
     V1beta1CronJob,
@@ -23,3 +23,12 @@ K8sModel = TypeVar(
     V1Service,
     V1StatefulSet,
 )
+
+
+class SecretKeyRef(TypedDict):
+    key: str
+    name: str
+
+
+class SecretKeyRefContainer(TypedDict):
+    secretKeyRef: SecretKeyRef

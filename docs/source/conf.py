@@ -37,7 +37,7 @@ version = release = get_distribution("crate-operator").version
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx_autodoc_typehints",
-    "k8s_ref_ext",
+    "crate_operator_ext",
     "sphinx.ext.intersphinx",
 ]
 
@@ -73,7 +73,8 @@ html_static_path = ["_static"]
 # -- Extensions configuration ------------------------------------------------
 
 intersphinx_mapping = {
-    "bitmath": ("https://bitmath.readthedocs.io/en/latest/", None),
-    "python": ("https://docs.python.org/3", None),
+    "aiopg": ("https://aiopg.readthedocs.io/en/stable/", None),
+    "bitmath": ("https://bitmath.readthedocs.io/en/stable/", None),
+    "python": ("https://docs.python.org/3.8/", None),
 }
 always_document_param_types = True

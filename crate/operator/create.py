@@ -1,12 +1,10 @@
 import logging
 import math
 import pkgutil
-import textwrap
 import warnings
 from typing import Any, Awaitable, Dict, List, Optional, Tuple
 
 import bitmath
-import yaml
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
@@ -52,12 +50,7 @@ from kubernetes_asyncio.client import (
 )
 
 from crate.operator.config import config
-from crate.operator.constants import (
-    LABEL_COMPONENT,
-    LABEL_NAME,
-    LABEL_NODE_NAME,
-    SYSTEM_USERNAME,
-)
+from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, LABEL_NODE_NAME
 from crate.operator.utils import quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
 from crate.operator.utils.kubeapi import call_kubeapi
@@ -204,93 +197,6 @@ def get_statefulset_affinity(name: str) -> Optional[V1Affinity]:
     )
 
 
-def get_statefulset_bootstrap_container(
-    name: str, users: Optional[List[Dict[str, Any]]], license: Optional[Dict[str, Any]],
-) -> V1Container:
-    cluster_bootstrap_spec: Dict[str, List] = {
-        "statements": [],
-        "users": [
-            {
-                "name_var": "USERNAME_SYSTEM",
-                "password_var": "PASSWORD_SYSTEM",
-                "privileges": [{"grants": ["ALL"]}],
-            }
-        ],
-    }
-    cluster_bootstrap_env = [
-        V1EnvVar(
-            name="PASSWORD_SYSTEM",
-            value_from=V1EnvVarSource(
-                secret_key_ref=V1SecretKeySelector(
-                    key="password", name=f"user-system-{name}",
-                )
-            ),
-        ),
-        V1EnvVar(name="USERNAME_SYSTEM", value=SYSTEM_USERNAME),
-    ]
-
-    if users:
-        for i, user in enumerate(users):
-            cluster_bootstrap_spec["users"].append(
-                {
-                    "name_var": f"USERNAME_{i}",
-                    "password_var": f"PASSWORD_{i}",
-                    "privileges": [{"grants": ["ALL"]}],
-                }
-            )
-            cluster_bootstrap_env.extend(
-                [
-                    V1EnvVar(
-                        name=f"PASSWORD_{i}",
-                        value_from=V1EnvVarSource(
-                            secret_key_ref=V1SecretKeySelector(
-                                key=user["password"]["secretKeyRef"]["key"],
-                                name=user["password"]["secretKeyRef"]["name"],
-                            )
-                        ),
-                    ),
-                    V1EnvVar(name=f"USERNAME_{i}", value=user["name"]),
-                ]
-            )
-
-    if license:
-        cluster_bootstrap_env.append(
-            V1EnvVar(
-                name="CRATE_LICENSE_KEY",
-                value_from=V1EnvVarSource(
-                    secret_key_ref=V1SecretKeySelector(
-                        key=license["secretKeyRef"]["key"],
-                        name=license["secretKeyRef"]["name"],
-                    )
-                ),
-            )
-        )
-        cluster_bootstrap_spec["statements"].append(
-            {"sql": "SET LICENSE %s", "param_vars": ["CRATE_LICENSE_KEY"]}
-        )
-    return V1Container(
-        command=[
-            "sh",
-            "-c",
-            textwrap.dedent(
-                # First dedent so every line starts w/o any spaces and then
-                # inject the formatted YAML blob. Otherwise, the YAML would be
-                # syntax would be screwed up.
-                """
-                    cat <<EOF > spec.yaml
-                    {content}
-                    EOF
-                    bootstrap --hosts localhost --ports 5432 --spec spec.yaml
-                    tail -f /dev/null
-                """
-            ).format(content=yaml.safe_dump(cluster_bootstrap_spec)),
-        ],
-        env=cluster_bootstrap_env,
-        image=config.CLUSTER_BOOTSTRAP_IMAGE,
-        name="database-bootstrap",
-    )
-
-
 def get_statefulset_containers(
     node_spec: Dict[str, Any],
     http_port: int,
@@ -303,6 +209,13 @@ def get_statefulset_containers(
     crate_env: List[V1EnvVar],
     crate_volume_mounts: List[V1VolumeMount],
 ) -> List[V1Container]:
+    # There is no official release of 0.6, so let's use our own build
+    # from commit 1498107. Also, because it's a private registry, let's use the
+    # official release during tests so we don't need Docker secrets.
+    # https://github.com/free/sql_exporter/commit/1498107
+    sql_exporter_image = "cloud.registry.cr8.net/crate/sql-exporter:1498107"
+    if config.TESTING:
+        sql_exporter_image = "githubfree/sql_exporter:latest"
     return [
         V1Container(
             command=[
@@ -311,10 +224,7 @@ def get_statefulset_containers(
                 "-web.listen-address=:9399",
                 "-web.metrics-path=/metrics",
             ],
-            # There is no official release of 0.6, so let's use our own build
-            # from commit 1498107
-            # https://github.com/free/sql_exporter/commit/1498107
-            image="cloud.registry.cr8.net/crate/sql-exporter:1498107",
+            image=sql_exporter_image,
             name="sql-exporter",
             ports=[V1ContainerPort(container_port=9399, name="sql-exporter")],
             volume_mounts=[
@@ -643,8 +553,6 @@ def get_statefulset(
     prometheus_port: int,
     transport_port: int,
     crate_image: str,
-    users: Optional[List[Dict[str, Any]]],
-    license: Optional[Dict[str, Any]],
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
@@ -683,9 +591,6 @@ def get_statefulset(
         get_statefulset_crate_env(node_spec, jmx_port, prometheus_port, ssl),
         get_statefulset_crate_volume_mounts(node_spec, ssl),
     )
-
-    if treat_as_master:
-        containers.append(get_statefulset_bootstrap_container(name, users, license))
 
     return V1StatefulSet(
         metadata=V1ObjectMeta(
@@ -742,8 +647,6 @@ def create_statefulset(
     prometheus_port: int,
     transport_port: int,
     crate_image: str,
-    users: Optional[List[Dict[str, Any]]],
-    license: Optional[Dict[str, Any]],
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
@@ -771,8 +674,6 @@ def create_statefulset(
             prometheus_port,
             transport_port,
             crate_image,
-            users,
-            license,
             ssl,
             cluster_settings,
             image_pull_secrets,

@@ -1,7 +1,11 @@
 import asyncio
 
+from crate.operator.constants import BACKOFF_TIME
 
-async def assert_wait_for(condition, coro_func, *args, err_msg="", **kwargs):
+
+async def assert_wait_for(
+    condition, coro_func, *args, err_msg="", timeout=BACKOFF_TIME, **kwargs
+):
     ret_val = await coro_func(*args, **kwargs)
     duration = 0.0
     base = 2.0
@@ -11,7 +15,7 @@ async def assert_wait_for(condition, coro_func, *args, err_msg="", **kwargs):
         delay = base ** (count * 0.5)
         await asyncio.sleep(delay)
         ret_val = await coro_func(*args, **kwargs)
-        if ret_val is not condition and duration > 60:
+        if ret_val is not condition and duration > timeout:
             break
         else:
             duration += delay

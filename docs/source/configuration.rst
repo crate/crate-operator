@@ -14,14 +14,6 @@ expected to be used in upper-case letters and must be prefixed with
    creates backups every defined interval. This variable needs to point to a
    Docker image *and* tag to use it for both.
 
-:``CLUSTER_BOOTSTRAP_IMAGE``:
-   (**Required**)
-
-   When a cluster is bootstrapped, the operator deploys a side-car container
-   that handles the creation of users and e.g. sets a license key. This
-   variable needs to point to a Docker image *and* tag to use it for
-   bootstraping.
-
 :``DEBUG_VOLUME_SIZE``:
    The volume size for the ``PersistentVolume`` that is used as a storage
    location for Java heap dumps.

@@ -1,9 +1,12 @@
+import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
-from kubernetes_asyncio.client import ApiException
+from kubernetes_asyncio.client import ApiException, CoreV1Api
 
-from crate.operator.utils.typing import K8sModel
+from crate.operator.constants import BACKOFF_TIME
+from crate.operator.utils.formatting import b64decode
+from crate.operator.utils.typing import K8sModel, SecretKeyRef
 
 
 async def call_kubeapi(
@@ -82,3 +85,62 @@ async def call_kubeapi(
             return None
         else:
             raise
+
+
+async def resolve_secret_key_ref(
+    namespace: str, secret_key_ref: SecretKeyRef, core: Optional[CoreV1Api] = None
+) -> str:
+    """
+    Lookup the secret value defined by ``secret_key_ref`` in ``namespace``.
+
+    :param namespace: The namespace where to lookup a secret and its value.
+    :param secret_key_ref: a ``secretKeyRef`` containing the secret name and
+        key within that holds the desired value.
+    """
+    core = core or CoreV1Api()
+    secret_name = secret_key_ref["name"]
+    key = secret_key_ref["key"]
+    secret = await core.read_namespaced_secret(namespace=namespace, name=secret_name)
+    return b64decode(secret.data[key])
+
+
+async def get_system_user_password(
+    namespace: str, name: str, core: Optional[CoreV1Api] = None
+) -> str:
+    """
+    Return the password for the system user of cluster ``name`` in ``namespace``.
+
+    :param namespace: The namespace where the CrateDB cluster is deployed.
+    :param name: The name of the CrateDB cluster.
+    """
+    return await resolve_secret_key_ref(
+        namespace, {"key": "password", "name": f"user-system-{name}"}, core,
+    )
+
+
+async def get_public_ip(core: CoreV1Api, namespace: str, name: str) -> str:
+    """
+    Query the Kubernetes service deployed alongside CrateDB for the public CrateDB
+    cluster IP.
+
+    :param namespace: The namespace where the CrateDB cluster is deployed.
+    :param name: The name of the CrateDB cluster.
+    """
+    while True:
+        try:
+            service = await core.read_namespaced_service(
+                namespace=namespace, name=f"crate-{name}"
+            )
+            status = service.status
+            if (
+                status
+                and status.load_balancer
+                and status.load_balancer.ingress
+                and status.load_balancer.ingress[0]
+                and status.load_balancer.ingress[0].ip
+            ):
+                return status.load_balancer.ingress[0].ip
+        except ApiException:
+            pass
+
+        await asyncio.sleep(BACKOFF_TIME / 2)

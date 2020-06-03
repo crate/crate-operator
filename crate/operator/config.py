@@ -20,10 +20,6 @@ class Config:
     #: The Docker image that contians scripts to run cluster backups.
     CLUSTER_BACKUP_IMAGE: str
 
-    #: The Docker image that can bootstrap a cluster, such as setting a license
-    #: key and creating users.
-    CLUSTER_BOOTSTRAP_IMAGE: str
-
     #: The volume size for the ``PersistentVolume`` that is used as a storage
     #: location for Java heap dumps.
     DEBUG_VOLUME_SIZE: bitmath.Byte = bitmath.GiB(256)
@@ -53,8 +49,6 @@ class Config:
 
     def load(self):
         self.CLUSTER_BACKUP_IMAGE = self.env("CLUSTER_BACKUP_IMAGE")
-
-        self.CLUSTER_BOOTSTRAP_IMAGE = self.env("CLUSTER_BOOTSTRAP_IMAGE")
 
         debug_volume_size = self.env(
             "DEBUG_VOLUME_SIZE", default=str(self.DEBUG_VOLUME_SIZE)

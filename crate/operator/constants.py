@@ -8,3 +8,5 @@ LABEL_PART_OF = "app.kubernetes.io/part-of"
 LABEL_NODE_NAME = f"{API_GROUP}/node-name"
 
 SYSTEM_USERNAME = "system"
+
+BACKOFF_TIME = 60.0

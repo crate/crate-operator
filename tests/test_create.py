@@ -1,6 +1,5 @@
 import asyncio
 import string
-import textwrap
 from typing import Set
 from unittest import mock
 
@@ -22,7 +21,6 @@ from crate.operator.create import (
     create_statefulset,
     create_system_user,
     get_statefulset_affinity,
-    get_statefulset_bootstrap_container,
     get_statefulset_containers,
     get_statefulset_crate_command,
     get_statefulset_crate_env,
@@ -129,229 +127,6 @@ class TestStatefulSetAffinity:
             },
             {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
         ]
-
-
-class TestStatefulSetBootstrapContainer:
-    def test_nothing(self, faker):
-        name = faker.domain_word()
-        container = get_statefulset_bootstrap_container(name, None, None)
-        assert container.command == [
-            "sh",
-            "-c",
-            textwrap.dedent(
-                """
-                    cat <<EOF > spec.yaml
-                    statements: []
-                    users:
-                    - name_var: USERNAME_SYSTEM
-                      password_var: PASSWORD_SYSTEM
-                      privileges:
-                      - grants:
-                        - ALL
-
-                    EOF
-                    bootstrap --hosts localhost --ports 5432 --spec spec.yaml
-                    tail -f /dev/null
-                """
-            ),
-        ]
-        assert container.env[0].to_dict() == {
-            "name": "PASSWORD_SYSTEM",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "name": f"user-system-{name}",
-                    "key": "password",
-                    "optional": None,
-                },
-            },
-        }
-        assert container.env[1].to_dict() == {
-            "name": "USERNAME_SYSTEM",
-            "value": "system",
-            "value_from": None,
-        }
-
-    def test_with_license(self, faker):
-        name = faker.domain_word()
-        license_name = faker.domain_word()
-        license_key = faker.domain_word()
-        container = get_statefulset_bootstrap_container(
-            name, None, {"secretKeyRef": {"key": license_key, "name": license_name}}
-        )
-        assert container.command == [
-            "sh",
-            "-c",
-            textwrap.dedent(
-                """
-                    cat <<EOF > spec.yaml
-                    statements:
-                    - param_vars:
-                      - CRATE_LICENSE_KEY
-                      sql: SET LICENSE %s
-                    users:
-                    - name_var: USERNAME_SYSTEM
-                      password_var: PASSWORD_SYSTEM
-                      privileges:
-                      - grants:
-                        - ALL
-
-                    EOF
-                    bootstrap --hosts localhost --ports 5432 --spec spec.yaml
-                    tail -f /dev/null
-                """
-            ),
-        ]
-        assert container.env[0].to_dict() == {
-            "name": "PASSWORD_SYSTEM",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "key": "password",
-                    "name": f"user-system-{name}",
-                    "optional": None,
-                },
-            },
-        }
-        assert container.env[1].to_dict() == {
-            "name": "USERNAME_SYSTEM",
-            "value": "system",
-            "value_from": None,
-        }
-        assert container.env[2].to_dict() == {
-            "name": "CRATE_LICENSE_KEY",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "key": license_key,
-                    "name": license_name,
-                    "optional": None,
-                },
-            },
-        }
-
-    def test_with_users(self, faker):
-        name = faker.domain_word()
-        username1 = faker.user_name()
-        password1_name = faker.domain_word()
-        password1_key = faker.domain_word()
-        username2 = faker.user_name()
-        password2_name = faker.domain_word()
-        password2_key = faker.domain_word()
-        container = get_statefulset_bootstrap_container(
-            name,
-            [
-                {
-                    "name": username1,
-                    "password": {
-                        "secretKeyRef": {"key": password1_key, "name": password1_name}
-                    },
-                },
-                {
-                    "name": username2,
-                    "password": {
-                        "secretKeyRef": {"key": password2_key, "name": password2_name}
-                    },
-                },
-            ],
-            None,
-        )
-        assert container.command == [
-            "sh",
-            "-c",
-            textwrap.dedent(
-                """
-                    cat <<EOF > spec.yaml
-                    statements: []
-                    users:
-                    - name_var: USERNAME_SYSTEM
-                      password_var: PASSWORD_SYSTEM
-                      privileges:
-                      - grants:
-                        - ALL
-                    - name_var: USERNAME_0
-                      password_var: PASSWORD_0
-                      privileges:
-                      - grants:
-                        - ALL
-                    - name_var: USERNAME_1
-                      password_var: PASSWORD_1
-                      privileges:
-                      - grants:
-                        - ALL
-
-                    EOF
-                    bootstrap --hosts localhost --ports 5432 --spec spec.yaml
-                    tail -f /dev/null
-                """
-            ),
-        ]
-        assert container.env[0].to_dict() == {
-            "name": "PASSWORD_SYSTEM",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "key": "password",
-                    "name": f"user-system-{name}",
-                    "optional": None,
-                },
-            },
-        }
-        assert container.env[1].to_dict() == {
-            "name": "USERNAME_SYSTEM",
-            "value": "system",
-            "value_from": None,
-        }
-        assert container.env[2].to_dict() == {
-            "name": "PASSWORD_0",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "key": password1_key,
-                    "name": password1_name,
-                    "optional": None,
-                },
-            },
-        }
-        assert container.env[3].to_dict() == {
-            "name": "USERNAME_0",
-            "value": username1,
-            "value_from": None,
-        }
-        assert container.env[4].to_dict() == {
-            "name": "PASSWORD_1",
-            "value": None,
-            "value_from": {
-                "config_map_key_ref": None,
-                "field_ref": None,
-                "resource_field_ref": None,
-                "secret_key_ref": {
-                    "key": password2_key,
-                    "name": password2_name,
-                    "optional": None,
-                },
-            },
-        }
-        assert container.env[5].to_dict() == {
-            "name": "USERNAME_1",
-            "value": username2,
-            "value_from": None,
-        }
 
 
 class TestStatefulSetContainers:
@@ -748,11 +523,7 @@ class TestStatefulSet:
                     "cpus": 0.5,
                     "memory": "1Gi",
                     "heapRatio": 0.4,
-                    "disk": {
-                        "count": 1,
-                        "size": "16Gi",
-                        "storageClass": "crate-standard",
-                    },
+                    "disk": {"count": 1, "size": "16Gi", "storageClass": "default"},
                 },
             },
             ["master-1", "master-2", "master-3"],
@@ -763,15 +534,6 @@ class TestStatefulSet:
             40000,
             50000,
             "crate:4.1.5",
-            [
-                {
-                    "name": "jane-doe",
-                    "password": {
-                        "secretKeyRef": {"key": "password", "name": "user-secret-0"}
-                    },
-                },
-            ],
-            {"secretKeyRef": {"key": "license", "name": "crate-license"}},
             {
                 "keystore": {"secretKeyRef": {"key": "keystore", "name": "sslcert"}},
                 "keystoreKeyPassword": {
@@ -876,9 +638,7 @@ class TestCreateCustomResource:
         pods = await core.list_namespaced_pod(namespace=namespace)
         return expected.issubset({p.metadata.name for p in pods.items})
 
-    async def test_create_minimal(
-        self, faker, namespace, cleanup_handler, cratedb_crd, kopf_runner
-    ):
+    async def test_create_minimal(self, faker, namespace, cleanup_handler, kopf_runner):
         apps = AppsV1Api()
         coapi = CustomObjectsApi()
         core = CoreV1Api()
@@ -915,7 +675,7 @@ class TestCreateCustomResource:
                                     "memory": "1Gi",
                                     "heapRatio": 0.25,
                                     "disk": {
-                                        "storageClass": "crate-standard",
+                                        "storageClass": "default",
                                         "size": "16GiB",
                                         "count": 1,
                                     },
