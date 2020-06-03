@@ -35,6 +35,7 @@ from crate.operator.create import (
     create_system_user,
 )
 from crate.operator.kube_auth import configure_kubernetes_client
+from crate.operator.operations import get_total_nodes_count
 
 logger = logging.getLogger(__name__)
 
@@ -67,24 +68,6 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
         node = nodes["data"][0]
         node_name = node["name"]
         return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
-
-
-def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
-    """
-    Calculate the total number nodes a CrateDB cluster should have on startup.
-
-    When starting CrateDB it's important to know the expected number of nodes
-    in a cluster. The function takes the ``spec.nodes`` from the CrateDB custom
-    resource and sums up all desired replicas for all nodes defined therein.
-
-    :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
-    """
-    total = 0
-    if "master" in nodes:
-        total += nodes["master"]["replicas"]
-    for node in nodes["data"]:
-        total += node["replicas"]
-    return total
 
 
 @kopf.on.startup()
