@@ -106,9 +106,18 @@ class TestDebugVolume:
 
 
 class TestStatefulSetAffinity:
-    def test(self, faker):
+    def test_testing_true(self, faker):
         name = faker.domain_word()
-        affinity = get_statefulset_affinity(name)
+        with mock.patch("crate.operator.create.config.TESTING", True):
+            affinity = get_statefulset_affinity(name)
+
+        assert affinity is None
+
+    def test_testing_false(self, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            affinity = get_statefulset_affinity(name)
+
         apa = affinity.pod_anti_affinity
         terms = apa.required_during_scheduling_ignored_during_execution[0]
         expressions = terms.label_selector.match_expressions

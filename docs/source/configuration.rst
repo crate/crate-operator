@@ -61,6 +61,22 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``INFO``.
 
+:``TESTING``:
+   During development or testing, some contraints enforced by the operator may
+   be obstructive. An example for that can be the Kubernetes pod anti-affinity
+   on all CrateDB pods, that guarantees that a single Kubernetes node failure
+   doesn't take down several CrateDB nodes. As a result, deploying a CrateDB
+   cluster that has explicit master nodes won't be possible on a 3-node
+   Kubernetes cluster, because there would be 3 master + *n* data nodes.
+   Setting this to ``True`` will remove the contraint.
+
+   .. danger::
+
+      Do **not** set this when running the operator in production! It *will*
+      impact the reliability of your CrateDB clusters!
+
+   The default value is ``False``.
+
 
 .. _12 Factor Principles: https://12factor.net/
 .. _Prometheus: https://prometheus.io/

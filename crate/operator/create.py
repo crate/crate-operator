@@ -178,7 +178,11 @@ def create_sql_exporter_config(
     )
 
 
-def get_statefulset_affinity(name: str) -> V1Affinity:
+def get_statefulset_affinity(name: str) -> Optional[V1Affinity]:
+    if config.TESTING:
+        logger.warning("Deploying cluster %s without any pod anti-affinity!", name)
+        return None
+
     return V1Affinity(
         pod_anti_affinity=V1PodAntiAffinity(
             required_during_scheduling_ignored_during_execution=[

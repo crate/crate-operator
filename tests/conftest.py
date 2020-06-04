@@ -69,6 +69,7 @@ def load_config():
         "CRATEDB_OPERATOR_IMAGE_PULL_SECRETS": "",
         "CRATEDB_OPERATOR_JMX_EXPORTER_VERSION": "0.6.0",
         "CRATEDB_OPERATOR_LOG_LEVEL": "DEBUG",
+        "CRATEDB_OPERATOR_TESTING": "true",
     }
     with mock.patch.dict(os.environ, env):
         config.load()

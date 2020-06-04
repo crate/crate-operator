@@ -44,6 +44,10 @@ class Config:
     #: The log level to use for all CrateDB operator related log messages.
     LOG_LEVEL: str = "INFO"
 
+    #: Enable several testing behaviors, such as relaxed pod anti-affinity to
+    #: allow for easier testing in smaller Kubernetes clusters.
+    TESTING: bool = False
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -90,6 +94,9 @@ class Config:
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
         log = logging.getLogger("crate")
         log.setLevel(logging.getLevelName(self.LOG_LEVEL))
+
+        testing = self.env("TESTING", default=str(self.TESTING))
+        self.TESTING = testing.lower() == "true"
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """
