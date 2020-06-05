@@ -246,7 +246,7 @@ def get_statefulset_containers(
                 V1ContainerPort(container_port=transport_port, name="transport"),
             ],
             readiness_probe=V1Probe(
-                http_get=V1HTTPGetAction(path="/ready", port="prometheus"),
+                http_get=V1HTTPGetAction(path="/ready", port=prometheus_port),
                 initial_delay_seconds=30,
                 period_seconds=10,
             ),
