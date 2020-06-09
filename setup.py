@@ -31,7 +31,7 @@ setup(
         "aiopg==1.0.0",
         "bitmath==1.3.3.1",
         "kopf==0.27",
-        "kubernetes-asyncio==11.2.0",
+        "kubernetes-asyncio==11.3.0",
     ],
     extras_require={
         "docs": ["sphinx<3.1", "sphinx-autodoc-typehints"],
