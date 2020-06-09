@@ -50,8 +50,4 @@ jobs:
         make apidocs html
       env:
         SPHINXOPTS: "-n -v -W --keep-going"
-        # Runtime vars needed for config loading to succeed.
-        CRATEDB_OPERATOR_CLUSTER_BACKUP_IMAGE: ""
-        CRATEDB_OPERATOR_CLUSTER_BOOTSTRAP_IMAGE: ""
-        CRATEDB_OPERATOR_JMX_EXPORTER_VERSION: ""
       working-directory: ./docs
