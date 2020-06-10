@@ -19,7 +19,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import (
     connection_factory,
-    is_healthy,
+    get_healthiness,
     wait_for_healthy_cluster,
 )
 from crate.operator.utils.kubeapi import get_public_ip, get_system_user_password
@@ -91,7 +91,8 @@ async def restart_statefulset(
     """
     async with connection_factory() as conn:
         async with conn.cursor() as cursor:
-            if not await is_healthy(cursor):
+            healthiness = await get_healthiness(cursor)
+            if healthiness not in {1, None}:
                 raise ValueError("Unhealthy cluster")
 
     labels = {

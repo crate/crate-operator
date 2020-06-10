@@ -2,7 +2,7 @@ from unittest import mock
 
 import pytest
 
-from crate.operator.cratedb import create_user, has_expected_nodes, is_healthy
+from crate.operator.cratedb import create_user, get_healthiness, get_number_of_nodes
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,23 +50,19 @@ async def test_create_user_duplicate(faker):
     )
 
 
-@pytest.mark.parametrize(
-    "n,expected", [(-1, False), (None, False), (1, False), (3, True), (4, False)]
-)
-async def test_has_expected_nodes(n, expected):
+@pytest.mark.parametrize("n", [-1, 0, 1, 3])
+async def test_get_number_of_nodes(n):
     cursor = mock.AsyncMock()
     cursor.fetchone.return_value = (n,) if n is not None else None
-    assert (await has_expected_nodes(cursor, 3)) is expected
+    assert (await get_number_of_nodes(cursor)) == n
     cursor.execute.assert_awaited_once_with("SELECT COUNT(*) FROM sys.nodes")
     cursor.fetchone.assert_awaited_once()
 
 
-@pytest.mark.parametrize(
-    "health,expected", [(None, False), (0, False), (1, True), (2, False), (3, False)]
-)
-async def test_is_healthy(health, expected):
+@pytest.mark.parametrize("healthiness", [None, 0, 1, 2])
+async def test_get_healthiness(healthiness):
     cursor = mock.AsyncMock()
-    cursor.fetchone.return_value = (health,) if health is not None else None
-    assert (await is_healthy(cursor)) is expected
+    cursor.fetchone.return_value = (healthiness,) if healthiness is not None else None
+    assert (await get_healthiness(cursor)) == healthiness
     cursor.execute.assert_awaited_once_with("SELECT MAX(severity) FROM sys.health")
     cursor.fetchone.assert_awaited_once()
