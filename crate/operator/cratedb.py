@@ -12,6 +12,9 @@ from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
 logger = logging.getLogger(__name__)
 
 
+HEALTHINESS = {1: "GREEN", 2: "YELLOW", 3: "RED"}
+
+
 def get_connection(host: str, password: str, username: str = SYSTEM_USERNAME, **kwargs):
     """
     Create a connection object to ``host`` as system user.
@@ -70,29 +73,27 @@ async def create_user(cursor: Cursor, username: str, password: str) -> None:
     await cursor.execute(f"GRANT ALL PRIVILEGES TO {username_ident}")
 
 
-async def has_expected_nodes(cursor: Cursor, expected_nodes: int) -> bool:
+async def get_number_of_nodes(cursor: Cursor) -> int:
     """
-    Query the number of nodes in the cluster from ``sys.nodes`` and return
-    whether the result is equal to the number of expected nodes in the cluster.
+    Return the number of nodes in the cluster from ``sys.nodes``, which is the
+    number of nodes that can see each other.
 
     :param cursor: A database cursor to a current and open database connection.
-    :param expected_nodes: The number of nodes that make up a healthy cluster.
     """
     await cursor.execute("SELECT COUNT(*) FROM sys.nodes")
     row = await cursor.fetchone()
-    return bool(row and row[0] == expected_nodes)
+    return row and row[0]
 
 
-async def is_healthy(cursor: Cursor) -> bool:
+async def get_healthiness(cursor: Cursor) -> int:
     """
-    Query the maximum severity of any table in the cluster from ``sys.health``
-    and return whether the result is equal to 1 (GREEN) or NULL (no data).
+    Return the maximum severity of any table in the cluster from ``sys.health``.
 
     :param cursor: A database cursor to a current and open database connection.
     """
     await cursor.execute("SELECT MAX(severity) FROM sys.health")
     row = await cursor.fetchone()
-    return bool(row and row[0] in {1, None})
+    return row and row[0]
 
 
 async def wait_for_healthy_cluster(connection_factory, expected_nodes: int) -> None:
@@ -133,17 +134,21 @@ async def wait_for_healthy_cluster(connection_factory, expected_nodes: int) -> N
                 async with conn.cursor() as cursor:
                     logger.info("Waiting for cluster to get healthy again ...")
                     try:
-                        passed_has_expected_nodes = await has_expected_nodes(
-                            cursor, expected_nodes
-                        )
-                        passed_is_healthy = await is_healthy(cursor)
-                        if passed_has_expected_nodes and passed_is_healthy:
+                        num_nodes = await get_number_of_nodes(cursor)
+                        healthiness = await get_healthiness(cursor)
+                        if num_nodes == expected_nodes and healthiness in {1, None}:
                             healthy_count += 1
                             logger.info(
                                 "Cluster has expected nodes and is healthy (%d of 3)",
                                 healthy_count,
                             )
                         else:
+                            logger.info(
+                                "Cluster has %d of %d nodes and is in %s state.",
+                                num_nodes,
+                                expected_nodes,
+                                HEALTHINESS.get(healthiness, "UNKNOWN"),
+                            )
                             healthy_count = 0
                     except ProgrammingError as e:
                         logger.warning("Failed to run health check query", exc_info=e)

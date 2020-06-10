@@ -7,7 +7,7 @@ from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import API_GROUP, BACKOFF_TIME, RESOURCE_CRATEDB
-from crate.operator.cratedb import connection_factory, is_healthy
+from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.operations import restart_cluster
 from crate.operator.utils.kubeapi import get_public_ip, get_system_user_password
 
@@ -23,8 +23,9 @@ async def is_cluster_healthy(conn_factory: Callable[[], Connection]):
     try:
         async with conn_factory() as conn:
             async with conn.cursor() as cursor:
-                return await is_healthy(cursor)
-    except psycopg2.OperationalError:
+                healthines = await get_healthiness(cursor)
+                return healthines in {1, None}
+    except psycopg2.DatabaseError:
         return False
 
 
