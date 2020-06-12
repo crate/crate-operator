@@ -1,9 +1,10 @@
 import asyncio
 import enum
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import kopf
+from kopf.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1beta1Api,
@@ -32,6 +33,7 @@ from crate.operator.create import (
 )
 from crate.operator.kube_auth import configure_kubernetes_client
 from crate.operator.operations import get_total_nodes_count, restart_cluster
+from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
 
 logger = logging.getLogger(__name__)
@@ -250,32 +252,76 @@ async def cluster_create(namespace, meta, spec, **kwargs):
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
 async def cluster_update(
-    diff: kopf.Diff, namespace: str, name: str, body: kopf.Body, **kwargs,
+    namespace: str,
+    name: str,
+    body: kopf.Body,
+    spec: kopf.Spec,
+    diff: kopf.Diff,
+    old: kopf.Body,
+    **kwargs,
 ):
     """
     Implement any updates to a cluster. The handler will sort out the logic of
-    what to update in which order and when to trigger a restart of a cluster.
+    what to update, in which order, and when to trigger a restart of a cluster.
     """
-    # Map fields to (handlers, a weight (bigger is important), requires restart)
-    handlers = {
-        ("spec", "cluster", "imageRegistry"): (upgrade_cluster, 10, True),
-        ("spec", "cluster", "version"): (upgrade_cluster, 10, True),
-    }
-    run_handlers = set()
-
+    apps = AppsV1Api()
+    do_scale_master = False
+    do_scale_data = False
+    do_upgrade = False
     requires_restart = False
+    scale_master_diff_item: Optional[kopf.DiffItem] = None
+    scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
     for operation, field_path, old_value, new_value in diff:
-        if field_path in handlers:
-            run_handlers.add(handlers[field_path])
+        if field_path in {
+            ("spec", "cluster", "imageRegistry"),
+            ("spec", "cluster", "version",),
+        }:
+            do_upgrade = True
+        elif field_path == ("spec", "nodes", "master", "replicas"):
+            do_scale_master = True
+            scale_master_diff_item = kopf.DiffItem(
+                operation, field_path, old_value, new_value
+            )
+        elif field_path == ("spec", "nodes", "data"):
+            # TODO: check for data node order, added or removed types, ...
+            if len(old_value) != len(new_value):
+                raise kopf.PermanentError(
+                    "Cannot handle changes to the number of node specs."
+                )
+            scale_data_diff_items = []
+            for node_spec_idx in range(len(old_value)):
+                old_spec = old_value[node_spec_idx]
+                new_spec = new_value[node_spec_idx]
+                inner_diff = calc_diff(old_spec, new_spec)
+                for (
+                    inner_operation,
+                    inner_field_path,
+                    inner_old_value,
+                    inner_new_value,
+                ) in inner_diff:
+                    if inner_field_path == ("replicas",):
+                        do_scale_data = True
+                        scale_data_diff_items.append(
+                            kopf.DiffItem(
+                                inner_operation,
+                                (str(node_spec_idx),) + inner_field_path,
+                                inner_old_value,
+                                inner_new_value,
+                            )
+                        )
+                    else:
+                        logger.info(
+                            "Ignoring operation %s on field %s",
+                            operation,
+                            field_path + (str(node_spec_idx),) + inner_field_path,
+                        )
         else:
             logger.info("Ignoring operation %s on field %s", operation, field_path)
 
-    # Run through all required handlers in the order of their weight (bigger
-    # weight means running earlier).
-    sorted_handlers = reversed(sorted(run_handlers, key=lambda e: e[1]))
-    for handler, _, restart in sorted_handlers:
-        await handler(namespace, name, body)
-        requires_restart = requires_restart or restart
+    if do_upgrade:
+        await upgrade_cluster(namespace, name, body)
+        requires_restart = True
 
     if requires_restart:
         try:
@@ -286,6 +332,27 @@ async def cluster_update(
             await awaitable
         except asyncio.TimeoutError:
             raise kopf.PermanentError(
-                f"Failed to restart cluster {namespace}/{name} after "
-                f"{config.ROLLING_RESTART_TIMEOUT} seconds."
+                f"Failed to restart cluster {namespace}/{name} after {timeout} seconds."
+            ) from None
+
+    if do_scale_master or do_scale_data:
+        try:
+            timeout = config.SCALING_TIMEOUT
+            awaitable = scale_cluster(
+                apps,
+                namespace,
+                name,
+                do_scale_data,
+                do_scale_master,
+                get_total_nodes_count(old["spec"]["nodes"]),
+                spec,
+                scale_master_diff_item,
+                kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
+            )
+            if timeout > 0:
+                awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
+            await awaitable
+        except asyncio.TimeoutError:
+            raise kopf.PermanentError(
+                f"Failed to scale cluster {namespace}/{name} after {timeout} seconds."
             ) from None

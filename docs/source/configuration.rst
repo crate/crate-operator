@@ -80,6 +80,15 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``3600`` seconds.
 
+.. envvar:: SCALING_TIMEOUT
+
+   When scaling a cluster, the operator will sometimes need to deallocate some
+   CrateDB nodes before turning them off. To ensure the operator keeps
+   functioning on the resource, scaling operations will be aborted after this
+   many seconds and considered failed. Set to ``0`` to disable timeouts.
+
+   The default value is ``3600`` seconds.
+
 .. envvar:: TESTING
 
    During development or testing, some contraints enforced by the operator may

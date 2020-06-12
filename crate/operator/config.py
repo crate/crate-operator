@@ -50,6 +50,12 @@ class Config:
     #: restart is considered failed.
     ROLLING_RESTART_TIMEOUT = 3600
 
+    #: Time in seconds for which the operator will continue and wait to scale a
+    #: cluster up or down, including deallocating nodes before turning them
+    #: off. Once the threshold has passed, a scaling operation is considered
+    #: failed.
+    SCALING_TIMEOUT = 3600
+
     #: Enable several testing behaviors, such as relaxed pod anti-affinity to
     #: allow for easier testing in smaller Kubernetes clusters.
     TESTING: bool = False
@@ -129,6 +135,20 @@ class Config:
             raise ConfigurationError(
                 f"Invalid {self._prefix}ROLLING_RESTART_TIMEOUT="
                 f"'{rolling_restart_timeout}'. Needs to be a positive integer or 0."
+            )
+
+        scaling_timeout = self.env("SCALING_TIMEOUT", default=str(self.SCALING_TIMEOUT))
+        try:
+            self.SCALING_TIMEOUT = int(scaling_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}SCALING_TIMEOUT="
+                f"'{scaling_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.SCALING_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}SCALING_TIMEOUT="
+                f"'{scaling_timeout}'. Needs to be a positive integer or 0."
             )
 
         testing = self.env("TESTING", default=str(self.TESTING))
