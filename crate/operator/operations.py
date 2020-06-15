@@ -6,7 +6,6 @@ from typing import Any, Awaitable, Callable, Dict
 from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi, V1Pod, V1PodList
 
-from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     BACKOFF_TIME,
@@ -22,7 +21,7 @@ from crate.operator.cratedb import (
     get_healthiness,
     wait_for_healthy_cluster,
 )
-from crate.operator.utils.kubeapi import get_public_ip, get_system_user_password
+from crate.operator.utils.kubeapi import get_host, get_system_user_password
 
 logger = logging.getLogger(__name__)
 
@@ -151,13 +150,7 @@ async def restart_cluster(namespace: str, name: str) -> None:
         name=name,
     )
     password = await get_system_user_password(namespace, name, core)
-    if config.TESTING:
-        # During testing we need to connect to the cluster via its public IP
-        # address, because the operator isn't running inside the Kubernetes
-        # cluster.
-        host = await get_public_ip(core, namespace, name)
-    else:
-        host = f"crate-{name}.{namespace}"
+    host = await get_host(core, namespace, name)
     conn_factory = connection_factory(host, password)
 
     total_nodes = get_total_nodes_count(cluster["spec"]["nodes"])

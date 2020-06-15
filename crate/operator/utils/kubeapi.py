@@ -4,6 +4,7 @@ from typing import Awaitable, Callable, Optional
 
 from kubernetes_asyncio.client import ApiException, CoreV1Api
 
+from crate.operator.config import config
 from crate.operator.constants import BACKOFF_TIME
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.typing import K8sModel, SecretKeyRef
@@ -96,6 +97,7 @@ async def resolve_secret_key_ref(
     :param namespace: The namespace where to lookup a secret and its value.
     :param secret_key_ref: a ``secretKeyRef`` containing the secret name and
         key within that holds the desired value.
+    :param core: An instance of the Kubernetes Core V1 API.
     """
     core = core or CoreV1Api()
     secret_name = secret_key_ref["name"]
@@ -112,6 +114,7 @@ async def get_system_user_password(
 
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
+    :param core: An instance of the Kubernetes Core V1 API.
     """
     return await resolve_secret_key_ref(
         namespace, {"key": "password", "name": f"user-system-{name}"}, core,
@@ -123,6 +126,7 @@ async def get_public_ip(core: CoreV1Api, namespace: str, name: str) -> str:
     Query the Kubernetes service deployed alongside CrateDB for the public CrateDB
     cluster IP.
 
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
     """
@@ -144,3 +148,25 @@ async def get_public_ip(core: CoreV1Api, namespace: str, name: str) -> str:
             pass
 
         await asyncio.sleep(BACKOFF_TIME / 2)
+
+
+async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
+    """
+    Return the hostname to the CrateDB cluster within the Kubernetes cluster.
+
+    During testing, the function returns the public IP address, because the
+    operator doesn't run inside Kubernetes during tests but outside. And the
+    only way to connect to the CrateDB cluster is to go through the public
+    interface.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The namespace where the CrateDB cluster is deployed.
+    :param name: The name of the CrateDB cluster.
+    """
+    if config.TESTING:
+        # During testing we need to connect to the cluster via its public IP
+        # address, because the operator isn't running inside the Kubernetes
+        # cluster.
+        return await get_public_ip(core, namespace, name)
+
+    return f"crate-{name}.{namespace}"

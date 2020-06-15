@@ -12,7 +12,7 @@ from crate.operator.config import config
 from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils.kubeapi import (
-    get_public_ip,
+    get_host,
     get_system_user_password,
     resolve_secret_key_ref,
 )
@@ -266,13 +266,7 @@ async def bootstrap_users(
     :param users: A list of user definitions containing the username and the
         secret key reference to their password.
     """
-    if config.TESTING:
-        # During testing we need to connect to the cluster via its public IP
-        # address, because the operator isn't running inside the Kubernetes
-        # cluster.
-        host = await get_public_ip(core, namespace, name)
-    else:
-        host = f"crate-{name}.{namespace}"
+    host = await get_host(core, namespace, name)
     password = await get_system_user_password(namespace, name)
     while True:
         try:
