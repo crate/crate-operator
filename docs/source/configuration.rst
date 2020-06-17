@@ -6,6 +6,14 @@ Principles`_ and uses environment variables. All environment variables are
 expected to be used in upper-case letters and must be prefixed with
 ``CRATEDB_OPERATOR_``.
 
+:``BOOTSTRAP_TIMEOUT``:
+   When deploying a cluster, the operator will perform some bootstrap tasks as
+   documented in :ref:`the concept section <concept-bootstrapping>`. The
+   operator will wait at most this many seconds until it considers the
+   bootstrapping to have failed. Set to ``0`` to disable timeouts.
+
+   The default value is ``1800`` seconds.
+
 :``CLUSTER_BACKUP_IMAGE``:
    (**Required**)
 

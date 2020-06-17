@@ -17,6 +17,11 @@ class Config:
     :data:`crate.operator.config.config` and access its attributes.
     """
 
+    #: Time in seconds for which the operator will continue and wait to
+    #: bootstrap a cluster. Once this threshold has passed, a bootstrapping is
+    #: considered failed
+    BOOTSTRAP_TIMEOUT = 1800
+
     #: The Docker image that contians scripts to run cluster backups.
     CLUSTER_BACKUP_IMAGE: str
 
@@ -53,6 +58,22 @@ class Config:
         self._prefix = prefix
 
     def load(self):
+        bootstrap_timeout = self.env(
+            "BOOTSTRAP_TIMEOUT", default=str(self.BOOTSTRAP_TIMEOUT)
+        )
+        try:
+            self.BOOTSTRAP_TIMEOUT = int(bootstrap_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}BOOTSTRAP_TIMEOUT="
+                f"'{bootstrap_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.BOOTSTRAP_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}BOOTSTRAP_TIMEOUT="
+                f"'{bootstrap_timeout}'. Needs to be a positive integer or 0."
+            )
+
         self.CLUSTER_BACKUP_IMAGE = self.env("CLUSTER_BACKUP_IMAGE")
 
         debug_volume_size = self.env(

@@ -1,6 +1,8 @@
 Concepts
 ========
 
+.. _concept-bootstrapping:
+
 Bootstrapping
 -------------
 
@@ -25,6 +27,10 @@ Operator* will create all users specified under ``spec.users`` with their
 corresponding passwords and the ``ALL`` privileges by connecting to the cluster
 using the PostgreSQL protocol, and *not* by ``exec``\ing into a Kubernetes
 container.
+
+The entire bootstrapping process may not take longer than 1800 seconds
+(default) before it is considered failed. The timeout can be configed with the
+``BOOTSTRAP_TIMEOUT`` environment variable.
 
 Cluster Restart
 ---------------

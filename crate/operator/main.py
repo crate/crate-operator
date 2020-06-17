@@ -13,11 +13,7 @@ from kubernetes_asyncio.client import (
 )
 
 from crate.operator.backup import create_backups
-from crate.operator.bootstrap import (
-    bootstrap_license,
-    bootstrap_system_user,
-    bootstrap_users,
-)
+from crate.operator.bootstrap import bootstrap_cluster
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
@@ -211,24 +207,25 @@ async def cluster_create(namespace, meta, spec, **kwargs):
     else:
         node_name = spec["nodes"]["data"][0]["name"]
         master_node_pod = f"crate-data-{node_name}-{name}-0"
-
-    if "license" in spec["cluster"]:
-        # We first need to set the license, in case the CrateDB cluster
-        # contains more nodes than available in the free license.
-        await bootstrap_license(
+    try:
+        timeout = config.BOOTSTRAP_TIMEOUT
+        awaitable = bootstrap_cluster(
             core,
             namespace,
+            name,
             master_node_pod,
+            spec["cluster"].get("license"),
             "ssl" in spec["cluster"],
-            spec["cluster"]["license"],
+            spec.get("users"),
         )
-
-    await bootstrap_system_user(
-        core, namespace, name, master_node_pod, "ssl" in spec["cluster"]
-    )
-
-    if "users" in spec:
-        await bootstrap_users(core, namespace, name, spec["users"])
+        if timeout > 0:
+            awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
+        await awaitable
+    except asyncio.TimeoutError:
+        raise kopf.PermanentError(
+            f"Failed to bootstrap cluster {namespace}/{name} after "
+            f"{timeout} seconds."
+        ) from None
 
     if "backups" in spec:
         backup_metrics_labels = base_labels.copy()
