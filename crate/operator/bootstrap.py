@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from aiohttp.client_exceptions import WSServerHandshakeError
 from kubernetes_asyncio.client import ApiException, CoreV1Api
@@ -289,3 +289,44 @@ async def bootstrap_users(
                     break
         except OperationalError:
             await asyncio.sleep(BACKOFF_TIME / 2.0)
+
+
+async def bootstrap_cluster(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    master_node_pod: str,
+    license: Optional[SecretKeyRefContainer],
+    has_ssl: bool,
+    users: Optional[List[Dict[str, Any]]],
+):
+    """
+    Bootstrap an entire cluster, including license, system user, and additional
+    users.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the ``CrateDB`` custom resource. Used to lookup
+        the password for the system user created during deployment.
+    :param master_node_pod: The pod name of one of the eligible master nodes in
+        the cluster. Used to ``exec`` into.
+    :param license: An optional ``secretKeyRef`` to the Kubernetes secret that
+        holds the CrateDB license key.
+    :param has_ssl: When ``True``, ``crash`` will establish a connection to
+        the CrateDB cluster from inside the ``crate`` container using SSL/TLS.
+        This must match how the cluster is configured, otherwise ``crash``
+        won't be able to connect, since non-encrypted connections are forbidden
+        when SSL/TLS is enabled, and encrypted connections aren't possible when
+        no SSL/TLS is configured.
+    :param users: An optional list of user definitions containing the username
+        and the secret key reference to their password.
+    """
+    # We first need to set the license, in case the CrateDB cluster
+    # contains more nodes than available in the free license.
+    if license:
+        await bootstrap_license(
+            core, namespace, master_node_pod, has_ssl, license,
+        )
+    await bootstrap_system_user(core, namespace, name, master_node_pod, has_ssl)
+    if users:
+        await bootstrap_users(core, namespace, name, users)
