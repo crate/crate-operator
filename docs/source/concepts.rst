@@ -30,7 +30,7 @@ container.
 
 The entire bootstrapping process may not take longer than 1800 seconds
 (default) before it is considered failed. The timeout can be configed with the
-``BOOTSTRAP_TIMEOUT`` environment variable.
+:envvar:`BOOTSTRAP_TIMEOUT` environment variable.
 
 Cluster Restart
 ---------------

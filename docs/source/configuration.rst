@@ -6,7 +6,8 @@ Principles`_ and uses environment variables. All environment variables are
 expected to be used in upper-case letters and must be prefixed with
 ``CRATEDB_OPERATOR_``.
 
-:``BOOTSTRAP_TIMEOUT``:
+.. envvar:: BOOTSTRAP_TIMEOUT
+
    When deploying a cluster, the operator will perform some bootstrap tasks as
    documented in :ref:`the concept section <concept-bootstrapping>`. The
    operator will wait at most this many seconds until it considers the
@@ -14,7 +15,8 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``1800`` seconds.
 
-:``CLUSTER_BACKUP_IMAGE``:
+.. envvar:: CLUSTER_BACKUP_IMAGE
+
    (**Required**)
 
    When enabling backups for a cluster, the operator deploys a Prometheus_
@@ -22,31 +24,36 @@ expected to be used in upper-case letters and must be prefixed with
    creates backups every defined interval. This variable needs to point to a
    Docker image *and* tag to use it for both.
 
-:``DEBUG_VOLUME_SIZE``:
+.. envvar:: DEBUG_VOLUME_SIZE
+
    The volume size for the ``PersistentVolume`` that is used as a storage
    location for Java heap dumps.
 
    The default value is ``256 GiB``.
 
-:``DEBUG_VOLUME_STORAGE_CLASS``:
+.. envvar:: DEBUG_VOLUME_STORAGE_CLASS
+
    The Kubernetes storage class name for the ``PersistentVolume`` that is
    used as a storage location for Java heap dumps.
 
    The default value is ``crate-local``.
 
-:``IMAGE_PULL_SECRETS``:
+.. envvar:: IMAGE_PULL_SECRETS
+
    A comma separated list of Kubernetes image pull secrets. Each Kubernetes
    resource created by the operator will have all these secrets attached.
 
    The default value is an empty list.
 
-:``JMX_EXPORTER_VERSION``:
+.. envvar:: JMX_EXPORTER_VERSION
+
    (**Required**)
 
    CrateDB exports metrics via the JMX protocol. This is the version of the
    exporter to be used.
 
-:``KUBECONFIG``:
+.. envvar:: KUBECONFIG
+
    If defined, needs to point to a valid Kubernetes configuration file. Due to
    the underlying libraries, multiple paths, such as
    ``/path/to/kube.conf:/another/path.conf`` are not allowed. For compatibility
@@ -54,14 +61,16 @@ expected to be used in upper-case letters and must be prefixed with
    operator will also look for the ``KUBECONFIG`` environment variable. Default
    is ``None`` and leads to "in-cluster" configuration.
 
-:``LOG_LEVEL``:
+.. envvar:: LOG_LEVEL
+
    The log level used for log messages emitted by the CrateDB Kubernetes
    Operator. Valid values are ``CRITICAL``, ``ERROR``, ``WARNING``, ``INFO``,
    or ``DEBUG``.
 
    The default value is ``INFO``.
 
-:``ROLLING_RESTART_TIMEOUT``:
+.. envvar:: ROLLING_RESTART_TIMEOUT
+
    A rolling cluster restart takes some time, heavily depending on the cluster
    size, its number of nodes, amount of data, etc. After some change
    operations, such as cluster upgrades, the operator will trigger a rolling
@@ -71,7 +80,8 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``3600`` seconds.
 
-:``TESTING``:
+.. envvar:: TESTING
+
    During development or testing, some contraints enforced by the operator may
    be obstructive. An example for that can be the Kubernetes pod anti-affinity
    on all CrateDB pods, that guarantees that a single Kubernetes node failure
