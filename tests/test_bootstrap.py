@@ -50,8 +50,8 @@ async def was_license_set(
         return True
 
 
-@mock.patch("crate.operator.main.bootstrap_license")
-@mock.patch("crate.operator.main.bootstrap_system_user")
+@mock.patch("crate.operator.bootstrap.bootstrap_license")
+@mock.patch("crate.operator.bootstrap.bootstrap_system_user")
 async def test_bootstrap_license(
     bootstrap_system_user: mock.AsyncMock,
     bootstrap_license_mock: mock.AsyncMock,
@@ -128,7 +128,7 @@ async def test_bootstrap_license(
     )
 
 
-@mock.patch("crate.operator.main.bootstrap_license")
+@mock.patch("crate.operator.bootstrap.bootstrap_license")
 async def test_bootstrap_users(
     bootstrap_license_mock: mock.AsyncMock,
     faker,
