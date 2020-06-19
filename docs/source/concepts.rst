@@ -97,5 +97,94 @@ The scaling operation will follow these four basic steps:
 The entire scaling operation may not take longer than 3600 seconds or whatever
 is configured in the :envvar:`SCALING_TIMEOUT` environment variable.
 
+.. _concept-webhooks:
+
+Webhooks
+--------
+
+Kubernetes follows an event driven architecture. Depending on your use of the
+operator, it can be beneficial to receive "notifications" when some events
+occurred, such as a successful or failed cluster upgrade or scaling. By setting
+the environment variables :envvar:`WEBHOOK_PASSWORD`, :envvar:`WEBHOOK_URL`,
+and :envvar:`WEBHOOK_USERNAME` to non-empty values, the operator will send HTTP
+POST requests to the provided URL. An exemplarily JSON payload is shown and
+documented below.
+
+.. important::
+
+   It's worth noting, that the operator will *not* retry failed webhook
+   notifications!
+
+.. code-block:: json
+
+   {
+     "cluster": "my-new-crate-cluster",
+     "event": "upgrade",
+     "namespace": "my-crate-namespace",
+     "scale_data": null,
+     "status": "success"
+     "upgrade_data": {
+       "new_registry": "crate",
+       "new_version": "4.1.6",
+       "old_registry": "crate",
+       "old_version": "4.1.5"
+     },
+   }
+
+:``cluster``:
+   The Kubernetes name (``.metadata.name``) of the ``cratedbs.cloud.crate.io``
+   resource.
+
+:``event``:
+   Either ``'scale'`` or ``'upgrade'``.
+
+:``namespace``:
+   The Kubernetes namespace (``.metadata.namespace``) of the
+   ``cratedbs.cloud.crate.io`` resource is deployed in.
+
+:``scale_data``:
+   When ``event`` is ``'scale'``, otherwise ``null``.:
+
+   :``new_data_replicas``:
+      An array of objects, where each object has a ``name`` and a ``replicas``
+      key. The name corresponds to a node name (``.spec.nodes.data.*.name``),
+      the replicas to the number of new replicas (
+      ``.spec.nodes.data.*.replicas``)
+
+   :``new_master_replicas``:
+      Optional number of replicas of new master nodes.
+
+   :``old_data_replicas``:
+      An array of objects, where each object has a ``name`` and a ``replicas``
+      key. The name corresponds to a node name (``.spec.nodes.data.*.name``),
+      the replicas to the number of old replicas (
+      ``.spec.nodes.data.*.replicas``)
+
+   :``old_master_replicas``:
+      Optional number of replicas of old master nodes.
+
+:``status``:
+   Either ``'failure'`` or ``'success'``.
+
+:``upgrade_data``:
+   When ``event`` is ``'upgrade'``, otherwise ``null``.:
+
+   :``old_registry``:
+      The old Docker image registry as defined in
+      ``.spec.cluster.imageRegistry``.
+
+   :``new_registry``:
+      The new Docker image registry as defined in
+      ``.spec.cluster.imageRegistry``.
+
+   :``old_version``:
+      The old image version (Docker tag) as defined in
+      ``.spec.cluster.version``.
+
+   :``new_version``:
+      The new image version (Docker tag) as defined in
+      ``.spec.cluster.version``.
+
+
 .. _report a green health: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health
 .. _node checks: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#node-checks

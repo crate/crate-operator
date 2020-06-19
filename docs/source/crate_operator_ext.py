@@ -24,6 +24,8 @@ def missing_reference(
     if node.get("refdomain") == "py":
         if reftarget.startswith("kubernetes_asyncio."):
             raise NoUri()
+        elif reftarget.startswith("aiohttp.client_reqrep."):
+            node.attributes["reftarget"] = "aiohttp." + reftarget[22:]
         elif reftarget.startswith("aiopg.connection."):
             node.attributes["reftarget"] = "aiopg." + reftarget[17:]
         elif reftarget.startswith("aiopg.cursor."):

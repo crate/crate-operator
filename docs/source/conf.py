@@ -73,6 +73,7 @@ html_static_path = ["_static"]
 # -- Extensions configuration ------------------------------------------------
 
 intersphinx_mapping = {
+    "aiohttp": ("https://docs.aiohttp.org/en/stable/", None),
     "aiopg": ("https://aiopg.readthedocs.io/en/stable/", None),
     "bitmath": ("https://bitmath.readthedocs.io/en/stable/", None),
     "kopf": ("https://kopf.readthedocs.io/en/stable/", None),
