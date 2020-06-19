@@ -1,7 +1,7 @@
 import asyncio
 import enum
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Dict, List, Optional
 
 import kopf
 from kopf.structs.diffs import diff as calc_diff
@@ -67,6 +67,23 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
         node = nodes["data"][0]
         node_name = node["name"]
         return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
+
+
+async def with_timeout(awaitable: Awaitable, timeout: int, error: str) -> None:
+    """
+    Wait up to ``timeout`` seconds for ``awaitable`` to finish before failing.
+
+    When ``timeout`` is ``<= 0``, no timeout will be applied.
+
+    :raises kopf.PermanentError: When the timeout is reached, raises an error
+        with message ``errorr``.
+    """
+    try:
+        if timeout > 0:
+            awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
+        await awaitable
+    except asyncio.TimeoutError:
+        raise kopf.PermanentError(error) from None
 
 
 @kopf.on.startup()
@@ -209,9 +226,9 @@ async def cluster_create(namespace, meta, spec, **kwargs):
     else:
         node_name = spec["nodes"]["data"][0]["name"]
         master_node_pod = f"crate-data-{node_name}-{name}-0"
-    try:
-        timeout = config.BOOTSTRAP_TIMEOUT
-        awaitable = bootstrap_cluster(
+
+    await with_timeout(
+        bootstrap_cluster(
             core,
             namespace,
             name,
@@ -219,15 +236,13 @@ async def cluster_create(namespace, meta, spec, **kwargs):
             spec["cluster"].get("license"),
             "ssl" in spec["cluster"],
             spec.get("users"),
-        )
-        if timeout > 0:
-            awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
-        await awaitable
-    except asyncio.TimeoutError:
-        raise kopf.PermanentError(
+        ),
+        config.BOOTSTRAP_TIMEOUT,
+        (
             f"Failed to bootstrap cluster {namespace}/{name} after "
-            f"{timeout} seconds."
-        ) from None
+            f"{config.BOOTSTRAP_TIMEOUT} seconds."
+        ),
+    )
 
     if "backups" in spec:
         backup_metrics_labels = base_labels.copy()
@@ -324,21 +339,18 @@ async def cluster_update(
         requires_restart = True
 
     if requires_restart:
-        try:
-            timeout = config.ROLLING_RESTART_TIMEOUT
-            awaitable = restart_cluster(namespace, name)
-            if timeout > 0:
-                awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
-            await awaitable
-        except asyncio.TimeoutError:
-            raise kopf.PermanentError(
-                f"Failed to restart cluster {namespace}/{name} after {timeout} seconds."
-            ) from None
+        await with_timeout(
+            restart_cluster(namespace, name),
+            config.ROLLING_RESTART_TIMEOUT,
+            (
+                f"Failed to restart cluster {namespace}/{name} after "
+                f"{config.ROLLING_RESTART_TIMEOUT} seconds."
+            ),
+        )
 
     if do_scale_master or do_scale_data:
-        try:
-            timeout = config.SCALING_TIMEOUT
-            awaitable = scale_cluster(
+        await with_timeout(
+            scale_cluster(
                 apps,
                 namespace,
                 name,
@@ -348,11 +360,10 @@ async def cluster_update(
                 spec,
                 scale_master_diff_item,
                 kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
-            )
-            if timeout > 0:
-                awaitable = asyncio.wait_for(awaitable, timeout=timeout)  # type: ignore
-            await awaitable
-        except asyncio.TimeoutError:
-            raise kopf.PermanentError(
-                f"Failed to scale cluster {namespace}/{name} after {timeout} seconds."
-            ) from None
+            ),
+            config.SCALING_TIMEOUT,
+            (
+                f"Failed to scale cluster {namespace}/{name} after "
+                f"{config.SCALING_TIMEOUT} seconds."
+            ),
+        )
