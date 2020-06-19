@@ -60,6 +60,16 @@ class Config:
     #: allow for easier testing in smaller Kubernetes clusters.
     TESTING: bool = False
 
+    #: HTTP Basic Auth password for web requests made to :attr:`WEBHOOK_URL`.
+    WEBHOOK_PASSWORD: Optional[str] = None
+
+    #: Full URL where the operator will send HTTP POST requests to when certain
+    #: events occured.
+    WEBHOOK_URL: Optional[str] = None
+
+    #: HTTP Basic Auth username for web requests made to :attr:`WEBHOOK_URL`.
+    WEBHOOK_USERNAME: Optional[str] = None
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -153,6 +163,14 @@ class Config:
 
         testing = self.env("TESTING", default=str(self.TESTING))
         self.TESTING = testing.lower() == "true"
+
+        self.WEBHOOK_PASSWORD = self.env(
+            "WEBHOOK_PASSWORD", default=self.WEBHOOK_PASSWORD
+        )
+        self.WEBHOOK_URL = self.env("WEBHOOK_URL", default=self.WEBHOOK_URL)
+        self.WEBHOOK_USERNAME = self.env(
+            "WEBHOOK_USERNAME", default=self.WEBHOOK_USERNAME
+        )
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """

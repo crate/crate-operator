@@ -35,6 +35,13 @@ from crate.operator.kube_auth import configure_kubernetes_client
 from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
+from crate.operator.webhooks import (
+    WebhookScaleNodePayload,
+    WebhookScalePayload,
+    WebhookStatus,
+    WebhookUpgradePayload,
+    webhook_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +97,14 @@ async def with_timeout(awaitable: Awaitable, timeout: int, error: str) -> None:
 async def startup(**kwargs):
     config.load()
     await configure_kubernetes_client()
+    if (
+        config.WEBHOOK_PASSWORD is not None
+        and config.WEBHOOK_URL is not None
+        and config.WEBHOOK_USERNAME is not None
+    ):
+        webhook_client.configure(
+            config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
+        )
 
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
@@ -335,39 +350,82 @@ async def cluster_update(
             logger.info("Ignoring operation %s on field %s", operation, field_path)
 
     if do_upgrade:
+        webhook_upgrade_payload = WebhookUpgradePayload(
+            old_registry=old["spec"]["cluster"]["imageRegistry"],
+            new_registry=body.spec["cluster"]["imageRegistry"],
+            old_version=old["spec"]["cluster"]["version"],
+            new_version=body.spec["cluster"]["version"],
+        )
         await upgrade_cluster(namespace, name, body)
         requires_restart = True
 
     if requires_restart:
-        # We need to derive the desired number of nodes from the old spec,
-        # since the new could have a different total number of nodes if a
-        # scaling operation is in progress as well.
-        expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
-        await with_timeout(
-            restart_cluster(namespace, name, expected_nodes),
-            config.ROLLING_RESTART_TIMEOUT,
-            (
-                f"Failed to restart cluster {namespace}/{name} after "
-                f"{config.ROLLING_RESTART_TIMEOUT} seconds."
-            ),
-        )
+        try:
+            # We need to derive the desired number of nodes from the old spec,
+            # since the new could have a different total number of nodes if a
+            # scaling operation is in progress as well.
+            expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
+            await with_timeout(
+                restart_cluster(namespace, name, expected_nodes),
+                config.ROLLING_RESTART_TIMEOUT,
+                (
+                    f"Failed to restart cluster {namespace}/{name} after "
+                    f"{config.ROLLING_RESTART_TIMEOUT} seconds."
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to restart cluster")
+            await webhook_client.send_upgrade_notification(
+                WebhookStatus.FAILURE, namespace, name, webhook_upgrade_payload
+            )
+            raise
+        else:
+            logger.info("Cluster restarted")
+            if do_upgrade:
+                await webhook_client.send_upgrade_notification(
+                    WebhookStatus.SUCCESS, namespace, name, webhook_upgrade_payload
+                )
 
     if do_scale_master or do_scale_data:
-        await with_timeout(
-            scale_cluster(
-                apps,
-                namespace,
-                name,
-                do_scale_data,
-                do_scale_master,
-                get_total_nodes_count(old["spec"]["nodes"]),
-                spec,
-                scale_master_diff_item,
-                kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
-            ),
-            config.SCALING_TIMEOUT,
-            (
-                f"Failed to scale cluster {namespace}/{name} after "
-                f"{config.SCALING_TIMEOUT} seconds."
-            ),
+        webhook_scale_payload = WebhookScalePayload(
+            old_data_replicas=[
+                WebhookScaleNodePayload(name=item["name"], replicas=item["replicas"])
+                for item in old["spec"]["nodes"]["data"]
+            ],
+            new_data_replicas=[
+                WebhookScaleNodePayload(name=item["name"], replicas=item["replicas"])
+                for item in body.spec["nodes"]["data"]
+            ],
+            old_master_replicas=old["spec"]["nodes"].get("master", {}).get("replicas"),
+            new_master_replicas=body.spec["nodes"].get("master", {}).get("replicas"),
         )
+        try:
+            await with_timeout(
+                scale_cluster(
+                    apps,
+                    namespace,
+                    name,
+                    do_scale_data,
+                    do_scale_master,
+                    get_total_nodes_count(old["spec"]["nodes"]),
+                    spec,
+                    scale_master_diff_item,
+                    kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
+                ),
+                config.SCALING_TIMEOUT,
+                (
+                    f"Failed to scale cluster {namespace}/{name} after "
+                    f"{config.SCALING_TIMEOUT} seconds."
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to scale cluster")
+            await webhook_client.send_scale_notification(
+                WebhookStatus.FAILURE, namespace, name, webhook_scale_payload
+            )
+            raise
+        else:
+            logger.info("Cluster scaled")
+            await webhook_client.send_scale_notification(
+                WebhookStatus.SUCCESS, namespace, name, webhook_scale_payload
+            )

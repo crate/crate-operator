@@ -35,7 +35,12 @@ setup(
     ],
     extras_require={
         "docs": ["sphinx<3.1", "sphinx-autodoc-typehints"],
-        "testing": ["faker==4.1.0", "pytest==5.4.3", "pytest-asyncio==0.12.0"],
+        "testing": [
+            "faker==4.1.0",
+            "pytest==5.4.3",
+            "pytest-aiohttp==0.3.0",
+            "pytest-asyncio==0.12.0",
+        ],
     },
     python_requires=">=3.8",
     classifiers=[

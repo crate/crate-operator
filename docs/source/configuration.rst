@@ -106,6 +106,30 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``False``.
 
+.. envvar:: WEBHOOK_PASSWORD
+
+   Any webhook request submitted by the operator will include :rfc:`HTTP Basic
+   Auth <7617>` credentials. This is the password.
+
+   The default value is ``None``.
+
+.. envvar:: WEBHOOK_URL
+
+   The operator can optionally be configured to submit HTTP POST requests to an
+   API upon certain events (see :ref:`concept-webhooks`). For that to work, the
+   :envvar:`WEBHOOK_PASSWORD`, :envvar:`WEBHOOK_URL`, and
+   :envvar:`WEBHOOK_USERNAME` need to be set.
+
+   The default value is ``None``.
+
+.. envvar:: WEBHOOK_USERNAME
+
+   Any webhook request submitted by the operator will include :rfc:`HTTP Basic
+   Auth <7617>` credentials. This is the username.
+
+   The default value is ``None``.
+
+
 
 .. _12 Factor Principles: https://12factor.net/
 .. _Prometheus: https://prometheus.io/
