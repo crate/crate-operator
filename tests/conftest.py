@@ -40,7 +40,7 @@ def pytest_configure(config):
         if not k8s_context.startswith("crate-") and k8s_context != "minikube":
             raise RuntimeError(
                 f"Cannot run tests on '{k8s_context}'. "
-                "Expected a context prefixed with 'cloud-'."
+                "Expected a context prefixed with 'crate-'."
             )
 
 
@@ -126,7 +126,7 @@ def faker_seed():
 @pytest.fixture
 async def namespace(faker) -> V1Namespace:
     core = CoreV1Api()
-    name = faker.domain_word()
+    name = faker.uuid4()
     await assert_wait_for(False, does_namespace_exist, core, name)
     ns: V1Namespace = await core.create_namespace(
         body=V1Namespace(metadata=V1ObjectMeta(name=name))
