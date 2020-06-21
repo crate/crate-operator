@@ -237,7 +237,7 @@ async def test_bootstrap_users(
         ip_address,
         password_system,
         SYSTEM_USERNAME,
-        timeout=BACKOFF_TIME * 3,
+        timeout=BACKOFF_TIME * 5,
     )
 
     await assert_wait_for(
