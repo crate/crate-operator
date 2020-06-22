@@ -339,8 +339,12 @@ async def cluster_update(
         requires_restart = True
 
     if requires_restart:
+        # We need to derive the desired number of nodes from the old spec,
+        # since the new could have a different total number of nodes if a
+        # scaling operation is in progress as well.
+        expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
         await with_timeout(
-            restart_cluster(namespace, name),
+            restart_cluster(namespace, name, expected_nodes),
             config.ROLLING_RESTART_TIMEOUT,
             (
                 f"Failed to restart cluster {namespace}/{name} after "

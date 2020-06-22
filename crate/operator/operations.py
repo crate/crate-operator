@@ -126,7 +126,7 @@ async def restart_statefulset(
         logger.info("Cluster has recovered. Moving on ...")
 
 
-async def restart_cluster(namespace: str, name: str) -> None:
+async def restart_cluster(namespace: str, name: str, total_nodes: int) -> None:
     """
     Perform a rolling restart of the CrateDB cluster ``name`` in ``namespace``.
 
@@ -138,6 +138,8 @@ async def restart_cluster(namespace: str, name: str) -> None:
 
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param total_nodes: The total number of nodes that the cluster should
+        consist of, per the CrateDB cluster spec.
     """
     coapi = CustomObjectsApi()
     core = CoreV1Api()
@@ -152,8 +154,6 @@ async def restart_cluster(namespace: str, name: str) -> None:
     password = await get_system_user_password(namespace, name, core)
     host = await get_host(core, namespace, name)
     conn_factory = connection_factory(host, password)
-
-    total_nodes = get_total_nodes_count(cluster["spec"]["nodes"])
 
     if "master" in cluster["spec"]["nodes"]:
         await restart_statefulset(
