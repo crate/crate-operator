@@ -298,6 +298,7 @@ async def scale_cluster_data_nodes(
     name: str,
     spec: kopf.Spec,
     diff: kopf.Diff,
+    conn_factory,
     old_total_nodes: int,
 ) -> int:
     """
@@ -315,12 +316,13 @@ async def scale_cluster_data_nodes(
     :param spec: The ``spec`` field from the new CrateDB cluster custom object.
     :param diff: A list of changes made to the individual
          data node specifications.
+    :param conn_factory: A function that establishes a database connection to
+        the CrateDB cluster used for SQL queries.
     :param old_total_nodes: The total number of nodes in the CrateDB cluster
         *before* scaling any StatefulSet.
     :return: The total number of nodes in the CrateDB cluster *after* scaling
         all data node StatefulSets.
     """
-    core = CoreV1Api()
 
     # The StatefulSets that will be scaled up (index, num additional nodes)
     scale_up_sts: List[Tuple[int, int]] = []
@@ -333,10 +335,6 @@ async def scale_cluster_data_nodes(
             scale_up_sts.append((index, new_value - old_value))
         else:
             scale_down_sts.append((index, old_value - new_value))
-
-    host = await get_host(core, namespace, name)
-    password = await get_system_user_password(namespace, name)
-    conn_factory = connection_factory(host, password)
 
     new_total_nodes = old_total_nodes
 
@@ -378,15 +376,6 @@ async def scale_cluster_data_nodes(
         else:
             reset_pod_name = f"crate-data-{spec['nodes']['data'][0]['name']}-{name}-0"
         await reset_allocation(namespace, reset_pod_name, "ssl" in spec["cluster"])
-
-    # Acknowledge all node checks that state that the expected number of nodes
-    # doesn't line up. The StatefulSets have been adjusted, and once a pod
-    # restarts, the node will know about it.
-    async with conn_factory() as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1"""
-            )
 
     return new_total_nodes
 
@@ -449,6 +438,7 @@ async def scale_cluster_master_nodes(
     name: str,
     spec: kopf.Spec,
     diff: kopf.DiffItem,
+    conn_factory,
     old_total_nodes: int,
 ) -> int:
     """
@@ -463,6 +453,8 @@ async def scale_cluster_master_nodes(
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param spec: The ``spec`` field from the new CrateDB cluster custom object.
     :param diff: The change made to the the master node specification.
+    :param conn_factory: A function that establishes a database connection to
+        the CrateDB cluster used for SQL queries.
     :param old_total_nodes: The total number of nodes in the CrateDB cluster
         *before* scaling the StatefulSet.
     :return: The total number of nodes in the CrateDB cluster *after* scaling
@@ -484,11 +476,6 @@ async def scale_cluster_master_nodes(
         spec["nodes"]["master"]["replicas"],
         new_total_nodes,
     )
-
-    core = CoreV1Api()
-    host = await get_host(core, namespace, name)
-    password = await get_system_user_password(namespace, name)
-    conn_factory = connection_factory(host, password)
 
     await wait_for_healthy_cluster(conn_factory, old_total_nodes),
 
@@ -559,15 +546,30 @@ async def scale_cluster(
     :param data_diff_items: An optional list of changes made to the individual
         data node specifications.
     """
+    core = CoreV1Api()
+
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(namespace, name)
+    conn_factory = connection_factory(host, password)
+
     total_nodes = old_total_nodes
     if do_scale_master:
         total_nodes = await scale_cluster_master_nodes(
-            apps, namespace, name, spec, master_diff_item, total_nodes,
+            apps, namespace, name, spec, master_diff_item, conn_factory, total_nodes,
         )
 
     if do_scale_data:
         total_nodes = await scale_cluster_data_nodes(
-            apps, namespace, name, spec, data_diff_items, total_nodes,
+            apps, namespace, name, spec, data_diff_items, conn_factory, total_nodes,
         )
 
     await scale_cluster_patch_total_nodes(apps, namespace, name, spec, total_nodes)
+
+    # Acknowledge all node checks that state that the expected number of nodes
+    # doesn't line up. The StatefulSets have been adjusted, and once a pod
+    # restarts, the node will know about it.
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1"""
+            )
