@@ -91,9 +91,11 @@ The scaling operation will follow these four basic steps:
 #. The last step the operator is going to take is to update all StatefulSets
    that make a CrateDB cluster to the expected total number of nodes. This
    ensures that, if a pod dies, its restart won't screw with CrateDB's expected
-   number of nodes.
+   number of nodes. This will also involve acknowledging all
+   ``gateway.expected_nodes`` `node checks`_ (ID 1).
 
 The entire scaling operation may not take longer than 3600 seconds or whatever
 is configured in the :envvar:`SCALING_TIMEOUT` environment variable.
 
 .. _report a green health: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health
+.. _node checks: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#node-checks
