@@ -124,7 +124,7 @@ async def test_restart_cluster(
     original_pods = {p.metadata.uid for p in pods.items}
 
     await asyncio.wait_for(
-        restart_cluster(namespace.metadata.name, name), BACKOFF_TIME * 15
+        restart_cluster(namespace.metadata.name, name, 3), BACKOFF_TIME * 15
     )
 
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
