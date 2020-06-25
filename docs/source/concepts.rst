@@ -122,7 +122,7 @@ documented below.
      "event": "upgrade",
      "namespace": "my-crate-namespace",
      "scale_data": null,
-     "status": "success"
+     "status": "success",
      "upgrade_data": {
        "new_registry": "crate",
        "new_version": "4.1.6",
