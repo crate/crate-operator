@@ -149,7 +149,7 @@ class WebhookClient:
         async with response:
             try:
                 response.raise_for_status()
-            except aiohttp.ClientResponseError:
+            except aiohttp.ClientError:
                 logger.exception(
                     "POSTing to %s because of %s on cluster %s/%s. "
                     "Status: %d, Reason: %s, Body: %r",
