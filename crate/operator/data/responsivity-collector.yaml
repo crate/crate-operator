@@ -1,6 +1,6 @@
 ---
 collector_name: responsivity_collector
-# This metric is intended to alert us to when CrateDB Cloud clusters are unresponsive.
+# This metric is intended to alert us to when CrateDB clusters are unresponsive.
 # This uses a query which involves communication with other nodes to test
 # that the communication between the nodes work.
 # (In this case, all that contain any shards)
