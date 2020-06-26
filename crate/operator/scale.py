@@ -219,6 +219,7 @@ async def scale_down_statefulset(
     conn_factory,
     old_total_nodes: int,
     num_excess_nodes: int,
+    num_master_nodes: int,
 ) -> int:
     """
     Scale the StatefulSet ``sts_name`` down to the desired number of replicas.
@@ -234,6 +235,9 @@ async def scale_down_statefulset(
         *before* scaling down this StatefulSet.
     :param num_excess_nodes: The number of *excess* nodes to remove from the
         StatefulSet and CrateDB cluster.
+    :param num_master_nodes: The number of **dedicated** master nodes in the
+        CrateDB cluster. This is required to determine the number of data nodes
+        available in the cluster at a given time.
     :return: The total number of nodes in the CrateDB cluster *after* scaling
         down this StatefulSet.
     """
@@ -260,7 +264,12 @@ async def scale_down_statefulset(
                 max_replicas = max(parse_replicas(r[0]) for r in rows)
             else:
                 max_replicas = 0
-            if max_replicas + 1 >= new_total_nodes:
+            # A table has 1 (primary) + n replicas.
+            # If that number is larger than the number of data nodes in the
+            # cluster (total nodes - *dedicated* master nodes) then there are
+            # not enough nodes to have all tables fully replicated. Thus,
+            # failing the scaling.
+            if max_replicas + 1 > new_total_nodes - num_master_nodes:
                 raise kopf.TemporaryError(
                     "Some tables have too many replicas to scale down"
                 )
@@ -356,6 +365,12 @@ async def scale_cluster_data_nodes(
             num_add_nodes,
         )
 
+    # Number of dedicated master nodes. Required to determine the available
+    # number of data nodes.
+    num_master_nodes = 0
+    if "master" in spec["nodes"]:
+        num_master_nodes = spec["nodes"]["master"]["replicas"]
+
     for index, num_rem_nodes in scale_down_sts:
         node_spec = spec["nodes"]["data"][index]
         node_name = node_spec["name"]
@@ -367,6 +382,7 @@ async def scale_cluster_data_nodes(
             conn_factory,
             new_total_nodes,
             num_rem_nodes,
+            num_master_nodes,
         )
 
     if scale_down_sts:
