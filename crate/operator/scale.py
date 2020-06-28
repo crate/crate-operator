@@ -154,7 +154,7 @@ async def wait_for_deallocation(cursor: Cursor, node_names: List[str]):
             """
             SELECT node['name'], count(*)
             FROM sys.shards
-            WHERE node['name'] IN (SELECT * FROM unnest(%s))
+            WHERE node['name'] = ANY(%s)
             GROUP BY 1
             """,
             (node_names,),
