@@ -145,34 +145,44 @@ class WebhookClient:
             namespace,
             name,
         )
-        response = await self._session.post(self._url, json=payload)
-        async with response:
-            try:
+        try:
+            response = await self._session.post(self._url, json=payload)
+            async with response:
                 response.raise_for_status()
-            except aiohttp.ClientError:
-                logger.exception(
-                    "POSTing to %s because of %s on cluster %s/%s. "
-                    "Status: %d, Reason: %s, Body: %r",
-                    self._url,
-                    event,
-                    namespace,
-                    name,
-                    response.status,
-                    response.reason,
-                    await response.text(),
-                )
-            else:
-                logger.info(
-                    "Successfully POSTed to %s because of %s on cluster %s/%s. "
-                    "Status: %d, Body: %r",
-                    self._url,
-                    event,
-                    namespace,
-                    name,
-                    response.status,
-                    await response.text(),
-                )
-        return response
+        except aiohttp.ClientResponseError:
+            logger.exception(
+                "Failed POSTing to %s because of %s on cluster %s/%s. "
+                "Status: %d, Reason: %s, Body: %r",
+                self._url,
+                event,
+                namespace,
+                name,
+                response.status,
+                response.reason,
+                await response.text(),
+            )
+        except aiohttp.ClientError:
+            logger.exception(
+                "Failed POSTing to %s because of %s on cluster %s/%s.",
+                self._url,
+                event,
+                namespace,
+                name,
+            )
+        else:
+            logger.info(
+                "Successfully POSTed to %s because of %s on cluster %s/%s. "
+                "Status: %d, Body: %r",
+                self._url,
+                event,
+                namespace,
+                name,
+                response.status,
+                await response.text(),
+            )
+            return response
+
+        return None
 
     async def send_scale_notification(
         self,
