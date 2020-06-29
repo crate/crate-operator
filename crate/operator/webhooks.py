@@ -148,6 +148,7 @@ class WebhookClient:
         try:
             response = await self._session.post(self._url, json=payload)
             async with response:
+                response_text = await response.text()
                 response.raise_for_status()
         except aiohttp.ClientResponseError:
             logger.exception(
@@ -159,8 +160,9 @@ class WebhookClient:
                 name,
                 response.status,
                 response.reason,
-                await response.text(),
+                response_text,
             )
+            return response
         except aiohttp.ClientError:
             logger.exception(
                 "Failed POSTing to %s because of %s on cluster %s/%s.",
@@ -178,7 +180,7 @@ class WebhookClient:
                 namespace,
                 name,
                 response.status,
-                await response.text(),
+                response_text,
             )
             return response
 
