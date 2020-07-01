@@ -10,6 +10,7 @@ spec:
     listKind: CrateDBList
     plural: cratedbs
     singular: cratedb
+  preserveUnknownFields: false
   scope: Namespaced
   validation:
     openAPIV3Schema:
@@ -389,6 +390,9 @@ spec:
           - cluster
           - nodes
           type: object
+        status:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
       required:
       - spec
       type: object
