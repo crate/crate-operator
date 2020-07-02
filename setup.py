@@ -29,6 +29,7 @@ setup(
     setup_requires=["setuptools_scm"],
     install_requires=[
         "aiopg==1.0.0",
+        "aioprometheus[aiohttp]==20.0.0",
         "bitmath==1.3.3.1",
         "kopf==0.27",
         "kubernetes-asyncio==11.3.0",

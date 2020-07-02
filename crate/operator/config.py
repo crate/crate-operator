@@ -50,6 +50,9 @@ class Config:
     #: The log level to use for all CrateDB operator related log messages.
     LOG_LEVEL: str = "INFO"
 
+    #: The port on which the operator will export Prometheus metrics.
+    PROMETHEUS_PORT: int = 9100
+
     #: Time in seconds for which the operator will continue and wait to perform
     #: a rolling restart of a cluster. Once this threshold has passed, a
     #: restart is considered failed.
@@ -146,6 +149,21 @@ class Config:
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
         log = logging.getLogger("crate")
         log.setLevel(logging.getLevelName(self.LOG_LEVEL))
+
+        prometheus_port = self.env("PROMETHEUS_PORT", default=str(self.PROMETHEUS_PORT))
+        try:
+            self.PROMETHEUS_PORT = int(prometheus_port)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}PROMETHEUS_PORT="
+                f"'{prometheus_port}'. Needs to be a positive integer within 1 to "
+                "65535."
+            )
+        if not 1 <= self.PROMETHEUS_PORT <= 65535:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}PROMETHEUS_PORT="
+                f"'{prometheus_port}'. Needs to be within 1 to 65535."
+            )
 
         rolling_restart_timeout = self.env(
             "ROLLING_RESTART_TIMEOUT", default=str(self.ROLLING_RESTART_TIMEOUT)

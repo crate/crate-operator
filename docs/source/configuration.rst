@@ -97,6 +97,14 @@ expected to use upper-case letters and must be prefixed with
 
    The default value is ``INFO``.
 
+.. envvar:: PROMETHEUS_PORT
+
+   The operator tracks some internal metrics and exposes them via `Prometheus`_.
+   This envvar defines the port on which the Prometheus export metrics API will
+   be awailable.
+
+   The default value is ``9100``.
+
 .. envvar:: ROLLING_RESTART_TIMEOUT
 
    A rolling cluster restart takes some time, depending on the cluster size,

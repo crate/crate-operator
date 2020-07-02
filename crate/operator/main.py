@@ -33,6 +33,7 @@ from crate.operator.create import (
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import get_total_nodes_count, restart_cluster
+from crate.operator.prometheus import prometheus
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
 from crate.operator.webhooks import (
@@ -102,6 +103,13 @@ async def startup(**kwargs):
         webhook_client.configure(
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
+    prometheus.setup()
+    await prometheus.start(config.PROMETHEUS_PORT)
+
+
+@kopf.on.cleanup()
+async def cleanup(**kwargs):
+    await prometheus.stop()
 
 
 @kopf.on.login()
@@ -319,7 +327,7 @@ async def cluster_update(
     for operation, field_path, old_value, new_value in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
-            ("spec", "cluster", "version",),
+            ("spec", "cluster", "version"),
         }:
             do_upgrade = True
         elif field_path == ("spec", "nodes", "master", "replicas"):
