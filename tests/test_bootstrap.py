@@ -19,7 +19,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
-from crate.operator.utils.kubeapi import get_public_ip, get_system_user_password
+from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
 from .utils import assert_wait_for
 
@@ -223,8 +223,8 @@ async def test_bootstrap_users(
         },
     )
 
-    ip_address = await asyncio.wait_for(
-        get_public_ip(core, namespace.metadata.name, name),
+    host = await asyncio.wait_for(
+        get_public_host(core, namespace.metadata.name, name),
         timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
     )
 
@@ -234,26 +234,16 @@ async def test_bootstrap_users(
     await assert_wait_for(
         True,
         does_user_exist,
-        ip_address,
+        host,
         password_system,
         SYSTEM_USERNAME,
         timeout=BACKOFF_TIME * 5,
     )
 
     await assert_wait_for(
-        True,
-        does_user_exist,
-        ip_address,
-        password1,
-        username1,
-        timeout=BACKOFF_TIME * 3,
+        True, does_user_exist, host, password1, username1, timeout=BACKOFF_TIME * 3,
     )
 
     await assert_wait_for(
-        True,
-        does_user_exist,
-        ip_address,
-        password2,
-        username2,
-        timeout=BACKOFF_TIME * 3,
+        True, does_user_exist, host, password2, username2, timeout=BACKOFF_TIME * 3,
     )
