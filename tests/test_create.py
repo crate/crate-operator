@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import string
 from typing import Set
 from unittest import mock
@@ -54,7 +55,9 @@ class TestConfigMaps:
     async def test_create(self, faker, namespace):
         core = CoreV1Api()
         name = faker.domain_word()
-        await create_sql_exporter_config(core, None, namespace.metadata.name, name, {})
+        await create_sql_exporter_config(
+            core, None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
+        )
         await assert_wait_for(
             True,
             self.does_configmap_exist,
@@ -89,7 +92,14 @@ class TestDebugVolume:
         )
 
         pv, pvc = await asyncio.gather(
-            *create_debug_volume(core, None, namespace.metadata.name, name, {})
+            *create_debug_volume(
+                core,
+                None,
+                namespace.metadata.name,
+                name,
+                {},
+                logging.getLogger(__name__),
+            )
         )
         await assert_wait_for(
             True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}",
@@ -107,14 +117,14 @@ class TestStatefulSetAffinity:
     def test_testing_true(self, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", True):
-            affinity = get_statefulset_affinity(name)
+            affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
 
         assert affinity is None
 
     def test_testing_false(self, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):
-            affinity = get_statefulset_affinity(name)
+            affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
 
         apa = affinity.pod_anti_affinity
         terms = apa.required_during_scheduling_ignored_during_execution[0]
@@ -545,6 +555,7 @@ class TestStatefulSet:
             },
             {},
             [],
+            logging.getLogger(__name__),
         )
         await assert_wait_for(
             True,
@@ -585,6 +596,7 @@ class TestServices:
                 2,
                 3,
                 faker.domain_name(),
+                logging.getLogger(__name__),
             )
         )
         await assert_wait_for(
@@ -611,7 +623,12 @@ class TestSystemUser:
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
             secret = await create_system_user(
-                core, None, namespace.metadata.name, name, {}
+                core,
+                None,
+                namespace.metadata.name,
+                name,
+                {},
+                logging.getLogger(__name__),
             )
         await assert_wait_for(
             True,

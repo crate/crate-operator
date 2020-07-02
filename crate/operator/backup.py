@@ -28,8 +28,6 @@ from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAM
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.typing import LabelType
 
-logger = logging.getLogger(__name__)
-
 
 def get_backup_env(
     name: str, http_port: int, backup_aws: Dict[str, Any], has_ssl: bool,
@@ -207,6 +205,7 @@ def create_backups(
     backups: Dict[str, Any],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     has_ssl: bool,
+    logger: logging.Logger,
 ) -> Union[Tuple[Awaitable[V1beta1CronJob], Awaitable[V1Deployment]], Tuple]:
     backup_aws = backups.get("aws")
     if backup_aws:

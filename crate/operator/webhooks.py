@@ -5,8 +5,6 @@ from typing import List, Optional, TypedDict
 import aiohttp
 from pkg_resources import get_distribution
 
-logger = logging.getLogger(__name__)
-
 
 class WebhookEvent(str, enum.Enum):
     SCALE = "scale"
@@ -105,6 +103,7 @@ class WebhookClient:
         *,
         scale_data: Optional[WebhookScalePayload] = None,
         upgrade_data: Optional[WebhookUpgradePayload] = None,
+        logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
         Send a notification to the confiured endpoint.
@@ -192,6 +191,7 @@ class WebhookClient:
         namespace: str,
         name: str,
         data: WebhookScalePayload,
+        logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
         Send a notification about a failed or successful scaling operation.
@@ -202,7 +202,7 @@ class WebhookClient:
         :param data: Details about the scaling that took place or was attempted.
         """
         return await self._send(
-            WebhookEvent.SCALE, status, namespace, name, scale_data=data
+            WebhookEvent.SCALE, status, namespace, name, scale_data=data, logger=logger
         )
 
     async def send_upgrade_notification(
@@ -211,6 +211,7 @@ class WebhookClient:
         namespace: str,
         name: str,
         data: WebhookUpgradePayload,
+        logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
         Send a notification about a failed or successful upgrade operation.
@@ -221,7 +222,12 @@ class WebhookClient:
         :param data: Details about the upgrade that took place or was attempted.
         """
         return await self._send(
-            WebhookEvent.UPGRADE, status, namespace, name, upgrade_data=data
+            WebhookEvent.UPGRADE,
+            status,
+            namespace,
+            name,
+            upgrade_data=data,
+            logger=logger,
         )
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api
@@ -72,6 +73,7 @@ class TestBackup:
                 backups_spec,
                 None,
                 True,
+                logging.getLogger(__name__),
             )
         )
         await assert_wait_for(
@@ -107,6 +109,7 @@ class TestBackup:
                 {},
                 None,
                 True,
+                logging.getLogger(__name__),
             )
         )
         assert ret == []
