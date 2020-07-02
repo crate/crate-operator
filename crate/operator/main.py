@@ -31,7 +31,7 @@ from crate.operator.create import (
     create_statefulset,
     create_system_user,
 )
-from crate.operator.kube_auth import configure_kubernetes_client
+from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
@@ -96,7 +96,6 @@ async def with_timeout(awaitable: Awaitable, timeout: int, error: str) -> None:
 @kopf.on.startup()
 async def startup(**kwargs):
     config.load()
-    await configure_kubernetes_client()
     if (
         config.WEBHOOK_PASSWORD is not None
         and config.WEBHOOK_URL is not None
@@ -105,6 +104,11 @@ async def startup(**kwargs):
         webhook_client.configure(
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
+
+
+@kopf.on.login()
+async def login(**kwargs):
+    return await login_via_kubernetes_asyncio(**kwargs)
 
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
