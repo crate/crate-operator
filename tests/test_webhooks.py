@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from aiohttp import web
@@ -122,6 +123,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 old_master_replicas=3,
                 new_master_replicas=4,
             ),
+            logging.getLogger(__name__),
         )
         assert response.status == 200
         data = await response.json()
@@ -158,6 +160,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d",
             ),
+            logging.getLogger(__name__),
         )
         assert response.status == 200
         data = await response.json()
@@ -194,6 +197,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d",
             ),
+            logging.getLogger(__name__),
         )
         assert response.status == 418
 
@@ -207,5 +211,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d",
             ),
+            logging.getLogger(__name__),
         )
         assert response is None

@@ -42,7 +42,7 @@ async def was_license_set(
 ):
     try:
         mock_obj.assert_awaited_once_with(
-            core, namespace, master_node_pod, has_ssl, license
+            core, namespace, master_node_pod, has_ssl, license, mock.ANY
         )
     except AssertionError:
         return False

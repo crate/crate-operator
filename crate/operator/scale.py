@@ -13,8 +13,6 @@ from crate.operator.cratedb import connection_factory, wait_for_healthy_cluster
 from crate.operator.utils import quorum
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 
-logger = logging.getLogger(__name__)
-
 
 def parse_replicas(r: str) -> int:
     """
@@ -134,7 +132,9 @@ def get_container(statefulset: V1StatefulSet) -> V1Container:
     return containers[0]
 
 
-async def wait_for_deallocation(cursor: Cursor, node_names: List[str]):
+async def wait_for_deallocation(
+    cursor: Cursor, node_names: List[str], logger: logging.Logger,
+):
     """
     Wait until the nodes ``node_names`` have no more shards.
 
@@ -177,6 +177,7 @@ async def scale_up_statefulset(
     conn_factory,
     old_total_nodes: int,
     num_add_nodes: int,
+    logger: logging.Logger,
 ) -> int:
     """
     Scale the StatefulSet ``sts_name`` up to the desired number of replicas.
@@ -206,7 +207,7 @@ async def scale_up_statefulset(
         apps, namespace, sts_name, replicas, new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes),
+    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger),
 
     return new_total_nodes
 
@@ -220,6 +221,7 @@ async def scale_down_statefulset(
     old_total_nodes: int,
     num_excess_nodes: int,
     num_master_nodes: int,
+    logger: logging.Logger,
 ) -> int:
     """
     Scale the StatefulSet ``sts_name`` down to the desired number of replicas.
@@ -288,7 +290,7 @@ async def scale_down_statefulset(
             )
 
             # 3. Wait for nodes to be deallocated
-            await wait_for_deallocation(cursor, to_remove_node_names)
+            await wait_for_deallocation(cursor, to_remove_node_names, logger)
 
     # 4. Patch statefulset with new number of nodes. This will kill excess
     # pods.
@@ -296,7 +298,7 @@ async def scale_down_statefulset(
         apps, namespace, sts_name, replicas, new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes),
+    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger),
 
     return new_total_nodes
 
@@ -309,6 +311,7 @@ async def scale_cluster_data_nodes(
     diff: kopf.Diff,
     conn_factory,
     old_total_nodes: int,
+    logger: logging.Logger,
 ) -> int:
     """
     Scale all data node StatefulSets according to their ``diff``.
@@ -363,6 +366,7 @@ async def scale_cluster_data_nodes(
             conn_factory,
             new_total_nodes,
             num_add_nodes,
+            logger,
         )
 
     # Number of dedicated master nodes. Required to determine the available
@@ -383,6 +387,7 @@ async def scale_cluster_data_nodes(
             new_total_nodes,
             num_rem_nodes,
             num_master_nodes,
+            logger,
         )
 
     if scale_down_sts:
@@ -456,6 +461,7 @@ async def scale_cluster_master_nodes(
     diff: kopf.DiffItem,
     conn_factory,
     old_total_nodes: int,
+    logger: logging.Logger,
 ) -> int:
     """
     Scale a dedicated master node StatefulSet to the desired number of replicas.
@@ -493,7 +499,7 @@ async def scale_cluster_master_nodes(
         new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, old_total_nodes),
+    await wait_for_healthy_cluster(conn_factory, old_total_nodes, logger),
 
     return new_total_nodes
 
@@ -544,6 +550,7 @@ async def scale_cluster(
     spec: kopf.Spec,
     master_diff_item: Optional[kopf.DiffItem],
     data_diff_items: Optional[kopf.Diff],
+    logger: logging.Logger,
 ):
     """
     Scale cluster ``name`` according to the given ``master_diff_item`` and
@@ -571,12 +578,26 @@ async def scale_cluster(
     total_nodes = old_total_nodes
     if do_scale_master:
         total_nodes = await scale_cluster_master_nodes(
-            apps, namespace, name, spec, master_diff_item, conn_factory, total_nodes,
+            apps,
+            namespace,
+            name,
+            spec,
+            master_diff_item,
+            conn_factory,
+            total_nodes,
+            logger,
         )
 
     if do_scale_data:
         total_nodes = await scale_cluster_data_nodes(
-            apps, namespace, name, spec, data_diff_items, conn_factory, total_nodes,
+            apps,
+            namespace,
+            name,
+            spec,
+            data_diff_items,
+            conn_factory,
+            total_nodes,
+            logger,
         )
 
     await scale_cluster_patch_total_nodes(apps, namespace, name, spec, total_nodes)

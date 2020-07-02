@@ -43,8 +43,6 @@ from crate.operator.webhooks import (
     webhook_client,
 )
 
-logger = logging.getLogger(__name__)
-
 NO_VALUE = object()
 
 
@@ -112,7 +110,9 @@ async def login(**kwargs):
 
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
-async def cluster_create(namespace, meta, spec, **kwargs):
+async def cluster_create(
+    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger, **kwargs
+):
     name = meta["name"]
     base_labels = {
         LABEL_MANAGED_BY: "crate-operator",
@@ -188,6 +188,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 spec["cluster"].get("ssl"),
                 spec["cluster"].get("settings"),
                 image_pull_secrets,
+                logger,
             )
         )
         treat_as_master = False
@@ -216,16 +217,21 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 spec["cluster"].get("ssl"),
                 spec["cluster"].get("settings"),
                 image_pull_secrets,
+                logger,
             )
         )
         treat_as_master = False
 
     await asyncio.gather(
         create_sql_exporter_config(
-            core, owner_references, namespace, name, cratedb_labels
+            core, owner_references, namespace, name, cratedb_labels, logger
         ),
-        *create_debug_volume(core, owner_references, namespace, name, cratedb_labels),
-        create_system_user(core, owner_references, namespace, name, cratedb_labels),
+        *create_debug_volume(
+            core, owner_references, namespace, name, cratedb_labels, logger
+        ),
+        create_system_user(
+            core, owner_references, namespace, name, cratedb_labels, logger
+        ),
         *sts,
         *create_services(
             core,
@@ -237,6 +243,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
             postgres_port,
             transport_port,
             spec.get("cluster", {}).get("externalDNS"),
+            logger,
         ),
     )
 
@@ -255,6 +262,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
             spec["cluster"].get("license"),
             "ssl" in spec["cluster"],
             spec.get("users"),
+            logger,
         ),
         config.BOOTSTRAP_TIMEOUT,
         (
@@ -280,6 +288,7 @@ async def cluster_create(namespace, meta, spec, **kwargs):
                 spec["backups"],
                 image_pull_secrets,
                 "ssl" in spec["cluster"],
+                logger,
             )
         )
 
@@ -292,6 +301,7 @@ async def cluster_update(
     spec: kopf.Spec,
     diff: kopf.Diff,
     old: kopf.Body,
+    logger: logging.Logger,
     **kwargs,
 ):
     """
@@ -370,7 +380,7 @@ async def cluster_update(
             # scaling operation is in progress as well.
             expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
             await with_timeout(
-                restart_cluster(namespace, name, expected_nodes),
+                restart_cluster(namespace, name, expected_nodes, logger),
                 config.ROLLING_RESTART_TIMEOUT,
                 (
                     f"Failed to restart cluster {namespace}/{name} after "
@@ -380,14 +390,18 @@ async def cluster_update(
         except Exception:
             logger.exception("Failed to restart cluster")
             await webhook_client.send_upgrade_notification(
-                WebhookStatus.FAILURE, namespace, name, webhook_upgrade_payload
+                WebhookStatus.FAILURE, namespace, name, webhook_upgrade_payload, logger
             )
             raise
         else:
             logger.info("Cluster restarted")
             if do_upgrade:
                 await webhook_client.send_upgrade_notification(
-                    WebhookStatus.SUCCESS, namespace, name, webhook_upgrade_payload
+                    WebhookStatus.SUCCESS,
+                    namespace,
+                    name,
+                    webhook_upgrade_payload,
+                    logger,
                 )
 
     if do_scale_master or do_scale_data:
@@ -415,6 +429,7 @@ async def cluster_update(
                     spec,
                     scale_master_diff_item,
                     kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
+                    logger,
                 ),
                 config.SCALING_TIMEOUT,
                 (
@@ -425,11 +440,11 @@ async def cluster_update(
         except Exception:
             logger.exception("Failed to scale cluster")
             await webhook_client.send_scale_notification(
-                WebhookStatus.FAILURE, namespace, name, webhook_scale_payload
+                WebhookStatus.FAILURE, namespace, name, webhook_scale_payload, logger
             )
             raise
         else:
             logger.info("Cluster scaled")
             await webhook_client.send_scale_notification(
-                WebhookStatus.SUCCESS, namespace, name, webhook_scale_payload
+                WebhookStatus.SUCCESS, namespace, name, webhook_scale_payload, logger
             )

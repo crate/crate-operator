@@ -23,8 +23,6 @@ from crate.operator.cratedb import (
 )
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 
-logger = logging.getLogger(__name__)
-
 
 def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
     """
@@ -45,7 +43,7 @@ def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
 
 
 async def wait_for_termination(
-    pod: V1Pod, get_pods: Callable[[], Awaitable[V1PodList]]
+    pod: V1Pod, get_pods: Callable[[], Awaitable[V1PodList]], logger: logging.Logger
 ) -> None:
     """
     Repeatedly and indefinitely check if ``pod``'s ``uid`` is still around.
@@ -72,6 +70,7 @@ async def restart_statefulset(
     name: str,
     node_name: str,
     total_nodes: int,
+    logger: logging.Logger,
 ) -> None:
     """
     Perform a rolling restart of the nodes in the Kubernetes StatefulSet
@@ -118,15 +117,17 @@ async def restart_statefulset(
 
         # Waiting for the pod to go down. This ensures we won't try to connect
         # to the killed pod through the load balancing service.
-        await wait_for_termination(pod, get_pods)
+        await wait_for_termination(pod, get_pods, logger)
 
         # Once the Crate node is terminated, we can start checking the health
         # of the cluster.
-        await wait_for_healthy_cluster(connection_factory, total_nodes)
+        await wait_for_healthy_cluster(connection_factory, total_nodes, logger)
         logger.info("Cluster has recovered. Moving on ...")
 
 
-async def restart_cluster(namespace: str, name: str, total_nodes: int) -> None:
+async def restart_cluster(
+    namespace: str, name: str, total_nodes: int, logger: logging.Logger
+) -> None:
     """
     Perform a rolling restart of the CrateDB cluster ``name`` in ``namespace``.
 
@@ -157,9 +158,9 @@ async def restart_cluster(namespace: str, name: str, total_nodes: int) -> None:
 
     if "master" in cluster["spec"]["nodes"]:
         await restart_statefulset(
-            core, conn_factory, namespace, name, "master", total_nodes
+            core, conn_factory, namespace, name, "master", total_nodes, logger
         )
     for node_spec in cluster["spec"]["nodes"]["data"]:
         await restart_statefulset(
-            core, conn_factory, namespace, name, node_spec["name"], total_nodes
+            core, conn_factory, namespace, name, node_spec["name"], total_nodes, logger
         )

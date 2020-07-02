@@ -9,9 +9,6 @@ from psycopg2.extensions import quote_ident
 
 from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
 
-logger = logging.getLogger(__name__)
-
-
 HEALTHINESS = {1: "GREEN", 2: "YELLOW", 3: "RED"}
 
 
@@ -96,7 +93,9 @@ async def get_healthiness(cursor: Cursor) -> int:
     return row and row[0]
 
 
-async def wait_for_healthy_cluster(connection_factory, expected_nodes: int) -> None:
+async def wait_for_healthy_cluster(
+    connection_factory, expected_nodes: int, logger: logging.Logger,
+) -> None:
     """
     Indefinitely wait for the cluster to become healty.
 

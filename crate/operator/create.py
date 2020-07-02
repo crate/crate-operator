@@ -57,8 +57,6 @@ from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
 
-logger = logging.getLogger(__name__)
-
 
 def get_debug_persistent_volume(
     owner_references: Optional[List[V1OwnerReference]],
@@ -106,6 +104,7 @@ def create_debug_volume(
     namespace: str,
     name: str,
     labels: LabelType,
+    logger: logging.Logger,
 ) -> Tuple[Awaitable[V1PersistentVolume], Awaitable[V1PersistentVolumeClaim]]:
     """
     Creates a ``PersistentVolume`` and ``PersistentVolumeClaim`` to be used for
@@ -161,6 +160,7 @@ def create_sql_exporter_config(
     namespace: str,
     name: str,
     labels: LabelType,
+    logger: logging.Logger,
 ) -> Awaitable[V1ConfigMap]:
     return call_kubeapi(
         core.create_namespaced_config_map,
@@ -171,7 +171,7 @@ def create_sql_exporter_config(
     )
 
 
-def get_statefulset_affinity(name: str) -> Optional[V1Affinity]:
+def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Affinity]:
     if config.TESTING:
         logger.warning("Deploying cluster %s without any pod anti-affinity!", name)
         return None
@@ -556,6 +556,7 @@ def get_statefulset(
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    logger: logging.Logger,
 ) -> V1StatefulSet:
     node_annotations = node_spec.get("annotations", {})
     node_annotations.update(
@@ -615,7 +616,7 @@ def get_statefulset(
                     annotations=node_annotations, labels=node_labels,
                 ),
                 spec=V1PodSpec(
-                    affinity=get_statefulset_affinity(name),
+                    affinity=get_statefulset_affinity(name, logger),
                     containers=containers,
                     image_pull_secrets=image_pull_secrets,
                     init_containers=get_statefulset_init_containers(crate_image),
@@ -650,6 +651,7 @@ def create_statefulset(
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    logger: logging.Logger,
 ) -> Awaitable[V1StatefulSet]:
     return call_kubeapi(
         apps.create_namespaced_stateful_set,
@@ -677,6 +679,7 @@ def create_statefulset(
             ssl,
             cluster_settings,
             image_pull_secrets,
+            logger,
         ),
     )
 
@@ -740,6 +743,7 @@ def create_services(
     postgres_port: int,
     transport_port: int,
     dns_record: Optional[str],
+    logger: logging.Logger,
 ) -> Tuple[Awaitable[V1Service], Awaitable[V1Service]]:
     return (
         call_kubeapi(
@@ -781,6 +785,7 @@ def create_system_user(
     namespace: str,
     name: str,
     labels: LabelType,
+    logger: logging.Logger,
 ) -> Awaitable[V1Secret]:
     """
     The *CrateDB Operator* will need to perform operations on the CrateDB

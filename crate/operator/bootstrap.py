@@ -18,8 +18,6 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.typing import SecretKeyRefContainer
 
-logger = logging.getLogger(__name__)
-
 
 async def bootstrap_license(
     core: CoreV1Api,
@@ -27,6 +25,7 @@ async def bootstrap_license(
     master_node_pod: str,
     has_ssl: bool,
     license: SecretKeyRefContainer,
+    logger: logging.Logger,
 ) -> None:
     """
     Set a license key on a CrateDB cluster.
@@ -97,7 +96,12 @@ async def bootstrap_license(
 
 
 async def bootstrap_system_user(
-    core: CoreV1Api, namespace: str, name: str, master_node_pod: str, has_ssl: bool
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    master_node_pod: str,
+    has_ssl: bool,
+    logger: logging.Logger,
 ) -> None:
     """
     Exec into to a CrateDB container and create the system user.
@@ -293,6 +297,7 @@ async def bootstrap_cluster(
     license: Optional[SecretKeyRefContainer],
     has_ssl: bool,
     users: Optional[List[Dict[str, Any]]],
+    logger: logging.Logger,
 ):
     """
     Bootstrap an entire cluster, including license, system user, and additional
@@ -319,8 +324,8 @@ async def bootstrap_cluster(
     # contains more nodes than available in the free license.
     if license:
         await bootstrap_license(
-            core, namespace, master_node_pod, has_ssl, license,
+            core, namespace, master_node_pod, has_ssl, license, logger,
         )
-    await bootstrap_system_user(core, namespace, name, master_node_pod, has_ssl)
+    await bootstrap_system_user(core, namespace, name, master_node_pod, has_ssl, logger)
     if users:
         await bootstrap_users(core, namespace, name, users)
