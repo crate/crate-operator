@@ -9,7 +9,7 @@ from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from crate.operator.constants import API_GROUP, BACKOFF_TIME, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.operations import restart_cluster
-from crate.operator.utils.kubeapi import get_public_ip, get_system_user_password
+from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
 from .utils import assert_wait_for
 
@@ -93,8 +93,8 @@ async def test_restart_cluster(
         },
     )
 
-    ip_address = await asyncio.wait_for(
-        get_public_ip(core, namespace.metadata.name, name),
+    host = await asyncio.wait_for(
+        get_public_host(core, namespace.metadata.name, name),
         timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
     )
 
@@ -115,7 +115,7 @@ async def test_restart_cluster(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(ip_address, password),
+        connection_factory(host, password),
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=BACKOFF_TIME * 5,
     )

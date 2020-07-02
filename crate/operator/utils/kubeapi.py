@@ -121,10 +121,10 @@ async def get_system_user_password(
     )
 
 
-async def get_public_ip(core: CoreV1Api, namespace: str, name: str) -> str:
+async def get_public_host(core: CoreV1Api, namespace: str, name: str) -> str:
     """
-    Query the Kubernetes service deployed alongside CrateDB for the public CrateDB
-    cluster IP.
+    Query the Kubernetes service deployed alongside CrateDB for the public
+    CrateDB cluster IP or hostname.
 
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where the CrateDB cluster is deployed.
@@ -141,9 +141,11 @@ async def get_public_ip(core: CoreV1Api, namespace: str, name: str) -> str:
                 and status.load_balancer
                 and status.load_balancer.ingress
                 and status.load_balancer.ingress[0]
-                and status.load_balancer.ingress[0].ip
             ):
-                return status.load_balancer.ingress[0].ip
+                if status.load_balancer.ingress[0].ip:
+                    return status.load_balancer.ingress[0].ip
+                elif status.load_balancer.ingress[0].hostname:
+                    return status.load_balancer.ingress[0].hostname
         except ApiException:
             pass
 
@@ -167,6 +169,6 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
         # During testing we need to connect to the cluster via its public IP
         # address, because the operator isn't running inside the Kubernetes
         # cluster.
-        return await get_public_ip(core, namespace, name)
+        return await get_public_host(core, namespace, name)
 
     return f"crate-{name}.{namespace}"
