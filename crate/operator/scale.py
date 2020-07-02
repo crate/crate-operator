@@ -207,7 +207,7 @@ async def scale_up_statefulset(
         apps, namespace, sts_name, replicas, new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger),
+    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
 
     return new_total_nodes
 
@@ -298,7 +298,7 @@ async def scale_down_statefulset(
         apps, namespace, sts_name, replicas, new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger),
+    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
 
     return new_total_nodes
 
@@ -499,7 +499,7 @@ async def scale_cluster_master_nodes(
         new_total_nodes,
     )
 
-    await wait_for_healthy_cluster(conn_factory, old_total_nodes, logger),
+    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
 
     return new_total_nodes
 
