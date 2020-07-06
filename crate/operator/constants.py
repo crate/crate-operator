@@ -1,3 +1,5 @@
+import enum
+
 API_GROUP = "cloud.crate.io"
 RESOURCE_CRATEDB = "cratedbs"
 
@@ -10,3 +12,8 @@ LABEL_NODE_NAME = f"{API_GROUP}/node-name"
 SYSTEM_USERNAME = "system"
 
 BACKOFF_TIME = 60.0
+
+
+class CloudProvider(str, enum.Enum):
+    AWS = "aws"
+    AZURE = "azure"
