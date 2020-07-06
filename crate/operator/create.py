@@ -47,10 +47,16 @@ from kubernetes_asyncio.client import (
     V1StatefulSetUpdateStrategy,
     V1Volume,
     V1VolumeMount,
+    V1WeightedPodAffinityTerm,
 )
 
 from crate.operator.config import config
-from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, LABEL_NODE_NAME
+from crate.operator.constants import (
+    LABEL_COMPONENT,
+    LABEL_NAME,
+    LABEL_NODE_NAME,
+    CloudProvider,
+)
 from crate.operator.utils import quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
 from crate.operator.utils.kubeapi import call_kubeapi
@@ -176,6 +182,26 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
         logger.warning("Deploying cluster %s without any pod anti-affinity!", name)
         return None
 
+    zone_affinity = None
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        zone_affinity = [
+            V1WeightedPodAffinityTerm(
+                pod_affinity_term=V1PodAffinityTerm(
+                    label_selector=V1LabelSelector(
+                        match_expressions=[
+                            V1LabelSelectorRequirement(
+                                key=LABEL_COMPONENT, operator="In", values=["cratedb"],
+                            ),
+                            V1LabelSelectorRequirement(
+                                key=LABEL_NAME, operator="In", values=[name],
+                            ),
+                        ],
+                    ),
+                ),
+                weight=100,
+            )
+        ]
+
     return V1Affinity(
         pod_anti_affinity=V1PodAntiAffinity(
             required_during_scheduling_ignored_during_execution=[
@@ -192,7 +218,8 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                     ),
                     topology_key="kubernetes.io/hostname",
                 ),
-            ]
+            ],
+            preferred_during_scheduling_ignored_during_execution=zone_affinity,
         ),
     )
 
@@ -341,6 +368,10 @@ def get_statefulset_crate_command(
     node_settings = node_spec.get("settings", {})
     for k, v in node_settings.items():
         settings[f"-C{k}"] = v
+
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"
+        settings["-Cnode.attr.zone"] = f"$(curl -q {url})"
 
     return ["/docker-entrypoint.sh", "crate"] + [
         f"{k}={v}" for k, v in settings.items()

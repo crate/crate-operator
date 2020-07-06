@@ -76,6 +76,7 @@ intersphinx_mapping = {
     "aiohttp": ("https://docs.aiohttp.org/en/stable/", None),
     "aiopg": ("https://aiopg.readthedocs.io/en/stable/", None),
     "bitmath": ("https://bitmath.readthedocs.io/en/stable/", None),
+    "cratedb": ("https://crate.io/docs/crate/reference/en/stable/", None),
     "kopf": ("https://kopf.readthedocs.io/en/stable/", None),
     "python": ("https://docs.python.org/3.8/", None),
 }

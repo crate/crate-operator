@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import bitmath
 
+from crate.operator.constants import CloudProvider
 from crate.operator.exceptions import ConfigurationError
 
 UNDEFINED = object()
@@ -21,6 +22,10 @@ class Config:
     #: bootstrap a cluster. Once this threshold has passed, a bootstrapping is
     #: considered failed
     BOOTSTRAP_TIMEOUT = 1800
+
+    #: When set, enable special handling for the defind cloud provider, e.g. on
+    #: AWS pass the availability zone as a CrateDB node attribute.
+    CLOUD_PROVIDER: Optional[CloudProvider] = None
 
     #: The Docker image that contians scripts to run cluster backups.
     CLUSTER_BACKUP_IMAGE: str
@@ -89,6 +94,17 @@ class Config:
                 f"Invalid {self._prefix}BOOTSTRAP_TIMEOUT="
                 f"'{bootstrap_timeout}'. Needs to be a positive integer or 0."
             )
+
+        cloud_provider = self.env("CLOUD_PROVIDER", default=self.CLOUD_PROVIDER)
+        if cloud_provider is not None:
+            try:
+                self.CLOUD_PROVIDER = CloudProvider(cloud_provider)
+            except ValueError:
+                allowed = ", ".join(CloudProvider.__members__.values())
+                raise ConfigurationError(
+                    f"Invalid {self._prefix}CLOUD_PROVIDER="
+                    f"'{cloud_provider}'. Needs to be of {allowed}."
+                )
 
         self.CLUSTER_BACKUP_IMAGE = self.env("CLUSTER_BACKUP_IMAGE")
 

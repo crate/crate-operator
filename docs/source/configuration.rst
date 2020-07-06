@@ -15,6 +15,34 @@ expected to be used in upper-case letters and must be prefixed with
 
    The default value is ``1800`` seconds.
 
+.. envvar:: CLOUD_PROVIDER
+
+   Some cloud providers require a specific setup for CrateDB nodes, due to the
+   availability guarantees of the underlying infrastructure. For example, in
+   AWS, a block storage used by CrateDB as a data partition is only available
+   in one availability zone (AZ) of that corresponding AWS region. If all
+   copies of some shard were located in the same AZ, an outage of that AZ would
+   imply some data being unavailable in CrateDB.
+
+   To ensure CrateDB properly replicates shards to other nodes in different
+   availability zones, one can make use of CrateDB's :ref:`routing allocation
+   awareness <conf-routing-allocation-awareness>`. For example, deploying a
+   cluster in AWS' ``eu-central-1`` region:
+
+   .. code-block:: yaml
+
+      kind: CrateDB
+      spec:
+        cluster:
+          settings:
+            cluster.routing.allocation.awareness.attributes: "zone"
+            cluster.routing.allocation.awareness.force.zone.values: "eu-central-1a,eu-central-1b,eu-central-1c"
+
+   Allowed values:
+
+   - ``aws``
+   - ``azure`` (unused)
+
 .. envvar:: CLUSTER_BACKUP_IMAGE
 
    (**Required**)
