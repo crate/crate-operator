@@ -12,7 +12,7 @@ CrateDB_ inside Kubernetes_.
    configuration
    architecture
    concepts
-   testing
+   development
    ref/modules
 
 

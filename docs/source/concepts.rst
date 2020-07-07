@@ -189,4 +189,4 @@ documented below.
 
 
 .. _report a green health label: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health
-.. _node     checks: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#node-checks
+.. _node checks: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#node-checks
