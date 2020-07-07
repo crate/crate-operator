@@ -13,6 +13,7 @@ CrateDB_ inside Kubernetes_.
    architecture
    concepts
    development
+   changelog
    ref/modules
 
 
