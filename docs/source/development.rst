@@ -1,5 +1,8 @@
+Working on the operator
+=======================
+
 Testing
-=======
+-------
 
 Testing the CrateDB Kubernetes Operator is possible at two levels. There are
 unit tests that run without a Kubernetes cluster, and there are integration and
@@ -46,3 +49,44 @@ Furthermore, the context *must* start with either ``crate-`` or be called
 
 
 .. _pytest: https://docs.pytest.org/en/latest/
+
+
+Making a release
+----------------
+
+``crate-operator`` uses `setuptools-scm`_. That means, bumping the package's
+version happens automatically for each git commit or git tag. The operator's
+versions follows Python's :pep:`440` format, where the first 3 parts represent
+the *major*, *minor*, and *patch* parts according to `Semantic
+Versioning`_.
+
+For the following steps we assume the next version is going to be ``$VERSION``.
+
+#. When ready to prepare a new release, start a new branch ``release/$VERSION``:
+
+   .. code-block:: console
+
+      $ git checkout -b "release/$VERSION"
+
+#. Next, go ahead and ensure the changelog ``CHANGES.rst`` is up to date.
+
+#. Commit the changes to the ``CHANGES.rst``, push them to GitHub, and open a
+   pull request against the ``master`` branch:
+
+   .. code-block:: console
+
+      $ git add CHANGES.rst
+      $ git commit -m "Prepare release $VERSION"
+      $ git push --set-upstream origin "release/$VERSION"
+
+#. After merging the pull request to the ``master`` branch, fetch the latest
+   changes and create the release:
+
+   .. code-block:: console
+
+      $ git checkout master
+      $ git pull
+      $ ./devtools/create_tag.sh "$VERSION"
+
+.. _setuptools-scm: https://pypi.org/project/setuptools-scm/
+.. _Semantic Versioning: https://semver.org/
