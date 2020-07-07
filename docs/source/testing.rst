@@ -1,12 +1,12 @@
 Testing
 =======
 
-Testing the *CrateDB Kubernetes Operator* comes at two levels. There are
-unittests that run without a Kubernetes cluster, and there are integration and
-end-to-end style tests which require a Kubernetes cluster to run.
+Testing the CrateDB Kubernetes Operator is possible at two levels. There are
+unit tests that run without a Kubernetes cluster, and there are integration and
+end-to-end style tests that do require a Kubernetes cluster to run.
 
 To run either set of tests, one needs to first install the operator and its
-test dependencies. This is typically done inside a Python virtual environemnt:
+test dependencies. This is typically done inside a Python virtual environment:
 
 .. code-block:: console
 
@@ -15,32 +15,34 @@ test dependencies. This is typically done inside a Python virtual environemnt:
    (env)$ python -m pip install -e '.[testing]'
    Successfully installed ... crate-operator ...
 
-Now, running the unittest can be done by using pytest_ from within the
-activated virtual environemnt:
+Now, running the unit test can be done by using pytest_ from within the
+activated virtual environment:
 
 .. code-block:: console
 
    (env)$ pytest
 
 Running the integration or end-to-end style tests requires a running Kubernetes
-cluster and access to it through ``kubectl``. That also mean, you need to have
+cluster and access to it through ``kubectl``. That also means you need to have
 a ``kubeconfig`` file at hand. Often enough, you can find that file in the
 ``.kube`` folder in your home directory (``$HOME/.kube/config``).
 
 .. warning::
 
    Before you run the tests, make sure you're not using a production Kubernetes
-   cluster, as some tests will remove resources which can quickly interfer with
+   cluster, as some tests will remove resources. This can easily interfere with
    your production operation!
 
 To reduce the risk of accidentally using a production Kubernetes context, the
-operator requires not only the *path* to the ``kubeconfig`` but *additionally*
-the Kubernetes context to use. These two parameters need to be passed via the
-``--kube-config`` and ``--kube-context`` arguments to pytest_: Furthermore, the
-context *must* start with either ``crate-`` or be called ``minikube``.
+operator requires not only specifying the path to the ``kubeconfig``, but
+additionally the Kubernetes context to use. These two parameters need to be
+passed via the ``--kube-config`` and ``--kube-context`` arguments to pytest_.
+Furthermore, the context *must* start with either ``crate-`` or be called
+``minikube``.
 
 .. code-block:: console
 
    (env)$ pytest -vv --kube-config=~/.kube/test_config --kube-context=crate-testing
+
 
 .. _pytest: https://docs.pytest.org/en/latest/
