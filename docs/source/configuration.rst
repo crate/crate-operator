@@ -1,15 +1,15 @@
 Configuration
 =============
 
-The configuration for the *CrateDB Kubernetes Operator* follows the `12 Factor
+The configuration for the CrateDB Kubernetes Operator follows the `12 Factor
 Principles`_ and uses environment variables. All environment variables are
-expected to be used in upper-case letters and must be prefixed with
+expected to use upper-case letters and must be prefixed with
 ``CRATEDB_OPERATOR_``.
 
 .. envvar:: BOOTSTRAP_TIMEOUT
 
    When deploying a cluster, the operator will perform some bootstrap tasks as
-   documented in :ref:`the concept section <concept-bootstrapping>`. The
+   documented in :ref:`the Concepts section <concept-bootstrapping>`. The
    operator will wait at most this many seconds until it considers the
    bootstrapping to have failed. Set to ``0`` to disable timeouts.
 
@@ -26,8 +26,8 @@ expected to be used in upper-case letters and must be prefixed with
 
    To ensure CrateDB properly replicates shards to other nodes in different
    availability zones, one can make use of CrateDB's :ref:`routing allocation
-   awareness <conf-routing-allocation-awareness>`. For example, deploying a
-   cluster in AWS' ``eu-central-1`` region:
+   awareness <cratedb:conf-routing-allocation-awareness>`. For example,
+   deploying a cluster in AWS' ``eu-central-1`` region:
 
    .. code-block:: yaml
 
@@ -50,7 +50,7 @@ expected to be used in upper-case letters and must be prefixed with
    When enabling backups for a cluster, the operator deploys a Prometheus_
    exporter to be scraped for backup metrics, and a Kubernetes CronJob that
    creates backups every defined interval. This variable needs to point to a
-   Docker image *and* tag to use it for both.
+   Docker image *and* tag to use it for the exporter and CronJob.
 
 .. envvar:: DEBUG_VOLUME_SIZE
 
@@ -68,7 +68,7 @@ expected to be used in upper-case letters and must be prefixed with
 
 .. envvar:: IMAGE_PULL_SECRETS
 
-   A comma separated list of Kubernetes image pull secrets. Each Kubernetes
+   A comma-separated list of Kubernetes image pull secrets. Each Kubernetes
    resource created by the operator will have all these secrets attached.
 
    The default value is an empty list.
@@ -82,12 +82,12 @@ expected to be used in upper-case letters and must be prefixed with
 
 .. envvar:: KUBECONFIG
 
-   If defined, needs to point to a valid Kubernetes configuration file. Due to
-   the underlying libraries, multiple paths, such as
-   ``/path/to/kube.conf:/another/path.conf`` are not allowed. For compatibility
-   and ease of use, if ``CRATEDB_OPERATOR_KUBECONFIG`` is not defined, the
-   operator will also look for the ``KUBECONFIG`` environment variable. Default
-   is ``None`` and leads to "in-cluster" configuration.
+   If defined, it needs to point to a valid Kubernetes configuration file. Due
+   to the underlying libraries, multiple paths, such as
+   ``/path/to/kube.conf:/another/path.conf``, are not allowed. For
+   compatibility and ease of use, if ``CRATEDB_OPERATOR_KUBECONFIG`` is not
+   defined, the operator will also look for the ``KUBECONFIG`` environment
+   variable. Default is ``None`` and leads to "in-cluster" configuration.
 
 .. envvar:: LOG_LEVEL
 
@@ -99,12 +99,11 @@ expected to be used in upper-case letters and must be prefixed with
 
 .. envvar:: ROLLING_RESTART_TIMEOUT
 
-   A rolling cluster restart takes some time, heavily depending on the cluster
-   size, its number of nodes, amount of data, etc. After some change
-   operations, such as cluster upgrades, the operator will trigger a rolling
-   cluster restart. The operator will wait at most this many seconds until it
-   considers the rolling restart to have failed. Set to ``0`` to disable
-   timeouts.
+   A rolling cluster restart takes some time, depending on the cluster size,
+   number of nodes, amount of data, etc. After some change operations, such as
+   cluster upgrades, the operator will trigger a rolling cluster restart. The
+   operator will wait at most this many seconds until it considers the rolling
+   restart to have failed. Set to ``0`` to disable timeouts.
 
    The default value is ``3600`` seconds.
 
@@ -113,24 +112,26 @@ expected to be used in upper-case letters and must be prefixed with
    When scaling a cluster, the operator will sometimes need to deallocate some
    CrateDB nodes before turning them off. To ensure the operator keeps
    functioning on the resource, scaling operations will be aborted after this
-   many seconds and considered failed. Set to ``0`` to disable timeouts.
+   many seconds and will be considered to have failed. Set to ``0`` to disable
+   timeouts.
 
    The default value is ``3600`` seconds.
 
 .. envvar:: TESTING
 
-   During development or testing, some contraints enforced by the operator may
-   be obstructive. An example for that can be the Kubernetes pod anti-affinity
-   on all CrateDB pods, that guarantees that a single Kubernetes node failure
-   doesn't take down several CrateDB nodes. As a result, deploying a CrateDB
-   cluster that has explicit master nodes won't be possible on a 3-node
-   Kubernetes cluster, because there would be 3 master + *n* data nodes.
-   Setting this to ``True`` will remove the contraint.
+   During development or testing, some constraints enforced by the operator may
+   be obstructive. One such example is the Kubernetes pod anti-affinity on all
+   CrateDB pods, which guarantees that a single Kubernetes node failure doesn't
+   take down several CrateDB nodes. This makes deploying a CrateDB cluster that
+   has explicit master nodes impossible on a 3-node Kubernetes cluster, because
+   there would be 3 master + *n* data nodes.
+
+   Setting this to ``True`` will remove the constraint.
 
    .. danger::
 
-      Do **not** set this when running the operator in production! It *will*
-      impact the reliability of your CrateDB clusters!
+      Do **not** set this variable when running the operator in production! It
+      *will* impact the reliability of your CrateDB clusters!
 
    The default value is ``False``.
 
@@ -156,7 +157,6 @@ expected to be used in upper-case letters and must be prefixed with
    Auth <7617>` credentials. This is the username.
 
    The default value is ``None``.
-
 
 
 .. _12 Factor Principles: https://12factor.net/

@@ -1,7 +1,7 @@
 Installation
 ============
 
-The *CrateDB Kubernetes Operator* makes use of Kubernetes' `Custom Resources`_.
+The CrateDB Kubernetes Operator makes use of Kubernetes' `Custom Resources`_.
 Therefore, in order to use the operator, one needs to install the CrateDB
 custom resource:
 
