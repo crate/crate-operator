@@ -21,13 +21,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import kopf
 from aiopg import Cursor
+from kopf.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, V1Container, V1StatefulSet
+from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.constants import BACKOFF_TIME
 from crate.operator.cratedb import connection_factory, wait_for_healthy_cluster
+from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import quorum
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
+from crate.operator.utils.state import State
+from crate.operator.webhooks import (
+    WebhookEvent,
+    WebhookScaleNodePayload,
+    WebhookScalePayload,
+    WebhookStatus,
+)
 
 
 def parse_replicas(r: str) -> int:
@@ -623,3 +634,108 @@ async def scale_cluster(
             await cursor.execute(
                 """UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1"""
             )
+
+
+class ScaleSubHandler(StateBasedSubHandler):
+    state = State.SCALE
+
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        diff: kopf.Diff,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        do_scale_master = False
+        do_scale_data = False
+        scale_master_diff_item: Optional[kopf.DiffItem] = None
+        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
+        for operation, field_path, old_value, new_value in diff:
+            if field_path == ("spec", "nodes", "master", "replicas"):
+                do_scale_master = True
+                scale_master_diff_item = kopf.DiffItem(
+                    operation, field_path, old_value, new_value
+                )
+            elif field_path == ("spec", "nodes", "data"):
+                # TODO: check for data node order, added or removed types, ...
+                if len(old_value) != len(new_value):
+                    raise kopf.PermanentError(
+                        "Adding and removing node specs is not supported at this time."
+                    )
+                scale_data_diff_items = []
+                for node_spec_idx in range(len(old_value)):
+                    old_spec = old_value[node_spec_idx]
+                    new_spec = new_value[node_spec_idx]
+                    inner_diff = calc_diff(old_spec, new_spec)
+                    for (
+                        inner_operation,
+                        inner_field_path,
+                        inner_old_value,
+                        inner_new_value,
+                    ) in inner_diff:
+                        if inner_field_path == ("replicas",):
+                            do_scale_data = True
+                            scale_data_diff_items.append(
+                                kopf.DiffItem(
+                                    inner_operation,
+                                    (str(node_spec_idx),) + inner_field_path,
+                                    inner_old_value,
+                                    inner_new_value,
+                                )
+                            )
+                        else:
+                            logger.info(
+                                "Ignoring operation %s on field %s",
+                                operation,
+                                field_path + (str(node_spec_idx),) + inner_field_path,
+                            )
+            else:
+                logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+        async with ApiClient() as api_client:
+            apps = AppsV1Api(api_client)
+            core = CoreV1Api(api_client)
+
+            await scale_cluster(
+                apps,
+                core,
+                namespace,
+                name,
+                do_scale_data,
+                do_scale_master,
+                get_total_nodes_count(old["spec"]["nodes"]),
+                body.spec,
+                scale_master_diff_item,
+                (kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None),
+                logger,
+            )
+
+        self.schedule_notification(
+            WebhookEvent.SCALE,
+            WebhookScalePayload(
+                old_data_replicas=[
+                    WebhookScaleNodePayload(
+                        name=item["name"], replicas=item["replicas"]
+                    )
+                    for item in old["spec"]["nodes"]["data"]
+                ],
+                new_data_replicas=[
+                    WebhookScaleNodePayload(
+                        name=item["name"], replicas=item["replicas"]
+                    )
+                    for item in body.spec["nodes"]["data"]
+                ],
+                old_master_replicas=old["spec"]["nodes"]
+                .get("master", {})
+                .get("replicas"),
+                new_master_replicas=body.spec["nodes"]
+                .get("master", {})
+                .get("replicas"),
+            ),
+            WebhookStatus.SUCCESS,
+        )
+        await self.send_notifications(logger)

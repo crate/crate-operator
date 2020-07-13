@@ -19,8 +19,10 @@ import functools
 import logging
 from typing import Any, Awaitable, Callable, Dict
 
+import kopf
 from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi, V1Pod, V1PodList
+from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.constants import (
     API_GROUP,
@@ -37,7 +39,9 @@ from crate.operator.cratedb import (
     get_healthiness,
     wait_for_healthy_cluster,
 )
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
+from crate.operator.utils.state import State
 
 
 def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
@@ -184,3 +188,23 @@ async def restart_cluster(
         await restart_statefulset(
             core, conn_factory, namespace, name, node_spec["name"], total_nodes, logger
         )
+
+
+class RestartSubHandler(StateBasedSubHandler):
+    state = State.RESTART
+
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
+        async with ApiClient() as api_client:
+            coapi = CustomObjectsApi(api_client)
+            core = CoreV1Api(api_client)
+            await restart_cluster(coapi, core, namespace, name, expected_nodes, logger)
+
+        await self.send_notifications(logger)

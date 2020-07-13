@@ -15,9 +15,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+from typing import Any
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
+from kubernetes_asyncio.client.api_client import ApiClient
+
+from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.utils.state import State
+from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
 
 
 async def update_statefulset(
@@ -77,3 +83,25 @@ async def upgrade_cluster(apps: AppsV1Api, namespace: str, name: str, body: kopf
     )
 
     await asyncio.gather(*updates)
+
+
+class UpgradeSubHandler(StateBasedSubHandler):
+    state = State.UPGRADE
+
+    async def handle(  # type: ignore
+        self, namespace: str, name: str, body: kopf.Body, old: kopf.Body, **kwargs: Any
+    ):
+        async with ApiClient() as api_client:
+            apps = AppsV1Api(api_client)
+            await upgrade_cluster(apps, namespace, name, body)
+
+        self.schedule_notification(
+            WebhookEvent.UPGRADE,
+            WebhookUpgradePayload(
+                old_registry=old["spec"]["cluster"]["imageRegistry"],
+                new_registry=body.spec["cluster"]["imageRegistry"],
+                old_version=old["spec"]["cluster"]["version"],
+                new_version=body.spec["cluster"]["version"],
+            ),
+            WebhookStatus.SUCCESS,
+        )

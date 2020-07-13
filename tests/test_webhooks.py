@@ -130,9 +130,9 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "secr3t password",
         )
         response = await client.send_scale_notification(
-            WebhookStatus.SUCCESS,
             "my-namespace",
             "my-cluster",
+            WebhookStatus.SUCCESS,
             WebhookScalePayload(
                 old_data_replicas={"a": 1},
                 new_data_replicas={"a": 2},

@@ -32,19 +32,23 @@ class WebhookStatus(str, enum.Enum):
     SUCCESS = "success"
 
 
+class WebhookSubPayload(TypedDict):
+    pass
+
+
 class WebhookScaleNodePayload(TypedDict):
     name: str
     replicas: str
 
 
-class WebhookScalePayload(TypedDict):
+class WebhookScalePayload(WebhookSubPayload):
     old_data_replicas: List[WebhookScaleNodePayload]
     new_data_replicas: List[WebhookScaleNodePayload]
     old_master_replicas: Optional[int]
     new_master_replicas: Optional[int]
 
 
-class WebhookUpgradePayload(TypedDict):
+class WebhookUpgradePayload(WebhookSubPayload):
     old_registry: str
     new_registry: str
     old_version: str
@@ -201,11 +205,31 @@ class WebhookClient:
 
         return None
 
-    async def send_scale_notification(
+    async def send_notification(
         self,
-        status: WebhookStatus,
         namespace: str,
         name: str,
+        event: WebhookEvent,
+        sub_payload: WebhookSubPayload,
+        status: WebhookStatus,
+        logger: logging.Logger,
+    ):
+        if event == WebhookEvent.SCALE:
+            kwargs = {"scale_data": sub_payload}
+        elif event == WebhookEvent.UPGRADE:
+            kwargs = {"upgrade_data": sub_payload}
+        else:
+            raise ValueError(f"Unknown event '{event}'")
+
+        return await self._send(
+            event, status, namespace, name, logger=logger, **kwargs  # type:ignore
+        )
+
+    async def send_scale_notification(
+        self,
+        namespace: str,
+        name: str,
+        status: WebhookStatus,
         data: WebhookScalePayload,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
