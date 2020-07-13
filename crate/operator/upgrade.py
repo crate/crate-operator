@@ -3,6 +3,8 @@ import asyncio
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
 
+from crate.operator.prometheus import prometheus
+
 
 async def update_statefulset(
     apps: AppsV1Api, namespace: str, sts_name: str, crate_image: str
@@ -56,3 +58,5 @@ async def upgrade_cluster(namespace: str, name: str, body: kopf.Body):
     )
 
     await asyncio.gather(*updates)
+
+    prometheus.track_clusters_upgraded_total(namespace, name)

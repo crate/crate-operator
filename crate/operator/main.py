@@ -300,6 +300,18 @@ async def cluster_create(
             )
         )
 
+    prometheus.track_cluster_deployed()
+
+
+@kopf.on.delete(API_GROUP, "v1", RESOURCE_CRATEDB)
+async def cluster_delete(**kwargs):
+    prometheus.track_cluster_deleted()
+
+
+@kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
+async def cluster_resume(**kwargs):
+    prometheus.track_cluster_resume_handling()
+
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
 async def cluster_update(

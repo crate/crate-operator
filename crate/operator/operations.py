@@ -21,6 +21,7 @@ from crate.operator.cratedb import (
     get_healthiness,
     wait_for_healthy_cluster,
 )
+from crate.operator.prometheus import prometheus
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 
 
@@ -164,3 +165,5 @@ async def restart_cluster(
         await restart_statefulset(
             core, conn_factory, namespace, name, node_spec["name"], total_nodes, logger
         )
+
+    prometheus.track_clusters_restarted_total(namespace, name)

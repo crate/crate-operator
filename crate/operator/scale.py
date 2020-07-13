@@ -10,6 +10,7 @@ from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.constants import BACKOFF_TIME
 from crate.operator.cratedb import connection_factory, wait_for_healthy_cluster
+from crate.operator.prometheus import prometheus
 from crate.operator.utils import quorum
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 
@@ -610,3 +611,5 @@ async def scale_cluster(
             await cursor.execute(
                 """UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1"""
             )
+
+    prometheus.track_clusters_scaled_total(namespace, name)
