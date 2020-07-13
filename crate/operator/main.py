@@ -18,12 +18,10 @@ import asyncio
 import enum
 import logging
 import warnings
-from typing import Any, Awaitable, Dict, List, Optional
+from typing import Any, Awaitable, Dict, List
 
 import kopf
-from kopf.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import (
-    AppsV1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1LocalObjectReference,
@@ -51,19 +49,14 @@ from crate.operator.create import (
     create_system_user,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
-from crate.operator.operations import get_total_nodes_count, restart_cluster
-from crate.operator.scale import scale_cluster
+from crate.operator.operations import RestartSubHandler, get_total_nodes_count
+from crate.operator.scale import ScaleSubHandler
 from crate.operator.update_user_password import update_user_password
-from crate.operator.upgrade import upgrade_cluster
+from crate.operator.upgrade import UpgradeSubHandler
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.kubeapi import ensure_user_password_label, get_host
-from crate.operator.webhooks import (
-    WebhookScaleNodePayload,
-    WebhookScalePayload,
-    WebhookStatus,
-    WebhookUpgradePayload,
-    webhook_client,
-)
+from crate.operator.utils.state import Context, State
+from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
 
@@ -386,188 +379,56 @@ async def cluster_create(
 async def cluster_update(
     namespace: str,
     name: str,
-    body: kopf.Body,
-    spec: kopf.Spec,
+    patch: kopf.Patch,
+    status: kopf.Status,
     diff: kopf.Diff,
-    old: kopf.Body,
-    logger: logging.Logger,
+    logger,
     **kwargs,
 ):
-    """
-    Implement any updates to a cluster. The handler will sort out the logic of
-    what to update, in which order, and when to trigger a restart of a cluster.
-    """
-    do_scale_master = False
-    do_scale_data = False
-    do_upgrade = False
-    requires_restart = False
-    scale_master_diff_item: Optional[kopf.DiffItem] = None
-    scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+    context = Context.deserialize(status.get("updateContext"))
+    new_cycle = False
+    if context.state_machine.done:
+        new_cycle = True
 
-    for operation, field_path, old_value, new_value in diff:
+    do_upgrade = False
+    do_restart = False
+    do_scale = False
+    for _, field_path, *_ in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
             ("spec", "cluster", "version"),
         }:
             do_upgrade = True
+            do_restart = True
         elif field_path == ("spec", "nodes", "master", "replicas"):
-            do_scale_master = True
-            scale_master_diff_item = kopf.DiffItem(
-                operation, field_path, old_value, new_value
-            )
+            do_scale = True
         elif field_path == ("spec", "nodes", "data"):
-            # TODO: check for data node order, added or removed types, ...
-            if len(old_value) != len(new_value):
-                raise kopf.PermanentError(
-                    "Cannot handle changes to the number of node specs."
-                )
-            scale_data_diff_items = []
-            for node_spec_idx in range(len(old_value)):
-                old_spec = old_value[node_spec_idx]
-                new_spec = new_value[node_spec_idx]
-                inner_diff = calc_diff(old_spec, new_spec)
-                for (
-                    inner_operation,
-                    inner_field_path,
-                    inner_old_value,
-                    inner_new_value,
-                ) in inner_diff:
-                    if inner_field_path == ("replicas",):
-                        do_scale_data = True
-                        scale_data_diff_items.append(
-                            kopf.DiffItem(
-                                inner_operation,
-                                (str(node_spec_idx),) + inner_field_path,
-                                inner_old_value,
-                                inner_new_value,
-                            )
-                        )
-                    else:
-                        logger.info(
-                            "Ignoring operation %s on field %s",
-                            operation,
-                            field_path + (str(node_spec_idx),) + inner_field_path,
-                        )
-        else:
-            logger.info("Ignoring operation %s on field %s", operation, field_path)
+            do_scale = True
 
-    async with ApiClient() as api_client:
-        apps = AppsV1Api(api_client)
-        coapi = CustomObjectsApi(api_client)
-        core = CoreV1Api(api_client)
+    if do_upgrade:
+        if new_cycle:
+            context.state_machine.add(State.UPGRADE)
+        kopf.register(fn=UpgradeSubHandler(namespace, name, context)(), id="upgrade")
 
-        if do_upgrade:
-            webhook_upgrade_payload = WebhookUpgradePayload(
-                old_registry=old["spec"]["cluster"]["imageRegistry"],
-                new_registry=body.spec["cluster"]["imageRegistry"],
-                old_version=old["spec"]["cluster"]["version"],
-                new_version=body.spec["cluster"]["version"],
-            )
-            await upgrade_cluster(apps, namespace, name, body)
-            requires_restart = True
+    if do_restart:
+        if new_cycle:
+            context.state_machine.add(State.RESTART)
+        kopf.register(
+            fn=RestartSubHandler(namespace, name, context)(),
+            id="restart",
+            timeout=config.ROLLING_RESTART_TIMEOUT,
+        )
 
-        if requires_restart:
-            try:
-                # We need to derive the desired number of nodes from the old spec,
-                # since the new could have a different total number of nodes if a
-                # scaling operation is in progress as well.
-                expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
-                await with_timeout(
-                    restart_cluster(
-                        coapi, core, namespace, name, expected_nodes, logger
-                    ),
-                    config.ROLLING_RESTART_TIMEOUT,
-                    (
-                        f"Failed to restart cluster {namespace}/{name} after "
-                        f"{config.ROLLING_RESTART_TIMEOUT} seconds."
-                    ),
-                )
-            except Exception:
-                logger.exception("Failed to restart cluster")
-                await webhook_client.send_upgrade_notification(
-                    WebhookStatus.FAILURE,
-                    namespace,
-                    name,
-                    webhook_upgrade_payload,
-                    logger,
-                )
-                raise
-            else:
-                logger.info("Cluster restarted")
-                if do_upgrade:
-                    await webhook_client.send_upgrade_notification(
-                        WebhookStatus.SUCCESS,
-                        namespace,
-                        name,
-                        webhook_upgrade_payload,
-                        logger,
-                    )
+    if do_scale:
+        if new_cycle:
+            context.state_machine.add(State.SCALE)
+        kopf.register(
+            fn=ScaleSubHandler(namespace, name, context)(),
+            id="scale",
+            timeout=config.SCALING_TIMEOUT,
+        )
 
-        if do_scale_master or do_scale_data:
-            webhook_scale_payload = WebhookScalePayload(
-                old_data_replicas=[
-                    WebhookScaleNodePayload(
-                        name=item["name"], replicas=item["replicas"]
-                    )
-                    for item in old["spec"]["nodes"]["data"]
-                ],
-                new_data_replicas=[
-                    WebhookScaleNodePayload(
-                        name=item["name"], replicas=item["replicas"]
-                    )
-                    for item in body.spec["nodes"]["data"]
-                ],
-                old_master_replicas=old["spec"]["nodes"]
-                .get("master", {})
-                .get("replicas"),
-                new_master_replicas=body.spec["nodes"]
-                .get("master", {})
-                .get("replicas"),
-            )
-            try:
-                await with_timeout(
-                    scale_cluster(
-                        apps,
-                        core,
-                        namespace,
-                        name,
-                        do_scale_data,
-                        do_scale_master,
-                        get_total_nodes_count(old["spec"]["nodes"]),
-                        spec,
-                        scale_master_diff_item,
-                        (
-                            kopf.Diff(scale_data_diff_items)
-                            if scale_data_diff_items
-                            else None
-                        ),
-                        logger,
-                    ),
-                    config.SCALING_TIMEOUT,
-                    (
-                        f"Failed to scale cluster {namespace}/{name} after "
-                        f"{config.SCALING_TIMEOUT} seconds."
-                    ),
-                )
-            except Exception:
-                logger.exception("Failed to scale cluster")
-                await webhook_client.send_scale_notification(
-                    WebhookStatus.FAILURE,
-                    namespace,
-                    name,
-                    webhook_scale_payload,
-                    logger,
-                )
-                raise
-            else:
-                logger.info("Cluster scaled")
-                await webhook_client.send_scale_notification(
-                    WebhookStatus.SUCCESS,
-                    namespace,
-                    name,
-                    webhook_scale_payload,
-                    logger,
-                )
+    patch.status["updateContext"] = context.serialize()
 
 
 @kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
