@@ -197,6 +197,11 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                             ),
                         ],
                     ),
+                    # `failure-domain.beta.kubernetes.io/zone` is deprecated
+                    # and should be replaced by the compatible term for future
+                    # Kubernetes versions. See also:
+                    # https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domainbetakubernetesiozone
+                    topology_key="failure-domain.beta.kubernetes.io/zone",
                 ),
                 weight=100,
             )
