@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Set the idle timeout of Service loadbalancer to cloud provider specific
+  maximum.
+
 * Fixed a bug that prevented the cluster name from ``.spec.cluster.name`` to be
   used as CrateDB's cluster name.
 

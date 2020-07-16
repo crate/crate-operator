@@ -21,6 +21,7 @@ from crate.operator.create import (
     create_sql_exporter_config,
     create_statefulset,
     create_system_user,
+    get_data_service,
     get_statefulset_affinity,
     get_statefulset_containers,
     get_statefulset_crate_command,
@@ -605,6 +606,43 @@ class TestStatefulSet:
             namespace.metadata.name,
             {f"crate-data-{node_name}-{name}-{i}" for i in range(3)},
         )
+
+
+class TestServiceModels:
+    @pytest.mark.parametrize("dns", [None, "mycluster.example.com"])
+    @pytest.mark.parametrize("provider", [None, "aws", "azure"])
+    def test_get_data_service(self, provider, dns, faker):
+        name = faker.domain_word()
+        http = faker.port_number()
+        psql = faker.port_number()
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            service = get_data_service(None, name, None, http, psql, dns)
+        annotation_keys = service.metadata.annotations.keys()
+        if provider == "aws":
+            assert (
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled"  # noqa
+                in annotation_keys
+            )
+            assert (
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout"  # noqa
+                in annotation_keys
+            )
+        if provider == "azure":
+            assert (
+                "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset"
+                in annotation_keys
+            )
+            assert (
+                "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"
+                in annotation_keys
+            )
+        if dns:
+            assert (
+                service.metadata.annotations[
+                    "external-dns.alpha.kubernetes.io/hostname"
+                ]
+                == dns
+            )
 
 
 @pytest.mark.k8s

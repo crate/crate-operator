@@ -733,10 +733,28 @@ def get_data_service(
     postgres_port: int,
     dns_record: Optional[str],
 ) -> V1Service:
+    annotations = {}
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        # https://kubernetes.io/docs/concepts/services-networking/service/#connection-draining-on-aws
+        annotations.update(
+            {
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled": "true",  # noqa
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout": "1800",  # noqa
+            }
+        )
+    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
+        # https://docs.microsoft.com/en-us/azure/aks/load-balancer-standard#additional-customizations-via-kubernetes-annotations
+        # https://docs.microsoft.com/en-us/azure/load-balancer/load-balancer-tcp-reset
+        annotations.update(
+            {
+                "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset": "false",  # noqa
+                "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout": "30",  # noqa
+            }
+        )
+
     if dns_record:
-        annotations = {"external-dns.alpha.kubernetes.io/hostname": dns_record}
-    else:
-        annotations = {}
+        annotations.update({"external-dns.alpha.kubernetes.io/hostname": dns_record})
+
     return V1Service(
         metadata=V1ObjectMeta(
             annotations=annotations,
