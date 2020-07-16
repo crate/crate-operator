@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+1.0b2 (2020-07-16)
+------------------
+
 * Set the idle timeout of Service loadbalancer to cloud provider specific
   maximum.
 
