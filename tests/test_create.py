@@ -137,6 +137,29 @@ class TestStatefulSetAffinity:
             },
             {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
         ]
+        assert terms.topology_key == "kubernetes.io/hostname"
+
+    def test_cloud_provider_aws(self, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):
+                affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
+
+        apa = affinity.pod_anti_affinity
+        terms = apa.preferred_during_scheduling_ignored_during_execution[0]
+        expressions = terms.pod_affinity_term.label_selector.match_expressions
+        assert [e.to_dict() for e in expressions] == [
+            {
+                "key": "app.kubernetes.io/component",
+                "operator": "In",
+                "values": ["cratedb"],
+            },
+            {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
+        ]
+        assert (
+            terms.pod_affinity_term.topology_key
+            == "failure-domain.beta.kubernetes.io/zone"
+        )
 
 
 class TestStatefulSetContainers:
