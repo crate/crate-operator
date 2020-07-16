@@ -308,6 +308,7 @@ def get_statefulset_crate_command(
     master_nodes: List[str],
     total_nodes_count: int,
     crate_node_name_prefix: str,
+    cluster_name: str,
     node_name: str,
     node_spec: Dict[str, Any],
     cluster_settings: Optional[Dict[str, str]],
@@ -317,7 +318,7 @@ def get_statefulset_crate_command(
 ) -> List[str]:
     settings = {
         "-Cstats.enabled": "true",
-        "-Ccluster.name": name,
+        "-Ccluster.name": cluster_name,
         # This is a clever way of doing string split in SH and picking the last
         # item. Here's how it works:
         #
@@ -578,6 +579,7 @@ def get_statefulset(
     labels: LabelType,
     treat_as_master: bool,
     treat_as_data: bool,
+    cluster_name: str,
     node_name: str,
     node_name_prefix: str,
     node_spec: Dict[str, Any],
@@ -618,6 +620,7 @@ def get_statefulset(
             master_nodes=master_nodes,
             total_nodes_count=total_nodes_count,
             crate_node_name_prefix=node_name_prefix,
+            cluster_name=cluster_name,
             node_name=node_name,
             node_spec=node_spec,
             cluster_settings=cluster_settings,
@@ -673,6 +676,7 @@ def create_statefulset(
     labels: LabelType,
     treat_as_master: bool,
     treat_as_data: bool,
+    cluster_name: str,
     node_name: str,
     node_name_prefix: str,
     node_spec: Dict[str, Any],
@@ -701,6 +705,7 @@ def create_statefulset(
             labels,
             treat_as_master,
             treat_as_data,
+            cluster_name,
             node_name,
             node_name_prefix,
             node_spec,

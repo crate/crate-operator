@@ -164,6 +164,7 @@ async def cluster_create(
     # nor implicit master nodes.
     treat_as_master = True
     sts = []
+    cluster_name = spec["cluster"]["name"]
     if has_master_nodes:
         sts.append(
             create_statefulset(
@@ -174,6 +175,7 @@ async def cluster_create(
                 cratedb_labels,
                 treat_as_master,
                 False,
+                cluster_name,
                 "master",
                 "master-",
                 spec["nodes"]["master"],
@@ -203,6 +205,7 @@ async def cluster_create(
                 cratedb_labels,
                 treat_as_master,
                 True,
+                cluster_name,
                 node_name,
                 f"data-{node_name}-",
                 node_spec,

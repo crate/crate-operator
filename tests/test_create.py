@@ -200,6 +200,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="data-node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -209,14 +210,15 @@ class TestStatefulSetCrateCommand:
         )
         assert ["/docker-entrypoint.sh", "crate"] == cmd[0:2]
 
-    def test_cluster_name_is_name(self, random_string):
-        name = random_string()
+    def test_cluster_name(self, random_string):
+        cluster_name = random_string()
         cmd = get_statefulset_crate_command(
             namespace="some-namespace",
-            name=name,
+            name="cluster1",
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="data-node-",
+            cluster_name=cluster_name,
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -224,7 +226,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
         )
-        assert f"-Ccluster.name={name}" in cmd
+        assert f"-Ccluster.name={cluster_name}" in cmd
 
     def test_node_name(self, random_string):
         node_name = random_string()
@@ -235,6 +237,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix=crate_node_name_prefix,
+            cluster_name="my-cluster",
             node_name=node_name,
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -258,6 +261,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=total,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -276,6 +280,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": count}}},
             cluster_settings=None,
@@ -294,6 +299,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": cpus, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -312,6 +318,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -330,6 +337,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -351,6 +359,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={
                 "resources": {"cpus": 1, "disk": {"count": 1}},
@@ -534,6 +543,7 @@ class TestStatefulSet:
         apps = AppsV1Api()
         core = CoreV1Api()
         name = faker.domain_word()
+        cluster_name = faker.domain_word()
         node_name = faker.domain_word()
         await create_statefulset(
             apps,
@@ -548,6 +558,7 @@ class TestStatefulSet:
             },
             True,
             True,
+            cluster_name,
             node_name,
             f"data-{node_name}-",
             {
