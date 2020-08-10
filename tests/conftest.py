@@ -113,7 +113,7 @@ def kopf_runner(request, cratedb_crd):
         "CRATEDB_OPERATOR_KUBECONFIG": request.config.getoption(KUBECONFIG_OPTION),
     }
     with mock.patch.dict(os.environ, env):
-        with KopfRunner(["run", "--verbose", "--standalone", main.__file__]) as runner:
+        with KopfRunner(["run", "--standalone", main.__file__]) as runner:
             yield runner
 
 

@@ -144,8 +144,10 @@ class Config:
             )
 
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
-        log = logging.getLogger("crate")
-        log.setLevel(logging.getLevelName(self.LOG_LEVEL))
+        level = logging.getLevelName(self.LOG_LEVEL)
+        for logger_name in ("", "crate", "kopf", "kubernetes_asyncio"):
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(level)
 
         rolling_restart_timeout = self.env(
             "ROLLING_RESTART_TIMEOUT", default=str(self.ROLLING_RESTART_TIMEOUT)

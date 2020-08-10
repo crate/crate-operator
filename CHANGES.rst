@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ----------
 
+* Set the configured log level for all loggers. This ensures that even with
+  Kopf's ``--debug`` or ``--verbose`` CLI flags, Kubernetes API responses are
+  not logged anymore when the log level is ``INFO`` or higher. This is to avoid
+  leaking secrets into the operator log when it e.g. reads Kubernetes secrets.
+
 1.0b2 (2020-07-16)
 ------------------
 

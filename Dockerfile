@@ -32,4 +32,4 @@ RUN pip install --no-cache-dir -U pip wheel && \
 USER crate-operator
 
 ENTRYPOINT ["kopf", "run", "--standalone"]
-CMD ["--verbose", "main.py"]
+CMD ["main.py"]
