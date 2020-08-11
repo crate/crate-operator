@@ -37,7 +37,7 @@ setup(
         "docs": ["sphinx<3.1", "sphinx-autodoc-typehints"],
         "testing": [
             "faker==4.1.1",
-            "pytest==5.4.3",
+            "pytest==6.0.1",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.14.0",
         ],
