@@ -15,9 +15,10 @@ RUN python setup.py clean bdist_wheel
 # Run container
 FROM python:3.8-slim
 
-LABEL maintainer="Crate.io" \
-      repository="crate/crate-operator" \
-      name="CrateDB Kubernetes Operator"
+LABEL license="AGPLv3" \
+      maintainer="Crate.io AT GmbH <office@crate.io>" \
+      name="CrateDB Kubernetes Operator" \
+      repository="crate/crate-operator"
 
 WORKDIR /etc/cloud
 RUN useradd -U -M crate-operator
