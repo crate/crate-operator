@@ -33,9 +33,10 @@ def read(path: str) -> str:
 
 setup(
     name="crate-operator",
-    author="Crate.io",
+    author="Crate.io AT GmbH",
     author_email="office@crate.io",
     description="CrateDB Kubernetes Operator",
+    license="AGPLv3",
     long_description=read("README.rst"),
     long_description_content_type="text/x-rst",
     packages=find_namespace_packages(include=["crate.*"]),
@@ -60,6 +61,7 @@ setup(
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 1 - Beta",
+        "License :: OSI Approved :: GNU Affero General Public License v3"
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
     ],
