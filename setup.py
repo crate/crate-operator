@@ -1,5 +1,5 @@
 # CrateDB Kubernetes Operator
-# Copyright (C) 2020 Crate.io AT GmbH
+# Copyright (C) 2020 Crate.IO GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -33,7 +33,7 @@ def read(path: str) -> str:
 
 setup(
     name="crate-operator",
-    author="Crate.io AT GmbH",
+    author="Crate.IO GmbH",
     author_email="office@crate.io",
     description="CrateDB Kubernetes Operator",
     license="AGPLv3",

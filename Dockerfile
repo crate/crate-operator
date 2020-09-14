@@ -16,7 +16,7 @@ RUN python setup.py clean bdist_wheel
 FROM python:3.8-slim
 
 LABEL license="AGPLv3" \
-      maintainer="Crate.io AT GmbH <office@crate.io>" \
+      maintainer="Crate.IO GmbH <office@crate.io>" \
       name="CrateDB Kubernetes Operator" \
       repository="crate/crate-operator"
 
