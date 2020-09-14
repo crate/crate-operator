@@ -1,5 +1,5 @@
 # CrateDB Kubernetes Operator
-# Copyright (C) 2020 Crate.io AT GmbH
+# Copyright (C) 2020 Crate.IO GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
