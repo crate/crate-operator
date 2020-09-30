@@ -14,11 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import pathlib
+
 from docutils.nodes import Element
 from sphinx.addnodes import pending_xref
 from sphinx.application import Sphinx
 from sphinx.environment import BuildEnvironment
 from sphinx.errors import NoUri
+
+
+def run_apidoc(_):
+    from sphinx.ext import apidoc
+
+    argv = [
+        "--ext-autodoc",
+        "--ext-intersphinx",
+        "--separate",
+        "--implicit-namespaces",
+        "--no-toc",
+        "-o",
+        str(pathlib.Path(__file__).parent / "ref"),
+        str(pathlib.Path(__file__).parent.parent.parent / "crate"),
+    ]
+    apidoc.main(argv)
 
 
 def missing_reference(
@@ -49,4 +67,5 @@ def missing_reference(
 
 
 def setup(app):
+    app.connect("builder-inited", run_apidoc)
     app.connect("missing-reference", missing_reference)
