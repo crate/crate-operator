@@ -1,3 +1,19 @@
+# CrateDB Kubernetes Operator
+# Copyright (C) 2020 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
 import os
 from typing import List, Optional
@@ -147,8 +163,10 @@ class Config:
             )
 
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
-        log = logging.getLogger("crate")
-        log.setLevel(logging.getLevelName(self.LOG_LEVEL))
+        level = logging.getLevelName(self.LOG_LEVEL)
+        for logger_name in ("", "crate", "kopf", "kubernetes_asyncio"):
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(level)
 
         prometheus_port = self.env("PROMETHEUS_PORT", default=str(self.PROMETHEUS_PORT))
         try:

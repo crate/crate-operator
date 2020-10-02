@@ -1,3 +1,19 @@
+# CrateDB Kubernetes Operator
+# Copyright (C) 2020 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
 import math
 import pkgutil
@@ -197,6 +213,11 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                             ),
                         ],
                     ),
+                    # `failure-domain.beta.kubernetes.io/zone` is deprecated
+                    # and should be replaced by the compatible term for future
+                    # Kubernetes versions. See also:
+                    # https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domainbetakubernetesiozone
+                    topology_key="failure-domain.beta.kubernetes.io/zone",
                 ),
                 weight=100,
             )
@@ -303,6 +324,7 @@ def get_statefulset_crate_command(
     master_nodes: List[str],
     total_nodes_count: int,
     crate_node_name_prefix: str,
+    cluster_name: str,
     node_name: str,
     node_spec: Dict[str, Any],
     cluster_settings: Optional[Dict[str, str]],
@@ -312,7 +334,7 @@ def get_statefulset_crate_command(
 ) -> List[str]:
     settings = {
         "-Cstats.enabled": "true",
-        "-Ccluster.name": name,
+        "-Ccluster.name": cluster_name,
         # This is a clever way of doing string split in SH and picking the last
         # item. Here's how it works:
         #
@@ -573,6 +595,7 @@ def get_statefulset(
     labels: LabelType,
     treat_as_master: bool,
     treat_as_data: bool,
+    cluster_name: str,
     node_name: str,
     node_name_prefix: str,
     node_spec: Dict[str, Any],
@@ -613,6 +636,7 @@ def get_statefulset(
             master_nodes=master_nodes,
             total_nodes_count=total_nodes_count,
             crate_node_name_prefix=node_name_prefix,
+            cluster_name=cluster_name,
             node_name=node_name,
             node_spec=node_spec,
             cluster_settings=cluster_settings,
@@ -668,6 +692,7 @@ def create_statefulset(
     labels: LabelType,
     treat_as_master: bool,
     treat_as_data: bool,
+    cluster_name: str,
     node_name: str,
     node_name_prefix: str,
     node_spec: Dict[str, Any],
@@ -696,6 +721,7 @@ def create_statefulset(
             labels,
             treat_as_master,
             treat_as_data,
+            cluster_name,
             node_name,
             node_name_prefix,
             node_spec,
@@ -723,10 +749,28 @@ def get_data_service(
     postgres_port: int,
     dns_record: Optional[str],
 ) -> V1Service:
+    annotations = {}
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        # https://kubernetes.io/docs/concepts/services-networking/service/#connection-draining-on-aws
+        annotations.update(
+            {
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled": "true",  # noqa
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout": "1800",  # noqa
+            }
+        )
+    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
+        # https://docs.microsoft.com/en-us/azure/aks/load-balancer-standard#additional-customizations-via-kubernetes-annotations
+        # https://docs.microsoft.com/en-us/azure/load-balancer/load-balancer-tcp-reset
+        annotations.update(
+            {
+                "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset": "false",  # noqa
+                "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout": "30",  # noqa
+            }
+        )
+
     if dns_record:
-        annotations = {"external-dns.alpha.kubernetes.io/hostname": dns_record}
-    else:
-        annotations = {}
+        annotations.update({"external-dns.alpha.kubernetes.io/hostname": dns_record})
+
     return V1Service(
         metadata=V1ObjectMeta(
             annotations=annotations,

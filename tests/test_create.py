@@ -1,3 +1,19 @@
+# CrateDB Kubernetes Operator
+# Copyright (C) 2020 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import asyncio
 import logging
 import string
@@ -21,6 +37,7 @@ from crate.operator.create import (
     create_sql_exporter_config,
     create_statefulset,
     create_system_user,
+    get_data_service,
     get_statefulset_affinity,
     get_statefulset_containers,
     get_statefulset_crate_command,
@@ -137,6 +154,29 @@ class TestStatefulSetAffinity:
             },
             {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
         ]
+        assert terms.topology_key == "kubernetes.io/hostname"
+
+    def test_cloud_provider_aws(self, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):
+                affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
+
+        apa = affinity.pod_anti_affinity
+        terms = apa.preferred_during_scheduling_ignored_during_execution[0]
+        expressions = terms.pod_affinity_term.label_selector.match_expressions
+        assert [e.to_dict() for e in expressions] == [
+            {
+                "key": "app.kubernetes.io/component",
+                "operator": "In",
+                "values": ["cratedb"],
+            },
+            {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
+        ]
+        assert (
+            terms.pod_affinity_term.topology_key
+            == "failure-domain.beta.kubernetes.io/zone"
+        )
 
 
 class TestStatefulSetContainers:
@@ -177,6 +217,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="data-node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -186,14 +227,15 @@ class TestStatefulSetCrateCommand:
         )
         assert ["/docker-entrypoint.sh", "crate"] == cmd[0:2]
 
-    def test_cluster_name_is_name(self, random_string):
-        name = random_string()
+    def test_cluster_name(self, random_string):
+        cluster_name = random_string()
         cmd = get_statefulset_crate_command(
             namespace="some-namespace",
-            name=name,
+            name="cluster1",
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="data-node-",
+            cluster_name=cluster_name,
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -201,7 +243,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
         )
-        assert f"-Ccluster.name={name}" in cmd
+        assert f"-Ccluster.name={cluster_name}" in cmd
 
     def test_node_name(self, random_string):
         node_name = random_string()
@@ -212,6 +254,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
             crate_node_name_prefix=crate_node_name_prefix,
+            cluster_name="my-cluster",
             node_name=node_name,
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -235,6 +278,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=total,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -253,6 +297,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": count}}},
             cluster_settings=None,
@@ -271,6 +316,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": cpus, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -289,6 +335,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -307,6 +354,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
             cluster_settings=None,
@@ -328,6 +376,7 @@ class TestStatefulSetCrateCommand:
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
             crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
             node_name="node",
             node_spec={
                 "resources": {"cpus": 1, "disk": {"count": 1}},
@@ -511,6 +560,7 @@ class TestStatefulSet:
         apps = AppsV1Api()
         core = CoreV1Api()
         name = faker.domain_word()
+        cluster_name = faker.domain_word()
         node_name = faker.domain_word()
         await create_statefulset(
             apps,
@@ -525,6 +575,7 @@ class TestStatefulSet:
             },
             True,
             True,
+            cluster_name,
             node_name,
             f"data-{node_name}-",
             {
@@ -571,6 +622,43 @@ class TestStatefulSet:
             namespace.metadata.name,
             {f"crate-data-{node_name}-{name}-{i}" for i in range(3)},
         )
+
+
+class TestServiceModels:
+    @pytest.mark.parametrize("dns", [None, "mycluster.example.com"])
+    @pytest.mark.parametrize("provider", [None, "aws", "azure"])
+    def test_get_data_service(self, provider, dns, faker):
+        name = faker.domain_word()
+        http = faker.port_number()
+        psql = faker.port_number()
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            service = get_data_service(None, name, None, http, psql, dns)
+        annotation_keys = service.metadata.annotations.keys()
+        if provider == "aws":
+            assert (
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled"  # noqa
+                in annotation_keys
+            )
+            assert (
+                "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout"  # noqa
+                in annotation_keys
+            )
+        if provider == "azure":
+            assert (
+                "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset"
+                in annotation_keys
+            )
+            assert (
+                "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout"
+                in annotation_keys
+            )
+        if dns:
+            assert (
+                service.metadata.annotations[
+                    "external-dns.alpha.kubernetes.io/hostname"
+                ]
+                == dns
+            )
 
 
 @pytest.mark.k8s

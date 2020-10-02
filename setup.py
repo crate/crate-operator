@@ -1,4 +1,19 @@
-# -*- coding: utf-8 -*-
+# CrateDB Kubernetes Operator
+# Copyright (C) 2020 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 
 import os
 from pathlib import Path
@@ -18,9 +33,10 @@ def read(path: str) -> str:
 
 setup(
     name="crate-operator",
-    author="Crate.io",
+    author="Crate.IO GmbH",
     author_email="office@crate.io",
     description="CrateDB Kubernetes Operator",
+    license="AGPLv3",
     long_description=read("README.rst"),
     long_description_content_type="text/x-rst",
     packages=find_namespace_packages(include=["crate.*"]),
@@ -35,10 +51,10 @@ setup(
         "kubernetes-asyncio==11.3.0",
     ],
     extras_require={
-        "docs": ["sphinx<3.1", "sphinx-autodoc-typehints"],
+        "docs": ["sphinx>=3.0,<3.3", "sphinx-autodoc-typehints"],
         "testing": [
-            "faker==4.1.1",
-            "pytest==5.4.3",
+            "faker==4.1.3",
+            "pytest==6.1.0",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.14.0",
         ],
@@ -46,6 +62,7 @@ setup(
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 1 - Beta",
+        "License :: OSI Approved :: GNU Affero General Public License v3"
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
     ],

@@ -47,7 +47,7 @@ jobs:
 
     - name: Generate and test API docs
       run: |
-        make apidocs html
+        make html
       env:
         SPHINXOPTS: "-n -v -W --keep-going"
       working-directory: ./docs
