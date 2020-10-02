@@ -133,7 +133,7 @@ def kopf_runner(request, cratedb_crd):
             yield runner
 
 
-@pytest.fixture("function", autouse=True)
+@pytest.fixture(autouse=True)
 def faker_seed():
     # This sets a new seed for each test that uses the `Faker` library.
     return random.randint(1, 999999)
