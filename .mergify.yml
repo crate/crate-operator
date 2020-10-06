@@ -8,8 +8,8 @@ pull_request_rules:
     conditions:
       - label=ready-to-merge
       - '#approved-reviews-by>=1'
-      - status-success~=^Lint / lint
-      - status-success~=^Lint / docs
+      - status-success=lint
+      - status-success=docs
       - status-success=ci/jenkins/pr_cloud_crate-operator
       - status-success=docs/readthedocs.org:crate-operator
     name: default
