@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip pre-commit
+      - name: Restore pre-commit hooks from cache
+        uses: actions/cache@v1
+        id: restore-pre-commit-hooks
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-
+      - name: Install pre-commit hooks
+        if: steps.restore-pre-commit-hooks.outputs.cache-hit != 'true'
+        run: |
+          pre-commit install-hooks
+      - name: Lint
+        run: |
+          pre-commit run --all-files
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Install dependencies
+        run: |
+          python -m pip install ".[docs]"
+      - name: Generate and test API docs
+        run: |
+          make html
+        env:
+          SPHINXOPTS: "-n -v -W --keep-going"
+        working-directory: ./docs
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[testing]
+      - name: Run tests
+        run: |
+          pytest -vvv
