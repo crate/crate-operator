@@ -77,4 +77,4 @@ jobs:
           python -m pip install -e .[testing]
       - name: Run tests
         run: |
-          pytest -vvv --kube-config="${KUBECONFIG}" --kube-context="$(kubectl config current-context)"
+          pytest -vvv --kube-config="${KUBECONFIG}" --kube-context="$(kubectl config current-context)" tests/test_bootstrap.py::test_bootstrap_users
