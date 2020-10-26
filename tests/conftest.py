@@ -45,7 +45,8 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "k8s: mark test to require a Kubernetes cluster")
 
     kubeconfig = config.getoption(KUBECONFIG_OPTION)
-    if kubeconfig:
+    kubecontext = config.getoption(KUBECONTEXT_OPTION)
+    if kubeconfig and not kubecontext:
         p = subprocess.run(
             ["kubectl", "--kubeconfig", kubeconfig, "config", "current-context"],
             check=True,
