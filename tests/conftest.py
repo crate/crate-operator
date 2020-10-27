@@ -32,7 +32,12 @@ from kubernetes_asyncio.config import load_kube_config
 
 from crate.operator.config import config
 
-from .utils import assert_wait_for, does_namespace_exist
+from .utils import (
+    LOCAL_FS_STORAGE_CLASS_NAME,
+    assert_wait_for,
+    create_local_fs_storage_class,
+    does_namespace_exist,
+)
 
 KUBECONFIG_OPTION = "--kube-config"
 KUBECONTEXT_OPTION = "--kube-context"
@@ -80,7 +85,7 @@ def load_config():
     env = {
         "CRATEDB_OPERATOR_CLUSTER_BACKUP_IMAGE": "crate/does-not-exist-backup",
         "CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE": "2GiB",
-        "CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS": "default",
+        "CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS": LOCAL_FS_STORAGE_CLASS_NAME,
         "CRATEDB_OPERATOR_IMAGE_PULL_SECRETS": "",
         "CRATEDB_OPERATOR_JMX_EXPORTER_VERSION": "0.6.0",
         "CRATEDB_OPERATOR_LOG_LEVEL": "DEBUG",
@@ -110,6 +115,16 @@ def cratedb_crd(request, load_config):
         capture_output=True,
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+async def cratedb_local_storage_class(request, kube_config):
+    # During tests we need to ensure that there's a storage class available
+    # that uses local disk storage. Otherwise it's not guaranteed that the
+    # clusters can start up due to unfulfilled persistent volume claims. But we
+    # only need to do that when we're running against k8s.
+    if "k8s" in request.keywords:
+        await create_local_fs_storage_class()
 
 
 @pytest.fixture

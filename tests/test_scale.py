@@ -73,7 +73,6 @@ async def test_scale_cluster(
     faker,
     namespace,
     cleanup_handler,
-    cratedb_crd,
     kopf_runner,
 ):
     coapi = CustomObjectsApi()
