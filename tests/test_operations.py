@@ -48,9 +48,7 @@ async def is_cluster_healthy(conn_factory: Callable[[], Connection]):
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
-async def test_restart_cluster(
-    faker, namespace, cleanup_handler, cratedb_crd, kopf_runner
-):
+async def test_restart_cluster(faker, namespace, cleanup_handler, kopf_runner):
     coapi = CustomObjectsApi()
     core = CoreV1Api()
     name = faker.domain_word()
