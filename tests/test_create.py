@@ -30,6 +30,7 @@ from crate.operator.constants import (
     LABEL_NAME,
     LABEL_PART_OF,
     RESOURCE_CRATEDB,
+    CloudProvider,
 )
 from crate.operator.create import (
     create_debug_volume,
@@ -158,10 +159,13 @@ class TestStatefulSetAffinity:
         ]
         assert terms.topology_key == "kubernetes.io/hostname"
 
-    def test_cloud_provider_aws(self, faker):
+    @pytest.mark.parametrize("provider", [CloudProvider.AWS, CloudProvider.AZURE])
+    def test_cloud_provider(self, provider, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):
-            with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):
+            with mock.patch(
+                "crate.operator.create.config.CLOUD_PROVIDER", provider.value
+            ):
                 affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
 
         apa = affinity.pod_anti_affinity

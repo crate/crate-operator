@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Support Pod spreading across zones on Azure using weighted Pod
+  affinity on ``failure-domain.beta.kubernetes.io/zone`` topology. See also
+  https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domainbetakubernetesiozone
+
 * Ensured that Kubernetes API client's connections are closed properly.
 
 1.0b3 (2020-08-11)

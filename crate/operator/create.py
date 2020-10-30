@@ -199,7 +199,7 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
         return None
 
     zone_affinity = None
-    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+    if config.CLOUD_PROVIDER in {CloudProvider.AWS, CloudProvider.AZURE}:
         zone_affinity = [
             V1WeightedPodAffinityTerm(
                 pod_affinity_term=V1PodAffinityTerm(
