@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Ensured that Kubernetes API client's connections are closed properly.
+
 1.0b3 (2020-08-11)
 ------------------
 

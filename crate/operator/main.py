@@ -25,9 +25,11 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1beta1Api,
     CoreV1Api,
+    CustomObjectsApi,
     V1LocalObjectReference,
     V1OwnerReference,
 )
+from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.backup import create_backups
 from crate.operator.bootstrap import bootstrap_cluster
@@ -139,10 +141,6 @@ async def cluster_create(
     cratedb_labels[LABEL_COMPONENT] = "cratedb"
     cratedb_labels.update(meta.get("labels", {}))
 
-    apps = AppsV1Api()
-    batchv1_beta1 = BatchV1beta1Api()
-    core = CoreV1Api()
-
     owner_references = [
         V1OwnerReference(
             api_version=f"{API_GROUP}/v1",
@@ -181,135 +179,141 @@ async def cluster_create(
     treat_as_master = True
     sts = []
     cluster_name = spec["cluster"]["name"]
-    if has_master_nodes:
-        sts.append(
-            create_statefulset(
-                apps,
-                owner_references,
-                namespace,
-                name,
-                cratedb_labels,
-                treat_as_master,
-                False,
-                cluster_name,
-                "master",
-                "master-",
-                spec["nodes"]["master"],
-                master_nodes,
-                total_nodes_count,
-                http_port,
-                jmx_port,
-                postgres_port,
-                prometheus_port,
-                transport_port,
-                crate_image,
-                spec["cluster"].get("ssl"),
-                spec["cluster"].get("settings"),
-                image_pull_secrets,
-                logger,
+
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        batchv1_beta1 = BatchV1beta1Api(api_client)
+        core = CoreV1Api(api_client)
+
+        if has_master_nodes:
+            sts.append(
+                create_statefulset(
+                    apps,
+                    owner_references,
+                    namespace,
+                    name,
+                    cratedb_labels,
+                    treat_as_master,
+                    False,
+                    cluster_name,
+                    "master",
+                    "master-",
+                    spec["nodes"]["master"],
+                    master_nodes,
+                    total_nodes_count,
+                    http_port,
+                    jmx_port,
+                    postgres_port,
+                    prometheus_port,
+                    transport_port,
+                    crate_image,
+                    spec["cluster"].get("ssl"),
+                    spec["cluster"].get("settings"),
+                    image_pull_secrets,
+                    logger,
+                )
             )
-        )
-        treat_as_master = False
-    for node_spec in spec["nodes"]["data"]:
-        node_name = node_spec["name"]
-        sts.append(
-            create_statefulset(
-                apps,
-                owner_references,
-                namespace,
-                name,
-                cratedb_labels,
-                treat_as_master,
-                True,
-                cluster_name,
-                node_name,
-                f"data-{node_name}-",
-                node_spec,
-                master_nodes,
-                total_nodes_count,
-                http_port,
-                jmx_port,
-                postgres_port,
-                prometheus_port,
-                transport_port,
-                crate_image,
-                spec["cluster"].get("ssl"),
-                spec["cluster"].get("settings"),
-                image_pull_secrets,
-                logger,
+            treat_as_master = False
+        for node_spec in spec["nodes"]["data"]:
+            node_name = node_spec["name"]
+            sts.append(
+                create_statefulset(
+                    apps,
+                    owner_references,
+                    namespace,
+                    name,
+                    cratedb_labels,
+                    treat_as_master,
+                    True,
+                    cluster_name,
+                    node_name,
+                    f"data-{node_name}-",
+                    node_spec,
+                    master_nodes,
+                    total_nodes_count,
+                    http_port,
+                    jmx_port,
+                    postgres_port,
+                    prometheus_port,
+                    transport_port,
+                    crate_image,
+                    spec["cluster"].get("ssl"),
+                    spec["cluster"].get("settings"),
+                    image_pull_secrets,
+                    logger,
+                )
             )
-        )
-        treat_as_master = False
+            treat_as_master = False
 
-    await asyncio.gather(
-        create_sql_exporter_config(
-            core, owner_references, namespace, name, cratedb_labels, logger
-        ),
-        *create_debug_volume(
-            core, owner_references, namespace, name, cratedb_labels, logger
-        ),
-        create_system_user(
-            core, owner_references, namespace, name, cratedb_labels, logger
-        ),
-        *sts,
-        *create_services(
-            core,
-            owner_references,
-            namespace,
-            name,
-            cratedb_labels,
-            http_port,
-            postgres_port,
-            transport_port,
-            spec.get("cluster", {}).get("externalDNS"),
-            logger,
-        ),
-    )
-
-    if has_master_nodes:
-        master_node_pod = f"crate-master-{name}-0"
-    else:
-        node_name = spec["nodes"]["data"][0]["name"]
-        master_node_pod = f"crate-data-{node_name}-{name}-0"
-
-    await with_timeout(
-        bootstrap_cluster(
-            core,
-            namespace,
-            name,
-            master_node_pod,
-            spec["cluster"].get("license"),
-            "ssl" in spec["cluster"],
-            spec.get("users"),
-            logger,
-        ),
-        config.BOOTSTRAP_TIMEOUT,
-        (
-            f"Failed to bootstrap cluster {namespace}/{name} after "
-            f"{config.BOOTSTRAP_TIMEOUT} seconds."
-        ),
-    )
-
-    if "backups" in spec:
-        backup_metrics_labels = base_labels.copy()
-        backup_metrics_labels[LABEL_COMPONENT] = "backup"
-        backup_metrics_labels.update(meta.get("labels", {}))
         await asyncio.gather(
-            *create_backups(
-                apps,
-                batchv1_beta1,
+            create_sql_exporter_config(
+                core, owner_references, namespace, name, cratedb_labels, logger
+            ),
+            *create_debug_volume(
+                core, owner_references, namespace, name, cratedb_labels, logger
+            ),
+            create_system_user(
+                core, owner_references, namespace, name, cratedb_labels, logger
+            ),
+            *sts,
+            *create_services(
+                core,
                 owner_references,
                 namespace,
                 name,
-                backup_metrics_labels,
+                cratedb_labels,
                 http_port,
-                prometheus_port,
-                spec["backups"],
-                image_pull_secrets,
-                "ssl" in spec["cluster"],
+                postgres_port,
+                transport_port,
+                spec.get("cluster", {}).get("externalDNS"),
                 logger,
-            )
+            ),
         )
+
+        if has_master_nodes:
+            master_node_pod = f"crate-master-{name}-0"
+        else:
+            node_name = spec["nodes"]["data"][0]["name"]
+            master_node_pod = f"crate-data-{node_name}-{name}-0"
+
+        await with_timeout(
+            bootstrap_cluster(
+                core,
+                namespace,
+                name,
+                master_node_pod,
+                spec["cluster"].get("license"),
+                "ssl" in spec["cluster"],
+                spec.get("users"),
+                logger,
+            ),
+            config.BOOTSTRAP_TIMEOUT,
+            (
+                f"Failed to bootstrap cluster {namespace}/{name} after "
+                f"{config.BOOTSTRAP_TIMEOUT} seconds."
+            ),
+        )
+
+        if "backups" in spec:
+            backup_metrics_labels = base_labels.copy()
+            backup_metrics_labels[LABEL_COMPONENT] = "backup"
+            backup_metrics_labels.update(meta.get("labels", {}))
+            await asyncio.gather(
+                *create_backups(
+                    apps,
+                    batchv1_beta1,
+                    owner_references,
+                    namespace,
+                    name,
+                    backup_metrics_labels,
+                    http_port,
+                    prometheus_port,
+                    spec["backups"],
+                    image_pull_secrets,
+                    "ssl" in spec["cluster"],
+                    logger,
+                )
+            )
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
@@ -327,7 +331,6 @@ async def cluster_update(
     Implement any updates to a cluster. The handler will sort out the logic of
     what to update, in which order, and when to trigger a restart of a cluster.
     """
-    apps = AppsV1Api()
     do_scale_master = False
     do_scale_data = False
     do_upgrade = False
@@ -382,88 +385,120 @@ async def cluster_update(
         else:
             logger.info("Ignoring operation %s on field %s", operation, field_path)
 
-    if do_upgrade:
-        webhook_upgrade_payload = WebhookUpgradePayload(
-            old_registry=old["spec"]["cluster"]["imageRegistry"],
-            new_registry=body.spec["cluster"]["imageRegistry"],
-            old_version=old["spec"]["cluster"]["version"],
-            new_version=body.spec["cluster"]["version"],
-        )
-        await upgrade_cluster(namespace, name, body)
-        requires_restart = True
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        coapi = CustomObjectsApi(api_client)
+        core = CoreV1Api(api_client)
 
-    if requires_restart:
-        try:
-            # We need to derive the desired number of nodes from the old spec,
-            # since the new could have a different total number of nodes if a
-            # scaling operation is in progress as well.
-            expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
-            await with_timeout(
-                restart_cluster(namespace, name, expected_nodes, logger),
-                config.ROLLING_RESTART_TIMEOUT,
-                (
-                    f"Failed to restart cluster {namespace}/{name} after "
-                    f"{config.ROLLING_RESTART_TIMEOUT} seconds."
-                ),
+        if do_upgrade:
+            webhook_upgrade_payload = WebhookUpgradePayload(
+                old_registry=old["spec"]["cluster"]["imageRegistry"],
+                new_registry=body.spec["cluster"]["imageRegistry"],
+                old_version=old["spec"]["cluster"]["version"],
+                new_version=body.spec["cluster"]["version"],
             )
-        except Exception:
-            logger.exception("Failed to restart cluster")
-            await webhook_client.send_upgrade_notification(
-                WebhookStatus.FAILURE, namespace, name, webhook_upgrade_payload, logger
-            )
-            raise
-        else:
-            logger.info("Cluster restarted")
-            if do_upgrade:
+            await upgrade_cluster(apps, namespace, name, body)
+            requires_restart = True
+
+        if requires_restart:
+            try:
+                # We need to derive the desired number of nodes from the old spec,
+                # since the new could have a different total number of nodes if a
+                # scaling operation is in progress as well.
+                expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
+                await with_timeout(
+                    restart_cluster(
+                        coapi, core, namespace, name, expected_nodes, logger
+                    ),
+                    config.ROLLING_RESTART_TIMEOUT,
+                    (
+                        f"Failed to restart cluster {namespace}/{name} after "
+                        f"{config.ROLLING_RESTART_TIMEOUT} seconds."
+                    ),
+                )
+            except Exception:
+                logger.exception("Failed to restart cluster")
                 await webhook_client.send_upgrade_notification(
-                    WebhookStatus.SUCCESS,
+                    WebhookStatus.FAILURE,
                     namespace,
                     name,
                     webhook_upgrade_payload,
                     logger,
                 )
+                raise
+            else:
+                logger.info("Cluster restarted")
+                if do_upgrade:
+                    await webhook_client.send_upgrade_notification(
+                        WebhookStatus.SUCCESS,
+                        namespace,
+                        name,
+                        webhook_upgrade_payload,
+                        logger,
+                    )
 
-    if do_scale_master or do_scale_data:
-        webhook_scale_payload = WebhookScalePayload(
-            old_data_replicas=[
-                WebhookScaleNodePayload(name=item["name"], replicas=item["replicas"])
-                for item in old["spec"]["nodes"]["data"]
-            ],
-            new_data_replicas=[
-                WebhookScaleNodePayload(name=item["name"], replicas=item["replicas"])
-                for item in body.spec["nodes"]["data"]
-            ],
-            old_master_replicas=old["spec"]["nodes"].get("master", {}).get("replicas"),
-            new_master_replicas=body.spec["nodes"].get("master", {}).get("replicas"),
-        )
-        try:
-            await with_timeout(
-                scale_cluster(
-                    apps,
+        if do_scale_master or do_scale_data:
+            webhook_scale_payload = WebhookScalePayload(
+                old_data_replicas=[
+                    WebhookScaleNodePayload(
+                        name=item["name"], replicas=item["replicas"]
+                    )
+                    for item in old["spec"]["nodes"]["data"]
+                ],
+                new_data_replicas=[
+                    WebhookScaleNodePayload(
+                        name=item["name"], replicas=item["replicas"]
+                    )
+                    for item in body.spec["nodes"]["data"]
+                ],
+                old_master_replicas=old["spec"]["nodes"]
+                .get("master", {})
+                .get("replicas"),
+                new_master_replicas=body.spec["nodes"]
+                .get("master", {})
+                .get("replicas"),
+            )
+            try:
+                await with_timeout(
+                    scale_cluster(
+                        apps,
+                        core,
+                        namespace,
+                        name,
+                        do_scale_data,
+                        do_scale_master,
+                        get_total_nodes_count(old["spec"]["nodes"]),
+                        spec,
+                        scale_master_diff_item,
+                        (
+                            kopf.Diff(scale_data_diff_items)
+                            if scale_data_diff_items
+                            else None
+                        ),
+                        logger,
+                    ),
+                    config.SCALING_TIMEOUT,
+                    (
+                        f"Failed to scale cluster {namespace}/{name} after "
+                        f"{config.SCALING_TIMEOUT} seconds."
+                    ),
+                )
+            except Exception:
+                logger.exception("Failed to scale cluster")
+                await webhook_client.send_scale_notification(
+                    WebhookStatus.FAILURE,
                     namespace,
                     name,
-                    do_scale_data,
-                    do_scale_master,
-                    get_total_nodes_count(old["spec"]["nodes"]),
-                    spec,
-                    scale_master_diff_item,
-                    kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None,
+                    webhook_scale_payload,
                     logger,
-                ),
-                config.SCALING_TIMEOUT,
-                (
-                    f"Failed to scale cluster {namespace}/{name} after "
-                    f"{config.SCALING_TIMEOUT} seconds."
-                ),
-            )
-        except Exception:
-            logger.exception("Failed to scale cluster")
-            await webhook_client.send_scale_notification(
-                WebhookStatus.FAILURE, namespace, name, webhook_scale_payload, logger
-            )
-            raise
-        else:
-            logger.info("Cluster scaled")
-            await webhook_client.send_scale_notification(
-                WebhookStatus.SUCCESS, namespace, name, webhook_scale_payload, logger
-            )
+                )
+                raise
+            else:
+                logger.info("Cluster scaled")
+                await webhook_client.send_scale_notification(
+                    WebhookStatus.SUCCESS,
+                    namespace,
+                    name,
+                    webhook_scale_payload,
+                    logger,
+                )

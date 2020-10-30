@@ -48,9 +48,11 @@ async def is_cluster_healthy(conn_factory: Callable[[], Connection]):
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
-async def test_restart_cluster(faker, namespace, cleanup_handler, kopf_runner):
-    coapi = CustomObjectsApi()
-    core = CoreV1Api()
+async def test_restart_cluster(
+    faker, namespace, cleanup_handler, kopf_runner, api_client
+):
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
 
     # Clean up persistent volume after the test
@@ -113,7 +115,7 @@ async def test_restart_cluster(faker, namespace, cleanup_handler, kopf_runner):
         timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
     )
 
-    password = await get_system_user_password(namespace.metadata.name, name, core)
+    password = await get_system_user_password(core, namespace.metadata.name, name)
 
     await assert_wait_for(
         True,
@@ -139,7 +141,9 @@ async def test_restart_cluster(faker, namespace, cleanup_handler, kopf_runner):
     original_pods = {p.metadata.uid for p in pods.items}
 
     await asyncio.wait_for(
-        restart_cluster(namespace.metadata.name, name, 3, logging.getLogger(__name__)),
+        restart_cluster(
+            coapi, core, namespace.metadata.name, name, 3, logging.getLogger(__name__)
+        ),
         BACKOFF_TIME * 15,
     )
 

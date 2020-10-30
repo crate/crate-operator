@@ -41,18 +41,18 @@ async def update_statefulset(
     )
 
 
-async def upgrade_cluster(namespace: str, name: str, body: kopf.Body):
+async def upgrade_cluster(apps: AppsV1Api, namespace: str, name: str, body: kopf.Body):
     """
     Update the Docker image in all StatefulSets for the cluster.
 
     For the changes to take affect, the cluster needs to be restarted.
 
+    :param apps: An instance of the Kubernetes Apps V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The name for the ``CrateDB`` custom resource.
     :param body: The full body of the ``CrateDB`` custom resource per
         :class:`kopf.Body`.
     """
-    apps = AppsV1Api()
     crate_image = (
         body.spec["cluster"]["imageRegistry"] + ":" + body.spec["cluster"]["version"]
     )

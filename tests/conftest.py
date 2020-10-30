@@ -28,6 +28,7 @@ from kubernetes_asyncio.client import (
     V1Namespace,
     V1ObjectMeta,
 )
+from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.config import load_kube_config
 
 from crate.operator.config import config
@@ -102,6 +103,12 @@ async def kube_config(request, load_config):
     context = request.config.getoption(KUBECONTEXT_OPTION)
     if config:
         await load_kube_config(config_file=config, context=context)
+
+
+@pytest.fixture(name="api_client")
+async def k8s_asyncio_api_client(kube_config) -> ApiClient:
+    async with ApiClient() as api_client:
+        yield api_client
 
 
 @pytest.fixture(scope="session")
