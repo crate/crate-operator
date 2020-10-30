@@ -75,9 +75,10 @@ async def test_bootstrap_license(
     namespace,
     cleanup_handler,
     kopf_runner,
+    api_client,
 ):
-    coapi = CustomObjectsApi()
-    core = CoreV1Api()
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     license = base64.b64encode(faker.binary(64)).decode()
 
@@ -151,9 +152,10 @@ async def test_bootstrap_users(
     namespace,
     cleanup_handler,
     kopf_runner,
+    api_client,
 ):
-    coapi = CustomObjectsApi()
-    core = CoreV1Api()
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     password1 = faker.password(length=40)
     password2 = faker.password(length=30)
@@ -245,7 +247,7 @@ async def test_bootstrap_users(
     )
 
     password_system = await get_system_user_password(
-        namespace.metadata.name, name, core
+        core, namespace.metadata.name, name
     )
     await assert_wait_for(
         True,

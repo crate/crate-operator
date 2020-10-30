@@ -142,7 +142,12 @@ async def restart_statefulset(
 
 
 async def restart_cluster(
-    namespace: str, name: str, total_nodes: int, logger: logging.Logger
+    coapi: CustomObjectsApi,
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    total_nodes: int,
+    logger: logging.Logger,
 ) -> None:
     """
     Perform a rolling restart of the CrateDB cluster ``name`` in ``namespace``.
@@ -153,14 +158,13 @@ async def restart_cluster(
     wait for the cluster to have the desired number of nodes again and for the
     cluster to be in a ``GREEN`` state.
 
+    :param coapi: An instance of the Kubernetes CustomObjects API.
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param total_nodes: The total number of nodes that the cluster should
         consist of, per the CrateDB cluster spec.
     """
-    coapi = CustomObjectsApi()
-    core = CoreV1Api()
-
     cluster = await coapi.get_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -168,7 +172,7 @@ async def restart_cluster(
         namespace=namespace,
         name=name,
     )
-    password = await get_system_user_password(namespace, name, core)
+    password = await get_system_user_password(core, namespace, name)
     host = await get_host(core, namespace, name)
     conn_factory = connection_factory(host, password)
 

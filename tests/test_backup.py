@@ -41,9 +41,9 @@ class TestBackup:
         deployments = await apps.list_namespaced_deployment(namespace=namespace)
         return name in (d.metadata.name for d in deployments.items)
 
-    async def test_create(self, faker, namespace):
-        apps = AppsV1Api()
-        batchv1_beta1 = BatchV1beta1Api()
+    async def test_create(self, faker, namespace, api_client):
+        apps = AppsV1Api(api_client)
+        batchv1_beta1 = BatchV1beta1Api(api_client)
         name = faker.domain_word()
 
         backups_spec = {
@@ -107,9 +107,9 @@ class TestBackup:
             f"backup-metrics-{name}",
         )
 
-    async def test_not_enabled(self, faker, namespace):
-        apps = AppsV1Api()
-        batchv1_beta1 = BatchV1beta1Api()
+    async def test_not_enabled(self, faker, namespace, api_client):
+        apps = AppsV1Api(api_client)
+        batchv1_beta1 = BatchV1beta1Api(api_client)
         name = faker.domain_word()
 
         ret = await asyncio.gather(

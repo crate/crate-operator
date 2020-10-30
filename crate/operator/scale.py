@@ -456,17 +456,18 @@ async def reset_allocation(namespace: str, pod_name: str, has_ssl: bool) -> None
         "-c",
         'RESET GLOBAL "cluster.routing.allocation.exclude._name";',
     ]
-    core_ws = CoreV1Api(api_client=WsApiClient())
-    await core_ws.connect_get_namespaced_pod_exec(
-        namespace=namespace,
-        name=pod_name,
-        command=command_grant,
-        container="crate",
-        stderr=True,
-        stdin=False,
-        stdout=True,
-        tty=False,
-    )
+    async with WsApiClient() as ws_api_client:
+        core_ws = CoreV1Api(ws_api_client)
+        await core_ws.connect_get_namespaced_pod_exec(
+            namespace=namespace,
+            name=pod_name,
+            command=command_grant,
+            container="crate",
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+        )
 
 
 async def scale_cluster_master_nodes(
@@ -558,6 +559,7 @@ async def scale_cluster_patch_total_nodes(
 
 async def scale_cluster(
     apps: AppsV1Api,
+    core: CoreV1Api,
     namespace: str,
     name: str,
     do_scale_data: bool,
@@ -573,6 +575,7 @@ async def scale_cluster(
     ``data_diff_items``.
 
     :param apps: An instance of the Kubernetes Apps V1 API.
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param do_scale_data: ``True``, if data nodes need to be scaled.
@@ -585,10 +588,8 @@ async def scale_cluster(
     :param data_diff_items: An optional list of changes made to the individual
         data node specifications.
     """
-    core = CoreV1Api()
-
     host = await get_host(core, namespace, name)
-    password = await get_system_user_password(namespace, name)
+    password = await get_system_user_password(core, namespace, name)
     conn_factory = connection_factory(host, password)
 
     total_nodes = old_total_nodes

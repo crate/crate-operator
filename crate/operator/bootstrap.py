@@ -64,7 +64,7 @@ async def bootstrap_license(
         CrateDB license key.
     """
     scheme = "https" if has_ssl else "http"
-    license_key = await resolve_secret_key_ref(namespace, license["secretKeyRef"], core)
+    license_key = await resolve_secret_key_ref(core, namespace, license["secretKeyRef"])
     license_key_quoted = QuotedString(license_key).getquoted().decode()
     command = [
         "crash",
@@ -74,41 +74,46 @@ async def bootstrap_license(
         f"SET LICENSE {license_key_quoted};",
     ]
 
-    core_ws = CoreV1Api(api_client=WsApiClient())
     exception_logger = logger.exception if config.TESTING else logger.error
 
-    while True:
-        try:
-            logger.info("Trying to set license ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-        except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # license key in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # license key in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        else:
-            if "SET OK" in result:
-                logger.info("... success")
-                break
-            else:
-                logger.info("... error. %s", result)
+    async with WsApiClient() as ws_api_client:
+        core_ws = CoreV1Api(ws_api_client)
+        while True:
+            try:
+                logger.info("Trying to set license ...")
+                result = await core_ws.connect_get_namespaced_pod_exec(
+                    namespace=namespace,
+                    name=master_node_pod,
+                    command=command,
+                    container="crate",
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                )
+            except ApiException as e:
+                # We don't use `logger.exception()` to not accidentally include the
+                # license key in the log messages which might be part of the string
+                # representation of the exception.
+                exception_logger(
+                    "... failed. Status: %s Reason: %s", e.status, e.reason
+                )
                 await asyncio.sleep(BACKOFF_TIME / 2.0)
+            except WSServerHandshakeError as e:
+                # We don't use `logger.exception()` to not accidentally include the
+                # license key in the log messages which might be part of the string
+                # representation of the exception.
+                exception_logger(
+                    "... failed. Status: %s Message: %s", e.status, e.message
+                )
+                await asyncio.sleep(BACKOFF_TIME / 2.0)
+            else:
+                if "SET OK" in result:
+                    logger.info("... success")
+                    break
+                else:
+                    logger.info("... error. %s", result)
+                    await asyncio.sleep(BACKOFF_TIME / 2.0)
 
 
 async def bootstrap_system_user(
@@ -141,7 +146,7 @@ async def bootstrap_system_user(
         no SSL/TLS is configured.
     """
     scheme = "https" if has_ssl else "http"
-    password = await get_system_user_password(namespace, name, core)
+    password = await get_system_user_password(core, namespace, name)
     password_quoted = QuotedString(password).getquoted().decode()
     # Yes, we're constructing the SQL for the system user manually. But that's
     # fine in this case, because we have full control of the formatting of
@@ -168,55 +173,18 @@ async def bootstrap_system_user(
         f'GRANT ALL PRIVILEGES TO "{SYSTEM_USERNAME}";',
     ]
 
-    core_ws = CoreV1Api(api_client=WsApiClient())
     exception_logger = logger.exception if config.TESTING else logger.error
 
     needs_update = False
-    while True:
-        try:
-            logger.info("Trying to create system user ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command_create_user,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-        except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        else:
-            if "CREATE OK" in result:
-                logger.info("... success")
-                break
-            elif "UserAlreadyExistsException" in result:
-                needs_update = True
-                logger.info("... success. Already present")
-                break
-            else:
-                logger.info("... error. %s", result)
-                await asyncio.sleep(BACKOFF_TIME / 2.0)
-
-    if needs_update:
+    async with WsApiClient() as ws_api_client:
+        core_ws = CoreV1Api(ws_api_client)
         while True:
             try:
-                logger.info("Trying to update system user password ...")
+                logger.info("Trying to create system user ...")
                 result = await core_ws.connect_get_namespaced_pod_exec(
                     namespace=namespace,
                     name=master_node_pod,
-                    command=command_alter_user,
+                    command=command_create_user,
                     container="crate",
                     stderr=True,
                     stdin=False,
@@ -240,36 +208,78 @@ async def bootstrap_system_user(
                 )
                 await asyncio.sleep(BACKOFF_TIME / 2.0)
             else:
-                if "ALTER OK" in result:
+                if "CREATE OK" in result:
                     logger.info("... success")
+                    break
+                elif "UserAlreadyExistsException" in result:
+                    needs_update = True
+                    logger.info("... success. Already present")
                     break
                 else:
                     logger.info("... error. %s", result)
                     await asyncio.sleep(BACKOFF_TIME / 2.0)
 
-    while True:
-        try:
-            logger.info("Trying to grant system user all privileges ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command_grant,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-        except (ApiException, WSServerHandshakeError):
-            logger.exception("... failed")
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        else:
-            if "GRANT OK" in result:
-                logger.info("... success")
-                break
-            else:
-                logger.info("... error. %s", result)
+        if needs_update:
+            while True:
+                try:
+                    logger.info("Trying to update system user password ...")
+                    result = await core_ws.connect_get_namespaced_pod_exec(
+                        namespace=namespace,
+                        name=master_node_pod,
+                        command=command_alter_user,
+                        container="crate",
+                        stderr=True,
+                        stdin=False,
+                        stdout=True,
+                        tty=False,
+                    )
+                except ApiException as e:
+                    # We don't use `logger.exception()` to not accidentally include the
+                    # password in the log messages which might be part of the string
+                    # representation of the exception.
+                    exception_logger(
+                        "... failed. Status: %s Reason: %s", e.status, e.reason
+                    )
+                    await asyncio.sleep(BACKOFF_TIME / 2.0)
+                except WSServerHandshakeError as e:
+                    # We don't use `logger.exception()` to not accidentally include the
+                    # password in the log messages which might be part of the string
+                    # representation of the exception.
+                    exception_logger(
+                        "... failed. Status: %s Message: %s", e.status, e.message
+                    )
+                    await asyncio.sleep(BACKOFF_TIME / 2.0)
+                else:
+                    if "ALTER OK" in result:
+                        logger.info("... success")
+                        break
+                    else:
+                        logger.info("... error. %s", result)
+                        await asyncio.sleep(BACKOFF_TIME / 2.0)
+
+        while True:
+            try:
+                logger.info("Trying to grant system user all privileges ...")
+                result = await core_ws.connect_get_namespaced_pod_exec(
+                    namespace=namespace,
+                    name=master_node_pod,
+                    command=command_grant,
+                    container="crate",
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                )
+            except (ApiException, WSServerHandshakeError):
+                logger.exception("... failed")
                 await asyncio.sleep(BACKOFF_TIME / 2.0)
+            else:
+                if "GRANT OK" in result:
+                    logger.info("... success")
+                    break
+                else:
+                    logger.info("... error. %s", result)
+                    await asyncio.sleep(BACKOFF_TIME / 2.0)
 
 
 async def bootstrap_users(
@@ -287,7 +297,7 @@ async def bootstrap_users(
         secret key reference to their password.
     """
     host = await get_host(core, namespace, name)
-    password = await get_system_user_password(namespace, name)
+    password = await get_system_user_password(core, namespace, name)
     while True:
         try:
             async with get_connection(
@@ -297,7 +307,7 @@ async def bootstrap_users(
                     for user_spec in users:
                         username = user_spec["name"]
                         password = await resolve_secret_key_ref(
-                            namespace, user_spec["password"]["secretKeyRef"], core,
+                            core, namespace, user_spec["password"]["secretKeyRef"],
                         )
                         await create_user(cursor, username, password)
                     break

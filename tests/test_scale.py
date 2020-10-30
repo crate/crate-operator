@@ -74,9 +74,10 @@ async def test_scale_cluster(
     namespace,
     cleanup_handler,
     kopf_runner,
+    api_client,
 ):
-    coapi = CustomObjectsApi()
-    core = CoreV1Api()
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
 
     # Clean up persistent volume after the test
@@ -143,7 +144,7 @@ async def test_scale_cluster(
         get_public_host(core, namespace.metadata.name, name),
         timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
     )
-    password = await get_system_user_password(namespace.metadata.name, name, core)
+    password = await get_system_user_password(core, namespace.metadata.name, name)
 
     await assert_wait_for(
         True,

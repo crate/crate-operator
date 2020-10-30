@@ -34,8 +34,8 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.k8s
-async def test_success(faker, namespace):
-    core = CoreV1Api()
+async def test_success(faker, namespace, api_client):
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     password = faker.password(length=12)
     await call_kubeapi(
@@ -55,8 +55,10 @@ async def test_success(faker, namespace):
 
 
 @pytest.mark.k8s
-async def test_absent_raises(faker, namespace):
-    core = CoreV1Api()
+async def test_absent_raises(
+    faker, namespace, api_client,
+):
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     with pytest.raises(ApiException):
         await call_kubeapi(
@@ -69,9 +71,9 @@ async def test_absent_raises(faker, namespace):
 
 
 @pytest.mark.k8s
-async def test_absent_logs(faker, namespace, caplog):
+async def test_absent_logs(faker, namespace, caplog, api_client):
     caplog.set_level(logging.DEBUG, logger=__name__)
-    core = CoreV1Api()
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     ns = namespace.metadata.name
     await call_kubeapi(
@@ -89,8 +91,8 @@ async def test_absent_logs(faker, namespace, caplog):
 
 
 @pytest.mark.k8s
-async def test_conflict_raises(faker, namespace):
-    core = CoreV1Api()
+async def test_conflict_raises(faker, namespace, api_client):
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     ns = namespace.metadata.name
     password1 = faker.password(length=12)
@@ -119,9 +121,9 @@ async def test_conflict_raises(faker, namespace):
 
 
 @pytest.mark.k8s
-async def test_conflict_logs(faker, namespace, caplog):
+async def test_conflict_logs(faker, namespace, caplog, api_client):
     caplog.set_level(logging.DEBUG, logger=__name__)
-    core = CoreV1Api()
+    core = CoreV1Api(api_client)
     name = faker.domain_word()
     ns = namespace.metadata.name
     password1 = faker.password(length=12)

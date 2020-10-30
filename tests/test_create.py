@@ -69,8 +69,8 @@ class TestConfigMaps:
         configmaps = await core.list_namespaced_config_map(namespace)
         return name in (c.metadata.name for c in configmaps.items)
 
-    async def test_create(self, faker, namespace):
-        core = CoreV1Api()
+    async def test_create(self, faker, namespace, api_client):
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
         await create_sql_exporter_config(
             core, None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
@@ -97,8 +97,10 @@ class TestDebugVolume:
             (pvc.metadata.namespace, pvc.metadata.name) for pvc in pvcs.items
         )
 
-    async def test_create(self, faker, namespace, cleanup_handler):
-        core = CoreV1Api()
+    async def test_create(
+        self, faker, namespace, cleanup_handler, api_client,
+    ):
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
 
         # Clean up persistent volume after the test
@@ -202,7 +204,6 @@ class TestStatefulSetContainers:
         assert c_crate.command == ["/path/to/some/exec.sh", "--with", "args"]
         assert c_crate.image == "foo/bar:1.2.3"
         assert c_crate.name == "crate"
-        print(c_crate.resources.to_dict())
         assert c_crate.resources.to_dict() == {
             "limits": {"cpu": str(cpus), "memory": memory},
             "requests": {"cpu": str(cpus), "memory": memory},
@@ -556,9 +557,9 @@ class TestStatefulSet:
         pods = await core.list_namespaced_pod(namespace=namespace)
         return expected.issubset({p.metadata.name for p in pods.items})
 
-    async def test_create(self, faker, namespace):
-        apps = AppsV1Api()
-        core = CoreV1Api()
+    async def test_create(self, faker, namespace, api_client):
+        apps = AppsV1Api(api_client)
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
         cluster_name = faker.domain_word()
         node_name = faker.domain_word()
@@ -670,8 +671,8 @@ class TestServices:
         services = await core.list_namespaced_service(namespace)
         return expected.issubset({s.metadata.name for s in services.items})
 
-    async def test_create(self, faker, namespace):
-        core = CoreV1Api()
+    async def test_create(self, faker, namespace, api_client):
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
         s_data, s_discovery = await asyncio.gather(
             *create_services(
@@ -705,8 +706,8 @@ class TestSystemUser:
         secrets = await core.list_namespaced_secret(namespace)
         return name in (s.metadata.name for s in secrets.items)
 
-    async def test_create(self, faker, namespace):
-        core = CoreV1Api()
+    async def test_create(self, faker, namespace, api_client):
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
@@ -743,10 +744,12 @@ class TestCreateCustomResource:
         pods = await core.list_namespaced_pod(namespace=namespace)
         return expected.issubset({p.metadata.name for p in pods.items})
 
-    async def test_create_minimal(self, faker, namespace, cleanup_handler, kopf_runner):
-        apps = AppsV1Api()
-        coapi = CustomObjectsApi()
-        core = CoreV1Api()
+    async def test_create_minimal(
+        self, faker, namespace, cleanup_handler, kopf_runner, api_client
+    ):
+        apps = AppsV1Api(api_client)
+        coapi = CustomObjectsApi(api_client)
+        core = CoreV1Api(api_client)
         name = faker.domain_word()
 
         # Clean up persistent volume after the test

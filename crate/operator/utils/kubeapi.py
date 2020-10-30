@@ -105,35 +105,32 @@ async def call_kubeapi(
 
 
 async def resolve_secret_key_ref(
-    namespace: str, secret_key_ref: SecretKeyRef, core: Optional[CoreV1Api] = None
+    core: CoreV1Api, namespace: str, secret_key_ref: SecretKeyRef,
 ) -> str:
     """
     Lookup the secret value defined by ``secret_key_ref`` in ``namespace``.
 
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where to lookup a secret and its value.
     :param secret_key_ref: a ``secretKeyRef`` containing the secret name and
         key within that holds the desired value.
-    :param core: An instance of the Kubernetes Core V1 API.
     """
-    core = core or CoreV1Api()
     secret_name = secret_key_ref["name"]
     key = secret_key_ref["key"]
     secret = await core.read_namespaced_secret(namespace=namespace, name=secret_name)
     return b64decode(secret.data[key])
 
 
-async def get_system_user_password(
-    namespace: str, name: str, core: Optional[CoreV1Api] = None
-) -> str:
+async def get_system_user_password(core: CoreV1Api, namespace: str, name: str) -> str:
     """
     Return the password for the system user of cluster ``name`` in ``namespace``.
 
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
-    :param core: An instance of the Kubernetes Core V1 API.
     """
     return await resolve_secret_key_ref(
-        namespace, {"key": "password", "name": f"user-system-{name}"}, core,
+        core, namespace, {"key": "password", "name": f"user-system-{name}"},
     )
 
 
