@@ -41,7 +41,7 @@ expected to use upper-case letters and must be prefixed with
    Allowed values:
 
    - ``aws``
-   - ``azure`` (unused)
+   - ``azure``
 
 .. envvar:: CLUSTER_BACKUP_IMAGE
 
