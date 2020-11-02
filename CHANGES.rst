@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+1.0b4 (2020-11-03)
+------------------
+
 * Set timeouts for event watching in the underlying Kopf framework to prevent
   the operator from getting stuck.
 
