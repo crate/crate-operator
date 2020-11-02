@@ -406,6 +406,40 @@ class TestStatefulSetCrateCommand:
         assert "-Cnode.attr.some_node_setting=node" in cmd
         assert "-Cnode.attr.some_cluster_setting=cluster" in cmd
 
+    @pytest.mark.parametrize(
+        "provider, url",
+        [
+            (
+                CloudProvider.AWS,
+                "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+            ),
+            (
+                CloudProvider.AZURE,
+                "http://169.254.169.254/metadata/instance/compute/platformFaultDomain?api-version=2020-06-01&format=text",  # noqa
+            ),
+        ],
+    )
+    def test_zone_attr(self, provider, url):
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+                cluster_settings=None,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+            )
+        additional_args = ""
+        if provider == CloudProvider.AZURE:
+            additional_args = " -H 'Metadata: true'"
+        assert f"-Cnode.attr.zone=$(curl -q '{url}'{additional_args})" in cmd
+
 
 class TestStatefulSetCrateEnv:
     def test_without_ssl(self, faker):
