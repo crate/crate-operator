@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Set timeouts for event watching in the underlying Kopf framework to prevent
+  the operator from getting stuck.
+
 * Support Pod spreading across zones on Azure using weighted Pod
   affinity on ``failure-domain.beta.kubernetes.io/zone`` topology. See also
   https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domainbetakubernetesiozone

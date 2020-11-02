@@ -110,7 +110,7 @@ async def with_timeout(awaitable: Awaitable, timeout: int, error: str) -> None:
 
 
 @kopf.on.startup()
-async def startup(**kwargs):
+async def startup(settings: kopf.OperatorSettings, **kwargs):
     config.load()
     if (
         config.WEBHOOK_PASSWORD is not None
@@ -120,6 +120,16 @@ async def startup(**kwargs):
         webhook_client.configure(
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
+    # Timeout passed along to the Kubernetes API as timeoutSeconds=x
+    settings.watching.server_timeout = 300
+    # Total number of seconds for a whole watch request per aiohttp:
+    # https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientTimeout.total
+    settings.watching.client_timeout = 300
+    # Timeout for attempting to connect to the peer per aiohttp:
+    # https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientTimeout.sock_connect
+    settings.watching.connect_timeout = 30
+    # Wait for that many seconds between watching events
+    settings.watching.reconnect_backoff = 1
 
 
 @kopf.on.login()
