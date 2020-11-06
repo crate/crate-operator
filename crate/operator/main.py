@@ -53,6 +53,10 @@ from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
+from crate.operator.utils.kopf import (
+    ReadManyWriteOneDiffBaseStorage,
+    ReadManyWriteOneProgressStorage,
+)
 from crate.operator.webhooks import (
     WebhookScaleNodePayload,
     WebhookScalePayload,
@@ -120,6 +124,23 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
         webhook_client.configure(
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
+
+    settings.persistence.diffbase_storage = ReadManyWriteOneDiffBaseStorage(
+        [
+            kopf.AnnotationsDiffBaseStorage(
+                prefix=f"operator.{API_GROUP}", key="last", v1=False
+            ),
+            kopf.AnnotationsDiffBaseStorage(),  # For backwards compatibility
+        ]
+    )
+    settings.persistence.finalizer = f"operator.{API_GROUP}/finalizer"
+    settings.persistence.progress_storage = ReadManyWriteOneProgressStorage(
+        [
+            kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
+            kopf.AnnotationsProgressStorage(),  # For backwards compatibility
+        ]
+    )
+
     # Timeout passed along to the Kubernetes API as timeoutSeconds=x
     settings.watching.server_timeout = 300
     # Total number of seconds for a whole watch request per aiohttp:
