@@ -5,6 +5,16 @@ Changelog
 Unreleased
 ----------
 
+* Renamed the ``kopf.zalando.org/last-handled-configuration`` annotation, which
+  Kopf uses to track changes, to ``operator.cloud.crate.io/last``.
+
+* Renamed the prefix for the progress tracking annotations from
+  ``kopf.zalando.org`` to ``operator.cloud.crate.io``.
+
+* Renamed the custom resource finalizer from
+  ``kopf.zalando.org/KopfFinalizerMarker`` to
+  ``operator.cloud.crate.io/finalizer``.
+
 * Fixed parsing of replicas. Previously, in a replica settings like ``'2-5'``
   or ``'2-all'``, the upper bound was used. This effectively made scale-down
   operations impossible, at least for the ``'all'`` case. However, a table and
