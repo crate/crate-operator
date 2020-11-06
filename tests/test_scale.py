@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import sys
 from typing import Callable
 
 import psycopg2
@@ -28,9 +29,26 @@ from crate.operator.cratedb import (
     get_healthiness,
     get_number_of_nodes,
 )
+from crate.operator.scale import parse_replicas
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
 from .utils import assert_wait_for
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ("0", 0),
+        ("5", 5),
+        ("all", sys.maxsize),
+        ("0-1", 0),
+        ("1-7", 1),
+        ("5-all", 5),
+        ("all-all", sys.maxsize),
+    ],
+)
+def test_parse_replicas(input, expected):
+    assert parse_replicas(input) == expected
 
 
 async def is_cluster_healthy(

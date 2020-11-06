@@ -47,7 +47,7 @@ def parse_replicas(r: str) -> int:
     :return: The maximum number of replicas for a table.
     """
     if "-" in r:
-        r = r.split("-", 1)[1]
+        r = r.split("-", 1)[0]
     if r == "all":
         return sys.maxsize
     return int(r)
