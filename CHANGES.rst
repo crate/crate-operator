@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ----------
 
+* Fixed parsing of replicas. Previously, in a replica settings like ``'2-5'``
+  or ``'2-all'``, the upper bound was used. This effectively made scale-down
+  operations impossible, at least for the ``'all'`` case. However, a table and
+  with that a cluster is healthy when the minimum number of replicas is
+  available, which is indicated by the lower bound.
+
 * Fixed a bug that would prevent the version of the Docker image of the
   ``mkdir-heapdump`` init container to be updated when a cluster is upgraded.
 
