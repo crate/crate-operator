@@ -34,7 +34,12 @@ async def update_statefulset(
         body={
             "spec": {
                 "template": {
-                    "spec": {"containers": [{"name": "crate", "image": crate_image}]}
+                    "spec": {
+                        "containers": [{"name": "crate", "image": crate_image}],
+                        "initContainers": [
+                            {"name": "mkdir-heapdump", "image": crate_image}
+                        ],
+                    }
                 }
             }
         },
