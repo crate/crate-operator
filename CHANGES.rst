@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a bug that would prevent the version of the Docker image of the
+  ``mkdir-heapdump`` init container to be updated when a cluster is upgraded.
+
 1.0b4 (2020-11-03)
 ------------------
 
