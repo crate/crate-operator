@@ -51,8 +51,7 @@ async def does_namespace_exist(core, namespace: str) -> bool:
     return namespace in (ns.metadata.name for ns in namespaces.items)
 
 
-async def create_local_fs_storage_class():
-    sapi = StorageV1Api()
+async def create_local_fs_storage_class(sapi: StorageV1Api):
     await call_kubeapi(
         sapi.create_storage_class,
         logger,

@@ -28,6 +28,7 @@ from kubernetes_asyncio.client import (
     V1Namespace,
     V1ObjectMeta,
 )
+from kubernetes_asyncio.client.api.storage_v1_api import StorageV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.config import load_kube_config
 
@@ -125,13 +126,13 @@ def cratedb_crd(request, load_config):
 
 
 @pytest.fixture(autouse=True)
-async def cratedb_local_storage_class(request, kube_config):
+async def cratedb_local_storage_class(request, kube_config, api_client):
     # During tests we need to ensure that there's a storage class available
     # that uses local disk storage. Otherwise it's not guaranteed that the
     # clusters can start up due to unfulfilled persistent volume claims. But we
     # only need to do that when we're running against k8s.
     if "k8s" in request.keywords:
-        await create_local_fs_storage_class()
+        await create_local_fs_storage_class(StorageV1Api(api_client))
 
 
 @pytest.fixture
@@ -162,8 +163,8 @@ def faker_seed():
 
 
 @pytest.fixture
-async def namespace(faker) -> V1Namespace:
-    core = CoreV1Api()
+async def namespace(faker, api_client) -> V1Namespace:
+    core = CoreV1Api(api_client)
     name = faker.uuid4()
     await assert_wait_for(False, does_namespace_exist, core, name)
     ns: V1Namespace = await core.create_namespace(
