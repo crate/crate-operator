@@ -145,14 +145,8 @@ async def test_bootstrap_license(
     )
 
 
-@mock.patch("crate.operator.bootstrap.bootstrap_license")
 async def test_bootstrap_users(
-    bootstrap_license_mock: mock.AsyncMock,
-    faker,
-    namespace,
-    cleanup_handler,
-    kopf_runner,
-    api_client,
+    faker, namespace, cleanup_handler, kopf_runner, api_client,
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)

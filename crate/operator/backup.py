@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from typing import Any, Awaitable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from kubernetes_asyncio.client import (
     AppsV1Api,
@@ -38,6 +38,7 @@ from kubernetes_asyncio.client import (
     V1PodTemplateSpec,
     V1SecretKeySelector,
 )
+from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAME
@@ -209,9 +210,7 @@ def get_backup_metrics_exporter(
     )
 
 
-def create_backups(
-    apps: AppsV1Api,
-    batchv1_beta1: BatchV1beta1Api,
+async def create_backups(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
@@ -222,11 +221,13 @@ def create_backups(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     has_ssl: bool,
     logger: logging.Logger,
-) -> Union[Tuple[Awaitable[V1beta1CronJob], Awaitable[V1Deployment]], Tuple]:
+) -> Union[Tuple[V1beta1CronJob, V1Deployment], Tuple]:
     backup_aws = backups.get("aws")
-    if backup_aws:
-        return (
-            call_kubeapi(
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        batchv1_beta1 = BatchV1beta1Api(api_client)
+        if backup_aws:
+            cron = await call_kubeapi(
                 batchv1_beta1.create_namespaced_cron_job,
                 logger,
                 continue_on_conflict=True,
@@ -240,8 +241,8 @@ def create_backups(
                     image_pull_secrets,
                     has_ssl,
                 ),
-            ),
-            call_kubeapi(
+            )
+            deployment = await call_kubeapi(
                 apps.create_namespaced_deployment,
                 logger,
                 continue_on_conflict=True,
@@ -256,6 +257,6 @@ def create_backups(
                     image_pull_secrets,
                     has_ssl,
                 ),
-            ),
-        )
+            )
+            return (cron, deployment)
     return ()

@@ -24,7 +24,6 @@ import kopf
 from kopf.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import (
     AppsV1Api,
-    BatchV1beta1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1LocalObjectReference,
@@ -54,6 +53,7 @@ from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
+from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.webhooks import (
     WebhookScaleNodePayload,
     WebhookScalePayload,
@@ -219,143 +219,163 @@ async def cluster_create(
     # `False` to indicate that all remaining StatefulSets are neither explicit
     # nor implicit master nodes.
     treat_as_master = True
-    sts = []
     cluster_name = spec["cluster"]["name"]
 
-    async with ApiClient() as api_client:
-        apps = AppsV1Api(api_client)
-        batchv1_beta1 = BatchV1beta1Api(api_client)
-        core = CoreV1Api(api_client)
+    kopf.register(
+        fn=subhandler_partial(
+            create_sql_exporter_config,
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            logger,
+        ),
+        id="sql_exporter_config",
+    )
 
-        if has_master_nodes:
-            sts.append(
-                create_statefulset(
-                    apps,
-                    owner_references,
-                    namespace,
-                    name,
-                    cratedb_labels,
-                    treat_as_master,
-                    False,
-                    cluster_name,
-                    "master",
-                    "master-",
-                    spec["nodes"]["master"],
-                    master_nodes,
-                    total_nodes_count,
-                    http_port,
-                    jmx_port,
-                    postgres_port,
-                    prometheus_port,
-                    transport_port,
-                    crate_image,
-                    spec["cluster"].get("ssl"),
-                    spec["cluster"].get("settings"),
-                    image_pull_secrets,
-                    logger,
-                )
-            )
-            treat_as_master = False
-        for node_spec in spec["nodes"]["data"]:
-            node_name = node_spec["name"]
-            sts.append(
-                create_statefulset(
-                    apps,
-                    owner_references,
-                    namespace,
-                    name,
-                    cratedb_labels,
-                    treat_as_master,
-                    True,
-                    cluster_name,
-                    node_name,
-                    f"data-{node_name}-",
-                    node_spec,
-                    master_nodes,
-                    total_nodes_count,
-                    http_port,
-                    jmx_port,
-                    postgres_port,
-                    prometheus_port,
-                    transport_port,
-                    crate_image,
-                    spec["cluster"].get("ssl"),
-                    spec["cluster"].get("settings"),
-                    image_pull_secrets,
-                    logger,
-                )
-            )
-            treat_as_master = False
+    kopf.register(
+        fn=subhandler_partial(
+            create_debug_volume,
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            logger,
+        ),
+        id="debug_volume",
+    )
 
-        await asyncio.gather(
-            create_sql_exporter_config(
-                core, owner_references, namespace, name, cratedb_labels, logger
-            ),
-            *create_debug_volume(
-                core, owner_references, namespace, name, cratedb_labels, logger
-            ),
-            create_system_user(
-                core, owner_references, namespace, name, cratedb_labels, logger
-            ),
-            *sts,
-            *create_services(
-                core,
+    kopf.register(
+        fn=subhandler_partial(
+            create_system_user,
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            logger,
+        ),
+        id="system_user",
+    )
+
+    kopf.register(
+        fn=subhandler_partial(
+            create_services,
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            http_port,
+            postgres_port,
+            transport_port,
+            spec.get("cluster", {}).get("externalDNS"),
+            logger,
+        ),
+        id="services",
+    )
+
+    if has_master_nodes:
+        kopf.register(
+            fn=subhandler_partial(
+                create_statefulset,
                 owner_references,
                 namespace,
                 name,
                 cratedb_labels,
+                treat_as_master,
+                False,
+                cluster_name,
+                "master",
+                "master-",
+                spec["nodes"]["master"],
+                master_nodes,
+                total_nodes_count,
                 http_port,
+                jmx_port,
                 postgres_port,
+                prometheus_port,
                 transport_port,
-                spec.get("cluster", {}).get("externalDNS"),
+                crate_image,
+                spec["cluster"].get("ssl"),
+                spec["cluster"].get("settings"),
+                image_pull_secrets,
                 logger,
             ),
+            id="statefulset_master",
         )
+        treat_as_master = False
 
-        if has_master_nodes:
-            master_node_pod = f"crate-master-{name}-0"
-        else:
-            node_name = spec["nodes"]["data"][0]["name"]
-            master_node_pod = f"crate-data-{node_name}-{name}-0"
-
-        await with_timeout(
-            bootstrap_cluster(
-                core,
+    for node_spec in spec["nodes"]["data"]:
+        node_name = node_spec["name"]
+        kopf.register(
+            fn=subhandler_partial(
+                create_statefulset,
+                owner_references,
                 namespace,
                 name,
-                master_node_pod,
-                spec["cluster"].get("license"),
-                "ssl" in spec["cluster"],
-                spec.get("users"),
+                cratedb_labels,
+                treat_as_master,
+                True,
+                cluster_name,
+                node_name,
+                f"data-{node_name}-",
+                node_spec,
+                master_nodes,
+                total_nodes_count,
+                http_port,
+                jmx_port,
+                postgres_port,
+                prometheus_port,
+                transport_port,
+                crate_image,
+                spec["cluster"].get("ssl"),
+                spec["cluster"].get("settings"),
+                image_pull_secrets,
                 logger,
             ),
-            config.BOOTSTRAP_TIMEOUT,
-            (
-                f"Failed to bootstrap cluster {namespace}/{name} after "
-                f"{config.BOOTSTRAP_TIMEOUT} seconds."
-            ),
+            id=f"statefulset_data_{node_name}",
         )
+        treat_as_master = False
 
-        if "backups" in spec:
-            backup_metrics_labels = base_labels.copy()
-            backup_metrics_labels[LABEL_COMPONENT] = "backup"
-            backup_metrics_labels.update(meta.get("labels", {}))
-            await asyncio.gather(
-                *create_backups(
-                    apps,
-                    batchv1_beta1,
-                    owner_references,
-                    namespace,
-                    name,
-                    backup_metrics_labels,
-                    http_port,
-                    prometheus_port,
-                    spec["backups"],
-                    image_pull_secrets,
-                    "ssl" in spec["cluster"],
-                    logger,
-                )
-            )
+    if has_master_nodes:
+        master_node_pod = f"crate-master-{name}-0"
+    else:
+        node_name = spec["nodes"]["data"][0]["name"]
+        master_node_pod = f"crate-data-{node_name}-{name}-0"
+
+    kopf.register(
+        fn=subhandler_partial(
+            bootstrap_cluster,
+            namespace,
+            name,
+            master_node_pod,
+            spec["cluster"].get("license"),
+            "ssl" in spec["cluster"],
+            spec.get("users"),
+            logger,
+        ),
+        id="bootstrap",
+    )
+
+    if "backups" in spec:
+        backup_metrics_labels = base_labels.copy()
+        backup_metrics_labels[LABEL_COMPONENT] = "backup"
+        backup_metrics_labels.update(meta.get("labels", {}))
+        kopf.register(
+            fn=subhandler_partial(
+                create_backups,
+                owner_references,
+                namespace,
+                name,
+                backup_metrics_labels,
+                http_port,
+                prometheus_port,
+                spec["backups"],
+                image_pull_secrets,
+                "ssl" in spec["cluster"],
+                logger,
+            ),
+            id="backup",
+        )
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
