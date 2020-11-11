@@ -1,0 +1,22 @@
+name: Build and publish docker image to docker hub
+
+on:
+  push:
+    tags:
+    - "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository and switch to branch ref
+        uses: actions/checkout@v2
+
+      - name: Build and publish to registry
+        uses: elgohr/Publish-Docker-Github-Action@2.22
+        with:
+          name: crate/crate-operator
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          tag_names: true
