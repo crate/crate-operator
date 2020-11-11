@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
 import logging
 import string
 from typing import Set
@@ -74,7 +73,7 @@ class TestConfigMaps:
         core = CoreV1Api(api_client)
         name = faker.domain_word()
         await create_sql_exporter_config(
-            core, None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
+            None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
         )
         await assert_wait_for(
             True,
@@ -111,15 +110,8 @@ class TestDebugVolume:
             )
         )
 
-        pv, pvc = await asyncio.gather(
-            *create_debug_volume(
-                core,
-                None,
-                namespace.metadata.name,
-                name,
-                {},
-                logging.getLogger(__name__),
-            )
+        await create_debug_volume(
+            None, namespace.metadata.name, name, {}, logging.getLogger(__name__),
         )
         await assert_wait_for(
             True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}",
@@ -602,7 +594,6 @@ class TestStatefulSet:
         cluster_name = faker.domain_word()
         node_name = faker.domain_word()
         await create_statefulset(
-            apps,
             None,
             namespace.metadata.name,
             name,
@@ -712,20 +703,18 @@ class TestServices:
     async def test_create(self, faker, namespace, api_client):
         core = CoreV1Api(api_client)
         name = faker.domain_word()
-        s_data, s_discovery = await asyncio.gather(
-            *create_services(
-                core,
-                None,
-                namespace.metadata.name,
-                name,
-                {},
-                1,
-                2,
-                3,
-                faker.domain_name(),
-                logging.getLogger(__name__),
-            )
+        await create_services(
+            None,
+            namespace.metadata.name,
+            name,
+            {},
+            1,
+            2,
+            3,
+            faker.domain_name(),
+            logging.getLogger(__name__),
         )
+
         await assert_wait_for(
             True,
             self.do_services_exist,
@@ -750,12 +739,7 @@ class TestSystemUser:
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
             secret = await create_system_user(
-                core,
-                None,
-                namespace.metadata.name,
-                name,
-                {},
-                logging.getLogger(__name__),
+                None, namespace.metadata.name, name, {}, logging.getLogger(__name__),
             )
         await assert_wait_for(
             True,

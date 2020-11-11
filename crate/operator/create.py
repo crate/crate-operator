@@ -18,7 +18,7 @@ import logging
 import math
 import pkgutil
 import warnings
-from typing import Any, Awaitable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import bitmath
 from kubernetes_asyncio.client import (
@@ -65,6 +65,7 @@ from kubernetes_asyncio.client import (
     V1VolumeMount,
     V1WeightedPodAffinityTerm,
 )
+from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -120,35 +121,35 @@ def get_debug_persistent_volume_claim(
     )
 
 
-def create_debug_volume(
-    core: CoreV1Api,
+async def create_debug_volume(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> Tuple[Awaitable[V1PersistentVolume], Awaitable[V1PersistentVolumeClaim]]:
+) -> Tuple[V1PersistentVolume, V1PersistentVolumeClaim]:
     """
     Creates a ``PersistentVolume`` and ``PersistentVolumeClaim`` to be used for
     exporting Java Heapdumps from CrateDB. The volume can be configured
     with the :attr:`~crate.operator.config.Config.DEBUG_VOLUME_SIZE` and
     :attr:`~crate.operator.config.Config.DEBUG_VOLUME_STORAGE_CLASS` settings.
     """
-    return (
-        call_kubeapi(
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        pv = await call_kubeapi(
             core.create_persistent_volume,
             logger,
             continue_on_conflict=True,
             body=get_debug_persistent_volume(owner_references, namespace, name, labels),
-        ),
-        call_kubeapi(
+        )
+        pvc = await call_kubeapi(
             core.create_namespaced_persistent_volume_claim,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
             body=get_debug_persistent_volume_claim(owner_references, name, labels),
-        ),
-    )
+        )
+    return (pv, pvc)
 
 
 def get_sql_exporter_config(
@@ -176,21 +177,22 @@ def get_sql_exporter_config(
         )
 
 
-def create_sql_exporter_config(
-    core: CoreV1Api,
+async def create_sql_exporter_config(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> Awaitable[V1ConfigMap]:
-    return call_kubeapi(
-        core.create_namespaced_config_map,
-        logger,
-        continue_on_conflict=True,
-        namespace=namespace,
-        body=get_sql_exporter_config(owner_references, name, labels),
-    )
+) -> V1ConfigMap:
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        return await call_kubeapi(
+            core.create_namespaced_config_map,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=get_sql_exporter_config(owner_references, name, labels),
+        )
 
 
 def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Affinity]:
@@ -687,8 +689,7 @@ def get_statefulset(
     )
 
 
-def create_statefulset(
-    apps: AppsV1Api,
+async def create_statefulset(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
@@ -711,37 +712,39 @@ def create_statefulset(
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     logger: logging.Logger,
-) -> Awaitable[V1StatefulSet]:
-    return call_kubeapi(
-        apps.create_namespaced_stateful_set,
-        logger,
-        continue_on_conflict=True,
-        namespace=namespace,
-        body=get_statefulset(
-            owner_references,
-            namespace,
-            name,
-            labels,
-            treat_as_master,
-            treat_as_data,
-            cluster_name,
-            node_name,
-            node_name_prefix,
-            node_spec,
-            master_nodes,
-            total_nodes_count,
-            http_port,
-            jmx_port,
-            postgres_port,
-            prometheus_port,
-            transport_port,
-            crate_image,
-            ssl,
-            cluster_settings,
-            image_pull_secrets,
+) -> V1StatefulSet:
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        return await call_kubeapi(
+            apps.create_namespaced_stateful_set,
             logger,
-        ),
-    )
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=get_statefulset(
+                owner_references,
+                namespace,
+                name,
+                labels,
+                treat_as_master,
+                treat_as_data,
+                cluster_name,
+                node_name,
+                node_name_prefix,
+                node_spec,
+                master_nodes,
+                total_nodes_count,
+                http_port,
+                jmx_port,
+                postgres_port,
+                prometheus_port,
+                transport_port,
+                crate_image,
+                ssl,
+                cluster_settings,
+                image_pull_secrets,
+                logger,
+            ),
+        )
 
 
 def get_data_service(
@@ -811,8 +814,7 @@ def get_discovery_service(
     )
 
 
-def create_services(
-    core: CoreV1Api,
+async def create_services(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
@@ -822,9 +824,10 @@ def create_services(
     transport_port: int,
     dns_record: Optional[str],
     logger: logging.Logger,
-) -> Tuple[Awaitable[V1Service], Awaitable[V1Service]]:
-    return (
-        call_kubeapi(
+) -> Tuple[V1Service, V1Service]:
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        data = await call_kubeapi(
             core.create_namespaced_service,
             logger,
             continue_on_conflict=True,
@@ -832,15 +835,15 @@ def create_services(
             body=get_data_service(
                 owner_references, name, labels, http_port, postgres_port, dns_record
             ),
-        ),
-        call_kubeapi(
+        )
+        discovery = await call_kubeapi(
             core.create_namespaced_service,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
             body=get_discovery_service(owner_references, name, labels, transport_port),
-        ),
-    )
+        )
+    return (data, discovery)
 
 
 def get_system_user_secret(
@@ -857,23 +860,24 @@ def get_system_user_secret(
     )
 
 
-def create_system_user(
-    core: CoreV1Api,
+async def create_system_user(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> Awaitable[V1Secret]:
+) -> V1Secret:
     """
     The *CrateDB Operator* will need to perform operations on the CrateDB
     cluster. For that, it will use a ``system`` user who's credentials are
     created here.
     """
-    return call_kubeapi(
-        core.create_namespaced_secret,
-        logger,
-        continue_on_conflict=True,
-        namespace=namespace,
-        body=get_system_user_secret(owner_references, name, labels),
-    )
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        return await call_kubeapi(
+            core.create_namespaced_secret,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=get_system_user_secret(owner_references, name, labels),
+        )

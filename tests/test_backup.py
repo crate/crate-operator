@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
 import logging
 
 import pytest
@@ -76,21 +75,17 @@ class TestBackup:
                 },
             },
         }
-        cronjob, deployment = await asyncio.gather(
-            *create_backups(
-                apps,
-                batchv1_beta1,
-                None,
-                namespace.metadata.name,
-                name,
-                {LABEL_COMPONENT: "backup", LABEL_NAME: name},
-                12345,
-                23456,
-                backups_spec,
-                None,
-                True,
-                logging.getLogger(__name__),
-            )
+        await create_backups(
+            None,
+            namespace.metadata.name,
+            name,
+            {LABEL_COMPONENT: "backup", LABEL_NAME: name},
+            12345,
+            23456,
+            backups_spec,
+            None,
+            True,
+            logging.getLogger(__name__),
         )
         await assert_wait_for(
             True,
@@ -108,24 +103,18 @@ class TestBackup:
         )
 
     async def test_not_enabled(self, faker, namespace, api_client):
-        apps = AppsV1Api(api_client)
-        batchv1_beta1 = BatchV1beta1Api(api_client)
         name = faker.domain_word()
 
-        ret = await asyncio.gather(
-            *create_backups(
-                apps,
-                batchv1_beta1,
-                None,
-                namespace.metadata.name,
-                name,
-                {},
-                12345,
-                23456,
-                {},
-                None,
-                True,
-                logging.getLogger(__name__),
-            )
+        ret = await create_backups(
+            None,
+            namespace.metadata.name,
+            name,
+            {},
+            12345,
+            23456,
+            {},
+            None,
+            True,
+            logging.getLogger(__name__),
         )
-        assert ret == []
+        assert ret == ()
