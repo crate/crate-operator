@@ -17,6 +17,7 @@
 import asyncio
 import enum
 import logging
+import warnings
 from typing import Any, Awaitable, Dict, List, Optional
 
 import kopf
@@ -53,10 +54,6 @@ from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
-from crate.operator.utils.kopf import (
-    ReadManyWriteOneDiffBaseStorage,
-    ReadManyWriteOneProgressStorage,
-)
 from crate.operator.webhooks import (
     WebhookScaleNodePayload,
     WebhookScalePayload,
@@ -125,7 +122,17 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
 
-    settings.persistence.diffbase_storage = ReadManyWriteOneDiffBaseStorage(
+    warnings.warn(
+        "The 'kopf.zalando.org/*' annotations and the "
+        "'kopf.zalando.org/KopfFinalizerMarker' finalizer are deprecated and will be "
+        "removed in version 2.0.",
+        DeprecationWarning,
+    )
+    # TODO: In version 2.0 change to:
+    # settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(
+    #     prefix=f"operator.{API_GROUP}", key="last", v1=False
+    # )
+    settings.persistence.diffbase_storage = kopf.MultiDiffBaseStorage(
         [
             kopf.AnnotationsDiffBaseStorage(
                 prefix=f"operator.{API_GROUP}", key="last", v1=False
@@ -134,7 +141,11 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
         ]
     )
     settings.persistence.finalizer = f"operator.{API_GROUP}/finalizer"
-    settings.persistence.progress_storage = ReadManyWriteOneProgressStorage(
+    # TODO: In version 2.0 change to:
+    # settings.persistence.progress_storage = (
+    #     kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
+    # )
+    settings.persistence.progress_storage = kopf.MultiProgressStorage(
         [
             kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
             kopf.AnnotationsProgressStorage(),  # For backwards compatibility
