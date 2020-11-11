@@ -14,6 +14,7 @@ CrateDB_ inside Kubernetes_.
    concepts
    development
    changelog
+   deprecation
    ref/modules
 
 
