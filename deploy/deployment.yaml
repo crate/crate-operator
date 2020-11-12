@@ -1,0 +1,54 @@
+# CrateDB Kubernetes Operator
+# Copyright (C) 2020 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crate-operator
+  namespace: crate-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crate-operator
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: crate-operator
+    spec:
+      containers:
+      - env:
+        - name: CRATEDB_OPERATOR_BOOTSTRAP_TIMEOUT
+          value: "1800"
+        - name: CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE
+          value: "128GiB"
+        - name: CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS
+          value: "default"
+        - name: CRATEDB_OPERATOR_JMX_EXPORTER_VERSION
+          value: "0.6.0"
+        - name: CRATEDB_OPERATOR_LOG_LEVEL
+          value: "INFO"
+        - name: CRATEDB_OPERATOR_ROLLING_RESTART_TIMEOUT
+          value: "3600"
+        - name: CRATEDB_OPERATOR_SCALING_TIMEOUT
+          value: "3600"
+        image: "crate/crate-operator:latest"
+        imagePullPolicy: Always
+        name: crate-operator
+      serviceAccountName: crate-operator

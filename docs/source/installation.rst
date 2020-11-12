@@ -7,7 +7,7 @@ custom resource:
 
 .. code-block:: console
 
-   $ kubectl create -f deploy/manifests/00-crd-cratedb.yaml
+   $ kubectl create -f deploy/crd.yaml
    customresourcedefinition.apiextensions.k8s.io/cratedbs.cloud.crate.io created
 
 
