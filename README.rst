@@ -1,50 +1,124 @@
-===========================
-CrateDB Kubernetes Operator
-===========================
+.. image:: https://github.com/crate/crate-operator/workflows/CI/badge.svg
+   :alt: Continuous Integration
+   :target: https://github.com/crate/crate-operator
 
-The *CrateDB Kubernetes Operator* provides a nice and convenient way to run
-CrateDB_ inside Kubernetes_.
+.. image:: https://github.com/crate/crate-operator/workflows/Build%20and%20publish%20Docker%20Image/badge.svg
+   :alt: Docker Build
+   :target: https://github.com/crate/crate-operator
 
-Development
-===========
+.. image:: https://img.shields.io/badge/docs-latest-brightgreen.svg
+   :alt: Documentation
+   :target: https://crate-operator.readthedocs.io/en/latest/
 
-The ``crate-operator`` package requires **Python 3.8**. It is build ontop of
-the `Kopf: Kubernetes Operators Framework`_.
+.. image:: https://img.shields.io/badge/container-docker-green.svg
+   :alt: Docker Hub
+   :target: https://hub.docker.com/crate/crate-operator/
 
-This project uses `pre-commit`_ to ensure proper linting, code formatting, and
-type checking. Tools, such as ``black``, ``flake8``, ``isort``, and ``mypy``
-should be run as hooks upon committing or pushing code. When at least one of
-the hooks fails, committing or pushing changes is aborted and manual
-intervention is necessary. For example, an ill-formatted piece of Python code
-that is staged for committing with Git, would be cleaned up by the ``black``
-hook. It's then up to the developer to either amend the changes or stage them
-as well.
 
-Install ``pre-commit`` for your user and verify that the installation worked:
+=============================
+⚙️ CrateDB Kubernetes Operator
+=============================
+
+The **CrateDB Kubernetes Operator** provides convenient way to run `CrateDB`_
+clusters inside `Kubernetes`_. It is built on top of the `Kopf: Kubernetes
+Operators Framework`_.
+
+🗒️ Contents
+==========
+
+- `🤹 Usage`_
+- `🎉 Features`_
+- `💽 Installation`_
+- `💻 Development`_
+
+🤹 Usage
+=======
+
+A minimal custom resource for a 3 node CrateDB cluster may look like this:
+
+``dev-cluster.yaml``:
+
+.. code-block:: yaml
+
+   apiVersion: cloud.crate.io/v1
+   kind: CrateDB
+   metadata:
+     name: my-cluster
+     namespace: dev
+   spec:
+     cluster:
+       imageRegistry: crate
+       name: crate-dev
+       version: 4.3.1
+     nodes:
+       data:
+       - name: default
+         replicas: 3
+         resources:
+           cpus: 4
+           disk:
+             count: 1
+             size: 128GiB
+             storageClass: default
+           heapRatio: 0.5
+           memory: 4Gi
 
 .. code-block:: console
 
-   $ pip install --user pre-commit
-   $ pre-commit --version
-   pre-commit 2.4.0
+   $ kubectl --namespace dev create -f dev-cluster.yaml
+   ...
 
-Please keep in mind that the version shown above might vary.
+   $ kubectl --namespace dev get cratedbs
+   NAMESPACE   NAME         AGE
+   dev         my-cluster   36s
 
-Once you've confirmed the successful installation of ``pre-commit``, install
-the hooks for this project:
+🎉 Features
+==========
+
+- "all equal nodes" cluster setup
+- "master + data nodes" cluster setup
+- safe scaling of clusters
+- safe rolling version upgrades for clusters
+- SSL for HTTP and PG connections via Let's Encrypt certificate
+- custom node settings
+- custom cluster settings
+- custom storage classes
+- region/zone awareness for AWS and Azure
+
+💽 Installation
+==============
+
+To be able to deploy the custom resource ``CrateDB`` to a Kubernetes cluster,
+the API needs to be extended with a `Custom Resource Definition` (CRD). The CRD
+for ``CrateDB`` can be found in the ``deploy/`` folder and can be applied
+(assuming sufficient privileges).
 
 .. code-block:: console
 
-   $ pre-commit install -t pre-commit -t pre-push --install-hooks
-   pre-commit installed at .git/hooks/pre-commit
-   pre-commit installed at .git/hooks/pre-push
-   [INFO] Installing environment for
+   $ kubectl apply -f deploy/crd.yaml
+   customresourcedefinition.apiextensions.k8s.io/cratedbs.cloud.crate.io created
 
-From now on, each time you run ``git commit`` or ``git push``, ``pre-commit``
-will run "hooks" defined in the ``.pre-commit-config.yaml`` file on the staged
-files.
+Once the CRD is installed, the operator itself can be deployed using a
+``Deployment``.
+
+.. code-block:: console
+
+   $ kubectl create -f deploy/rbac.yaml
+   ...
+   $ kubectl create -f deploy/deployment.yaml
+   ...
+
+Please refer to the `configuration documentation`_ for further details.
+
+💻 Development
+=============
+
+Please refer to the `Working on the operator`_ section of the documentation.
+
 
 .. _CrateDB: https://github.com/crate/crate
+.. _Custom Resource Definition: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
 .. _Kubernetes: https://kubernetes.io/
 .. _`Kopf: Kubernetes Operators Framework`: https://kopf.readthedocs.io/en/latest/
-.. _pre-commit: https://pre-commit.com/
+.. _configuration documentation: ./docs/source/configuration.rst
+.. _Working on the operator: ./docs/source/development.rst
