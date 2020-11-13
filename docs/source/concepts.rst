@@ -62,16 +62,14 @@ Some situations, such as version upgrades, require a cluster restart. Usually a
 rolling restart is sufficient. When instructed to do so, the CrateDB Kubernetes
 Operator will perform a rolling cluster restart, following this process:
 
-#. If there are master nodes, restart each of them in ordinal order.
+.. figure:: _static/concept-cluster-restart-rolling.svg
+   :alt: The rolling restart process for a CrateDB cluster.
 
-#. For each data node definition, in the order they are defined in the spec,
-   restart each of its nodes in ordinal order.
-
-Restarting a CrateDB node works by deleting the corresponding Kubernetes pod.
-The operator will then wait for a new pod to go down and another one to come up
-and join the CrateDB cluster. Finally, the cluster needs to :ref:`report a
-green health label <cratedb:sys-health>` three times in a row, with a 30 second
-wait time in between, for a pod to be considered back in service.
+Whenever the process calls for "Wait for some time", a
+:class:`kopf.TemporaryError` is raised, causing the Kopf sub-handler to be
+rescheduled and re-executed. That allows for the sub-handler to be called
+multiple times and allows for the operator to be restarted in the mean time, as
+it continues where it left of.
 
 
 Cluster Scaling

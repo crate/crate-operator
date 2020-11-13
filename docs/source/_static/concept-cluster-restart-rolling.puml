@@ -1,0 +1,54 @@
+@startuml concept-cluster-restart-rolling
+
+start
+
+:Get a list of pods from ""status.pendingPods"";
+
+if (list is empty?) then (yes)
+    :Get a list of all K8s pods
+    belonging to a CrateDB cluster;
+
+    :Patch the list into
+    ""status.pendingPods"";
+else (no)
+endif
+
+if (list is still empty?) then (yes)
+    :Clear ""status.pendingPods"";
+
+    stop
+else (no)
+endif
+
+:Take the first pod from the list;
+
+if (K8s pod with that ID exists?) then (yes)
+    :Terminate the pod;
+    #pink:Wait for some time;
+    kill
+elseif (K8s pod with that name exists?) then (yes)
+    if (cluster is healthy?) then (yes)
+        :Delete pod from list;
+
+        if (list is empty?) then (yes)
+            :Clear ""status.pendingPods"";
+
+            stop
+        else (no)
+            :Patch the updated list to
+            ""status.pendingPods"";
+
+            #pink:Wait for some time;
+            kill
+        endif
+    else (no)
+        #pink:Wait for some time;
+        kill
+    endif
+else (no)
+    #pink:Wait for some time;
+    note right: Pod is missing\nbut should be there
+    kill
+endif
+
+@enduml
