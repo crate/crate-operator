@@ -354,6 +354,7 @@ async def cluster_create(
             logger,
         ),
         id="bootstrap",
+        timeout=config.BOOTSTRAP_TIMEOUT,
     )
 
     if "backups" in spec:
