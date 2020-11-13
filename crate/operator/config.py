@@ -37,7 +37,7 @@ class Config:
     #: Time in seconds for which the operator will continue and wait to
     #: bootstrap a cluster. Once this threshold has passed, a bootstrapping is
     #: considered failed
-    BOOTSTRAP_TIMEOUT = 1800
+    BOOTSTRAP_TIMEOUT: Optional[int] = 1800
 
     #: When set, enable special handling for the defind cloud provider, e.g. on
     #: AWS pass the availability zone as a CrateDB node attribute.
@@ -110,6 +110,8 @@ class Config:
                 f"Invalid {self._prefix}BOOTSTRAP_TIMEOUT="
                 f"'{bootstrap_timeout}'. Needs to be a positive integer or 0."
             )
+        if self.BOOTSTRAP_TIMEOUT == 0:
+            self.BOOTSTRAP_TIMEOUT = None
 
         cloud_provider = self.env("CLOUD_PROVIDER", default=self.CLOUD_PROVIDER)
         if cloud_provider is not None:
