@@ -116,7 +116,7 @@ async def k8s_asyncio_api_client(kube_config) -> ApiClient:
 def cratedb_crd(request, load_config):
     kubeconfig = request.config.getoption(KUBECONFIG_OPTION)
     assert kubeconfig is not None, f"{KUBECONFIG_OPTION} must be present"
-    fname = "deploy/manifests/00-crd-cratedb.yaml"
+    fname = "deploy/crd.yaml"
     subprocess.run(
         ["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", fname],
         check=True,
