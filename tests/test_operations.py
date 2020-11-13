@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import logging
 from typing import Callable, Set
 
 import psycopg2
@@ -25,7 +24,6 @@ from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import API_GROUP, BACKOFF_TIME, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory, get_healthiness
-from crate.operator.operations import restart_cluster
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
 from .utils import assert_wait_for
@@ -34,6 +32,11 @@ from .utils import assert_wait_for
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
     pods = await core.list_namespaced_pod(namespace=namespace)
     return expected.issubset({p.metadata.name for p in pods.items})
+
+
+async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -> bool:
+    pods = await core.list_namespaced_pod(namespace=namespace)
+    return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
 
 
 async def is_cluster_healthy(conn_factory: Callable[[], Connection]):
@@ -72,7 +75,7 @@ async def test_restart_cluster(
                 "cluster": {
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
-                    "version": "4.1.5",
+                    "version": "4.3.0",
                 },
                 "nodes": {
                     "data": [
@@ -140,14 +143,26 @@ async def test_restart_cluster(
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
     original_pods = {p.metadata.uid for p in pods.items}
 
-    await asyncio.wait_for(
-        restart_cluster(
-            coapi, core, namespace.metadata.name, name, 3, logging.getLogger(__name__)
-        ),
-        BACKOFF_TIME * 15,
+    await coapi.patch_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+        body=[
+            {
+                "op": "replace",
+                "path": "/spec/cluster/version",
+                "value": "4.3.1",
+            },
+        ],
     )
 
-    pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
-    new_pods = {p.metadata.uid for p in pods.items}
-
-    assert original_pods.intersection(new_pods) == set()
+    await assert_wait_for(
+        False,
+        do_pod_ids_exist,
+        core,
+        namespace.metadata.name,
+        original_pods,
+        timeout=BACKOFF_TIME * 15,
+    )

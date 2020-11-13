@@ -15,30 +15,22 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import functools
 import logging
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any, Dict, List, Tuple, cast
 
 import kopf
-from aiopg import Connection
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi, V1Pod, V1PodList
+from kubernetes_asyncio.client import CoreV1Api, V1PodList
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.constants import (
-    API_GROUP,
     BACKOFF_TIME,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
-    RESOURCE_CRATEDB,
 )
-from crate.operator.cratedb import (
-    connection_factory,
-    get_healthiness,
-    wait_for_healthy_cluster,
-)
+from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.utils.state import State
@@ -62,57 +54,48 @@ def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
     return total
 
 
-async def wait_for_termination(
-    pod: V1Pod, get_pods: Callable[[], Awaitable[V1PodList]], logger: logging.Logger
-) -> None:
+async def get_pods_in_cluster(
+    core: CoreV1Api, namespace: str, name: str
+) -> Tuple[Tuple[str], Tuple[str]]:
     """
-    Repeatedly and indefinitely check if ``pod``'s ``uid`` is still around.
-
-    :param pod: The pod that is being terminated.
-    :param get_pods: A callable that returns an awaitable list of pods.
-    """
-    uid = pod.metadata.uid
-    pods = await get_pods()
-    while uid in (p.metadata.uid for p in pods.items):
-        logger.info(
-            "Waiting for pod '%s' with uid='%s' to be terminated.",
-            pod.metadata.name,
-            uid,
-        )
-        await asyncio.sleep(BACKOFF_TIME / 2.0)
-        pods = await get_pods()
-
-
-async def restart_statefulset(
-    core: CoreV1Api,
-    connection_factory: Callable[[], Connection],
-    namespace: str,
-    name: str,
-    node_name: str,
-    total_nodes: int,
-    logger: logging.Logger,
-) -> None:
-    """
-    Perform a rolling restart of the nodes in the Kubernetes StatefulSet
-    ``name`` in ``namespace``.
+    Return a two-tuple with two tuples, the first containing all pod IDs, the
+    second the corresponding pod names within the cluster.
 
     :param core: An instance of the Kubernetes Core V1 API.
-    :param connection_factory: A function establishes a connection to the
-        CrateDB cluster to be used to SQL queries checking for health, etc.
+    :param namespace: The Kubernetes namespace where to look up the CrateDB
+        cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    """
+    labels = {
+        LABEL_COMPONENT: "cratedb",
+        LABEL_MANAGED_BY: "crate-operator",
+        LABEL_NAME: name,
+        LABEL_PART_OF: "cratedb",
+    }
+    label_selector = ",".join(f"{k}={v}" for k, v in labels.items())
+
+    all_pods: V1PodList = await core.list_namespaced_pod(
+        namespace=namespace, label_selector=label_selector
+    )
+    return cast(
+        Tuple[Tuple[str], Tuple[str]],
+        tuple(zip(*[(p.metadata.uid, p.metadata.name) for p in all_pods.items])),
+    )
+
+
+async def get_pods_in_statefulset(
+    core: CoreV1Api, namespace: str, name: str, node_name: str
+) -> List[Dict[str, str]]:
+    """
+    Return a list of all pod IDs and names belonging to a given StatefulSet.
+
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param node_name: Either ``"master"`` for dedicated master nodes, or the
         ``name`` for a data node spec. Used to determine which StatefulSet to
         of the cluster should be "restarted".
-    :param total_nodes: The total number of nodes that the cluster should
-        consist of, per the CrateDB cluster spec.
     """
-    async with connection_factory() as conn:
-        async with conn.cursor() as cursor:
-            healthiness = await get_healthiness(cursor)
-            if healthiness not in {1, None}:
-                raise ValueError("Unhealthy cluster")
-
     labels = {
         LABEL_COMPONENT: "cratedb",
         LABEL_MANAGED_BY: "crate-operator",
@@ -120,38 +103,22 @@ async def restart_statefulset(
         LABEL_NODE_NAME: node_name,
         LABEL_PART_OF: "cratedb",
     }
+    label_selector = ",".join(f"{k}={v}" for k, v in labels.items())
 
-    get_pods = functools.partial(
-        core.list_namespaced_pod,
-        namespace=namespace,
-        label_selector=",".join(f"{k}={v}" for k, v in labels.items()),
+    all_pods: V1PodList = await core.list_namespaced_pod(
+        namespace=namespace, label_selector=label_selector
     )
-
-    pods = await get_pods()
-    for pod in pods.items:
-        logger.info("Terminating pod '%s'", pod.metadata.name)
-        # Trigger deletion of Pod.
-        # This may take a while as it tries to gracefully stop the containers
-        # of the Pod.
-        await core.delete_namespaced_pod(namespace=namespace, name=pod.metadata.name)
-
-        # Waiting for the pod to go down. This ensures we won't try to connect
-        # to the killed pod through the load balancing service.
-        await wait_for_termination(pod, get_pods, logger)
-
-        # Once the Crate node is terminated, we can start checking the health
-        # of the cluster.
-        await wait_for_healthy_cluster(connection_factory, total_nodes, logger)
-        logger.info("Cluster has recovered. Moving on ...")
+    return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
 
 
 async def restart_cluster(
-    coapi: CustomObjectsApi,
     core: CoreV1Api,
     namespace: str,
     name: str,
-    total_nodes: int,
+    old: kopf.Body,
     logger: logging.Logger,
+    patch: kopf.Patch,
+    status: kopf.Status,
 ) -> None:
     """
     Perform a rolling restart of the CrateDB cluster ``name`` in ``namespace``.
@@ -160,33 +127,74 @@ async def restart_cluster(
     then the data nodes in the cluster. After triggering a pod's termination,
     the operator will wait for that pod to be terminated and gone. It will then
     wait for the cluster to have the desired number of nodes again and for the
-    cluster to be in a ``GREEN`` state.
+    cluster to be in a ``GREEN`` state, before terminating the next pod.
 
-    :param coapi: An instance of the Kubernetes CustomObjects API.
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param total_nodes: The total number of nodes that the cluster should
-        consist of, per the CrateDB cluster spec.
+    :param old: The old resource body.
     """
-    cluster = await coapi.get_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace,
-        name=name,
-    )
-    password = await get_system_user_password(core, namespace, name)
-    host = await get_host(core, namespace, name)
-    conn_factory = connection_factory(host, password)
+    pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
+    if not pending_pods:
+        if "master" in old["spec"]["nodes"]:
+            pending_pods.extend(
+                await get_pods_in_statefulset(core, namespace, name, "master")
+            )
+        for node_spec in old["spec"]["nodes"]["data"]:
+            pending_pods.extend(
+                await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
+            )
+        patch.status["pendingPods"] = pending_pods
 
-    if "master" in cluster["spec"]["nodes"]:
-        await restart_statefulset(
-            core, conn_factory, namespace, name, "master", total_nodes, logger
+    if not pending_pods:
+        # We're all done
+        patch.status["pendingPods"] = None  # Remove attribute from status stanza
+        return
+
+    next_pod_uid = pending_pods[0]["uid"]
+    next_pod_name = pending_pods[0]["name"]
+
+    all_pod_uids, all_pod_names = await get_pods_in_cluster(core, namespace, name)
+    if next_pod_uid in all_pod_uids:
+        # The next to-be-terminated pod still appears to be running.
+        logger.info("Terminating pod '%s'", next_pod_name)
+        # Trigger deletion of Pod.
+        # This may take a while as it tries to gracefully stop the containers
+        # of the Pod.
+        await core.delete_namespaced_pod(namespace=namespace, name=next_pod_name)
+        raise kopf.TemporaryError(
+            f"Waiting for pod {next_pod_name} ({next_pod_uid}) to be terminated.",
+            delay=BACKOFF_TIME,
         )
-    for node_spec in cluster["spec"]["nodes"]["data"]:
-        await restart_statefulset(
-            core, conn_factory, namespace, name, node_spec["name"], total_nodes, logger
+    elif next_pod_name in all_pod_names:
+        total_nodes = get_total_nodes_count(old["spec"]["nodes"])
+        # The new pod has been spawned. Only a matter of time until it's ready.
+        password, host = await asyncio.gather(
+            get_system_user_password(core, namespace, name),
+            get_host(core, namespace, name),
+        )
+        conn_factory = connection_factory(host, password)
+        if await is_cluster_healthy(conn_factory, total_nodes, logger):
+            pending_pods.pop(0)  # remove the first item in the list
+
+            if pending_pods:
+                patch.status["pendingPods"] = pending_pods
+
+                raise kopf.TemporaryError(
+                    "Scheduling rerun because there are pods to be restarted", delay=5
+                )
+            else:
+                # We're all done
+                patch.status["pendingPods"] = None  # Remove attribute from `.status`
+                return
+        else:
+            raise kopf.TemporaryError(
+                "Cluster is not healthy yet.", delay=BACKOFF_TIME / 2.0
+            )
+    else:
+        raise kopf.TemporaryError(
+            "Scheduling rerun because there are pods to be restarted",
+            delay=BACKOFF_TIME,
         )
 
 
@@ -199,12 +207,12 @@ class RestartSubHandler(StateBasedSubHandler):
         name: str,
         old: kopf.Body,
         logger: logging.Logger,
+        patch: kopf.Patch,
+        status: kopf.Status,
         **kwargs: Any,
     ):
-        expected_nodes = get_total_nodes_count(old["spec"]["nodes"])
         async with ApiClient() as api_client:
-            coapi = CustomObjectsApi(api_client)
             core = CoreV1Api(api_client)
-            await restart_cluster(coapi, core, namespace, name, expected_nodes, logger)
+            await restart_cluster(core, namespace, name, old, logger, patch, status)
 
         await self.send_notifications(logger)

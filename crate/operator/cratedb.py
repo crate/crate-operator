@@ -125,11 +125,53 @@ async def get_healthiness(cursor: Cursor) -> int:
     return row and row[0]
 
 
+async def is_cluster_healthy(
+    connection_factory, expected_nodes: int, logger: logging.Logger
+) -> bool:
+    """
+    Check if a cluster is healthy.
+
+    The function checks for the cluster health using the `sys.health
+    <https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health>`_
+    table and the expected number of nodes in the cluster three times.
+
+    :param connection_factory: A callable that allows the operator to connect
+        to the database. We regularly need to reconnect to ensure the
+        connection wasn't closed because it was opened to a CrateDB node that
+        was shut down since the connection was opened.
+    :param expected_nodes: The number of nodes that make up a healthy cluster.
+    """
+    # We need to establish a new connection because the peer of a
+    # previous connection could have been shut down. And by
+    # re-establishing a connection for _each_ polling we can assert
+    # that the connection is open
+    async with connection_factory() as conn:
+        async with conn.cursor() as cursor:
+            logger.debug("Checking if cluster is healthy ...")
+            try:
+                num_nodes = await get_number_of_nodes(cursor)
+                healthiness = await get_healthiness(cursor)
+                if num_nodes == expected_nodes and healthiness in {1, None}:
+                    logger.info("Cluster has expected number of nodes and is healthy")
+                    return True
+                else:
+                    logger.info(
+                        "Cluster has %d of %d nodes and is in %s state.",
+                        num_nodes,
+                        expected_nodes,
+                        HEALTHINESS.get(healthiness, "UNKNOWN"),
+                    )
+                    return False
+            except ProgrammingError as e:
+                logger.warning("Failed to run health check query", exc_info=e)
+                return False
+
+
 async def wait_for_healthy_cluster(
     connection_factory, expected_nodes: int, logger: logging.Logger
 ) -> None:
     """
-    Indefinitely wait for the cluster to become healty.
+    Indefinitely wait for the cluster to become healthy.
 
     The function repeatedly checks for the cluster health using the
     `sys.health
