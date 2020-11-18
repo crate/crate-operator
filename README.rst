@@ -99,10 +99,12 @@ for ``CrateDB`` can be found in the ``deploy/`` folder and can be applied
    customresourcedefinition.apiextensions.k8s.io/cratedbs.cloud.crate.io created
 
 Once the CRD is installed, the operator itself can be deployed using a
-``Deployment``.
+``Deployment`` in the ``crate-operator`` namespace.
 
 .. code-block:: console
 
+   $ kubectl create namespace crate-operator
+   ...
    $ kubectl create -f deploy/rbac.yaml
    ...
    $ kubectl create -f deploy/deployment.yaml
