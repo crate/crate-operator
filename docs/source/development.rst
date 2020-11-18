@@ -9,12 +9,17 @@ The ``crate-operator`` package requires **Python 3.8**.
 It is recommended to use a virtual environment to the operator and its
 dependencies for local development.
 
+.. note::
+
+   If you are using macOS, you need to have PostgreSQL installed. You can
+   install it via Homebrew_ (``brew install postgresql``) or follow the
+   `PostgreSQL docs`_.
+
 .. code-block:: console
 
    $ python3.8 -m venv env
    $ source env/bin/activate
    (env)$ python -m pip install -e .
-
 
 Contributing
 ------------
@@ -237,6 +242,8 @@ history) to your feature branch::
 
 See also: http://www.ericbmerritt.com/2011/09/21/commit-hygiene-and-git.html
 
+.. _Homebrew: https://brew.sh
+.. _PostgreSQL docs: https://postgresapp.com/
 .. _CLA: https://crate.io/community/contribute/agreements/
 .. _setuptools-scm: https://pypi.org/project/setuptools-scm/
 .. _Semantic Versioning: https://semver.org/
