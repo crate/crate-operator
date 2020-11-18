@@ -152,6 +152,7 @@ spec:
                 settings:
                   description: Additional settings to apply to all nodes in the cluster.
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 ssl:
                   properties:
                     keystore:
@@ -226,9 +227,11 @@ spec:
                       annotations:
                         description: Additional annotations to put on the corresponding pods.
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       labels:
                         description: Additional labels to put on the corresponding pods.
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       name:
                         description: Uniquely identifying name of this type of node.
                         pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
@@ -274,6 +277,7 @@ spec:
                       settings:
                         description: Additional settings to apply to all nodes of that type in the cluster.
                         type: object
+                        x-kubernetes-preserve-unknown-fields: true
                     required:
                     - name
                     - replicas
@@ -286,9 +290,11 @@ spec:
                     annotations:
                       description: Additional annotations to put on the corresponding pods.
                       type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     labels:
                       description: Additional labels to put on the corresponding pods.
                       type: object
+                      x-kubernetes-preserve-unknown-fields: true
                     replicas:
                       description: Number of master nodes. Should be an odd number.
                       minimum: 3
@@ -330,6 +336,7 @@ spec:
                     settings:
                       description: Additional settings to apply to all master nodes in the cluster.
                       type: object
+                      x-kubernetes-preserve-unknown-fields: true
                   required:
                   - replicas
                   - resources

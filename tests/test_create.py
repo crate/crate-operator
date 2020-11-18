@@ -830,3 +830,86 @@ class TestCreateCustomResource:
             namespace.metadata.name,
             {f"crate-data-data-{name}-{i}" for i in range(3)},
         )
+
+    async def test_preserve_unknown_object_keys(
+        self, faker, namespace, cratedb_crd, api_client
+    ):
+        # We don't actually run the operator in this test, since we only want
+        # to retrieve the custom resource from K8s again and make sure that
+        # all object keys are still present.
+        coapi = CustomObjectsApi(api_client)
+        name = faker.domain_word()
+
+        await coapi.create_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace.metadata.name,
+            body={
+                "apiVersion": "cloud.crate.io/v1",
+                "kind": "CrateDB",
+                "metadata": {"name": name},
+                "spec": {
+                    "cluster": {
+                        "imageRegistry": "crate",
+                        "name": "my-crate-cluster",
+                        "settings": {"s.c.s": "1"},
+                        "version": "4.1.5",
+                    },
+                    "nodes": {
+                        "data": [
+                            {
+                                "annotations": {"s.n.d.0.a": "1"},
+                                "name": "data",
+                                "labels": {"s.n.d.0.l": "1"},
+                                "replicas": 1,
+                                "resources": {
+                                    "cpus": 0.5,
+                                    "memory": "1Gi",
+                                    "heapRatio": 0.25,
+                                    "disk": {
+                                        "storageClass": "default",
+                                        "size": "16GiB",
+                                        "count": 1,
+                                    },
+                                },
+                                "settings": {"s.n.d.0.s": "1"},
+                            },
+                        ],
+                        "master": {
+                            "annotations": {"s.n.m.a": "1"},
+                            "labels": {"s.n.m.l": "1"},
+                            "replicas": 3,
+                            "resources": {
+                                "cpus": 0.5,
+                                "memory": "1Gi",
+                                "heapRatio": 0.25,
+                                "disk": {
+                                    "storageClass": "default",
+                                    "size": "16GiB",
+                                    "count": 1,
+                                },
+                            },
+                            "settings": {"s.n.m.s": "1"},
+                        },
+                    },
+                },
+                "status": {"foo": "bar", "buz": {"lorem": "ipsum"}},
+            },
+        )
+
+        resource = await coapi.get_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace.metadata.name,
+            name=name,
+        )
+        assert resource["spec"]["cluster"]["settings"] == {"s.c.s": "1"}
+        assert resource["spec"]["nodes"]["data"][0]["annotations"] == {"s.n.d.0.a": "1"}
+        assert resource["spec"]["nodes"]["data"][0]["labels"] == {"s.n.d.0.l": "1"}
+        assert resource["spec"]["nodes"]["data"][0]["settings"] == {"s.n.d.0.s": "1"}
+        assert resource["spec"]["nodes"]["master"]["annotations"] == {"s.n.m.a": "1"}
+        assert resource["spec"]["nodes"]["master"]["labels"] == {"s.n.m.l": "1"}
+        assert resource["spec"]["nodes"]["master"]["settings"] == {"s.n.m.s": "1"}
+        assert resource["status"] == {"foo": "bar", "buz": {"lorem": "ipsum"}}

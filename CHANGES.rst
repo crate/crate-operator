@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a bug in the CrateDB CustomResourceDefinition which would prevent
+  annotations, labels, or settings in the node or cluster specs to be
+  preserved.
+
 * Renamed the ``kopf.zalando.org/last-handled-configuration`` annotation, which
   Kopf uses to track changes, to ``operator.cloud.crate.io/last``.
 
