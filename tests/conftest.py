@@ -16,6 +16,7 @@
 
 import asyncio
 import os
+import pathlib
 import random
 import subprocess
 from unittest import mock
@@ -52,15 +53,26 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "k8s: mark test to require a Kubernetes cluster")
 
     kubeconfig = config.getoption(KUBECONFIG_OPTION)
-    if kubeconfig:
-        p = subprocess.run(
-            ["kubectl", "--kubeconfig", kubeconfig, "config", "current-context"],
-            check=True,
-            capture_output=True,
-        )
-        k8s_context = p.stdout.decode().strip()
+    k8s_context = config.getoption(KUBECONTEXT_OPTION)
 
-        if not k8s_context.startswith("crate-") and k8s_context != "minikube":
+    if kubeconfig:
+        if k8s_context is None:
+            p = subprocess.run(
+                [
+                    "kubectl",
+                    "--kubeconfig",
+                    str(pathlib.Path(kubeconfig).expanduser().resolve()),
+                    "config",
+                    "current-context",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            k8s_context = p.stdout.decode().strip()
+
+        if k8s_context is None or (
+            not k8s_context.startswith("crate-") and k8s_context != "minikube"
+        ):
             raise RuntimeError(
                 f"Cannot run tests on '{k8s_context}'. "
                 "Expected a context prefixed with 'crate-'."
@@ -118,7 +130,14 @@ def cratedb_crd(request, load_config):
     assert kubeconfig is not None, f"{KUBECONFIG_OPTION} must be present"
     fname = "deploy/crd.yaml"
     subprocess.run(
-        ["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", fname],
+        [
+            "kubectl",
+            "--kubeconfig",
+            str(pathlib.Path(kubeconfig).expanduser().resolve()),
+            "apply",
+            "-f",
+            fname,
+        ],
         check=True,
         capture_output=True,
     )
@@ -149,7 +168,11 @@ def kopf_runner(request, cratedb_crd):
 
     # Make sure KUBECONFIG env variable is set because KOPF depends on it
     env = {
-        "CRATEDB_OPERATOR_KUBECONFIG": request.config.getoption(KUBECONFIG_OPTION),
+        "CRATEDB_OPERATOR_KUBECONFIG": str(
+            pathlib.Path(request.config.getoption(KUBECONFIG_OPTION))
+            .expanduser()
+            .resolve()
+        ),
     }
     with mock.patch.dict(os.environ, env):
         with KopfRunner(["run", "--standalone", main.__file__]) as runner:
