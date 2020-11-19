@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed configuration parsing of the :envvar:`KUBECONFIG` environment variable.
+
 * Fixed a bug in the CrateDB CustomResourceDefinition which would prevent
   annotations, labels, or settings in the node or cluster specs to be
   preserved.

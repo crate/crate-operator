@@ -19,6 +19,7 @@ import os
 from typing import List, Optional
 
 import bitmath
+from kubernetes_asyncio.config.kube_config import ENV_KUBECONFIG_PATH_SEPARATOR
 
 from crate.operator.constants import CloudProvider
 from crate.operator.exceptions import ConfigurationError
@@ -156,10 +157,13 @@ class Config:
             os.environ["KUBECONFIG"] = self.KUBECONFIG
         else:
             self.KUBECONFIG = os.getenv("KUBECONFIG")
-        if self.KUBECONFIG is not None and not os.path.exists(self.KUBECONFIG):
-            raise ConfigurationError(
-                f"The Kubernetes config file '{self.KUBECONFIG}' does not exist."
-            )
+        if self.KUBECONFIG is not None:
+            for path in self.KUBECONFIG.split(ENV_KUBECONFIG_PATH_SEPARATOR):
+                if not os.path.exists(path):
+                    raise ConfigurationError(
+                        "The KUBECONFIG environment variable contains a path "
+                        f"'{path}' that does not exist."
+                    )
 
         self.LOG_LEVEL = self.env("LOG_LEVEL", default=self.LOG_LEVEL)
         level = logging.getLevelName(self.LOG_LEVEL)
