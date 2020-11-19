@@ -407,7 +407,7 @@ class TestStatefulSetCrateCommand:
             ),
             (
                 CloudProvider.AZURE,
-                "http://169.254.169.254/metadata/instance/compute/platformFaultDomain?api-version=2020-06-01&format=text",  # noqa
+                "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text",  # noqa
             ),
         ],
     )
@@ -430,7 +430,7 @@ class TestStatefulSetCrateCommand:
         additional_args = ""
         if provider == CloudProvider.AZURE:
             additional_args = " -H 'Metadata: true'"
-        assert f"-Cnode.attr.zone=$(curl -q '{url}'{additional_args})" in cmd
+        assert f"-Cnode.attr.zone=$(curl -s '{url}'{additional_args})" in cmd
 
 
 class TestStatefulSetCrateEnv:
