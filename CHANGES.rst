@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Change the Pod spreading on Azure to use the underlying Azure zone instead of
+  the fault/failure domain.
+
 * Fixed configuration parsing of the :envvar:`KUBECONFIG` environment variable.
 
 * Fixed a bug in the CrateDB CustomResourceDefinition which would prevent
