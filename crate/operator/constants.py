@@ -24,6 +24,7 @@ LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 LABEL_NAME = "app.kubernetes.io/name"
 LABEL_PART_OF = "app.kubernetes.io/part-of"
 LABEL_NODE_NAME = f"{API_GROUP}/node-name"
+LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
 SYSTEM_USERNAME = "system"
 

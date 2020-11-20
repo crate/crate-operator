@@ -27,7 +27,9 @@ from kubernetes_asyncio.client import (
     CoreV1Api,
     CustomObjectsApi,
     V1LocalObjectReference,
+    V1ObjectMeta,
     V1OwnerReference,
+    V1Secret,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
@@ -40,6 +42,7 @@ from crate.operator.constants import (
     LABEL_MANAGED_BY,
     LABEL_NAME,
     LABEL_PART_OF,
+    LABEL_USER_PASSWORD,
     RESOURCE_CRATEDB,
 )
 from crate.operator.create import (
@@ -565,3 +568,34 @@ async def cluster_update(
                     webhook_scale_payload,
                     logger,
                 )
+
+
+@kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
+async def update_cratedb_resource(
+    namespace: str,
+    name: str,
+    spec: kopf.Spec,
+    **kwargs,
+):
+    if "users" in spec:
+        async with ApiClient() as api_client:
+            for user_spec in spec["users"]:
+                core = CoreV1Api(api_client)
+
+                secret_name = user_spec["password"]["secretKeyRef"]["name"]
+                secret = await core.read_namespaced_secret(
+                    namespace=namespace, name=secret_name
+                )
+                if (
+                    secret.metadata.labels is None
+                    or LABEL_USER_PASSWORD not in secret.metadata.labels
+                ):
+                    await core.patch_namespaced_secret(
+                        namespace=namespace,
+                        name=user_spec["password"]["secretKeyRef"]["name"],
+                        body=V1Secret(
+                            metadata=V1ObjectMeta(
+                                labels={LABEL_USER_PASSWORD: "true"},
+                            ),
+                        ),
+                    )
