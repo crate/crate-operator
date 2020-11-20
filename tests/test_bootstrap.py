@@ -30,6 +30,7 @@ from psycopg2 import DatabaseError, OperationalError
 from crate.operator.constants import (
     API_GROUP,
     BACKOFF_TIME,
+    LABEL_USER_PASSWORD,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
 )
@@ -259,3 +260,13 @@ async def test_bootstrap_users(
     await assert_wait_for(
         True, does_user_exist, host, password2, username2, timeout=BACKOFF_TIME * 3
     )
+
+    secret_user_1 = await core.read_namespaced_secret(
+        namespace=namespace.metadata.name, name=f"user-{name}-1"
+    )
+    secret_user_2 = await core.read_namespaced_secret(
+        namespace=namespace.metadata.name, name=f"user-{name}-2"
+    )
+
+    assert LABEL_USER_PASSWORD in secret_user_1.metadata.labels
+    assert LABEL_USER_PASSWORD in secret_user_2.metadata.labels

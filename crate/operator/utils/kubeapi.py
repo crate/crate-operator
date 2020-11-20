@@ -18,10 +18,10 @@ import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
-from kubernetes_asyncio.client import ApiException, CoreV1Api
+from kubernetes_asyncio.client import ApiException, CoreV1Api, V1ObjectMeta, V1Secret
 
 from crate.operator.config import config
-from crate.operator.constants import BACKOFF_TIME
+from crate.operator.constants import BACKOFF_TIME, LABEL_USER_PASSWORD
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.typing import K8sModel, SecretKeyRef
 
@@ -185,3 +185,27 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
         return await get_public_host(core, namespace, name)
 
     return f"crate-{name}.{namespace}"
+
+
+async def ensure_user_password_label(core: CoreV1Api, namespace: str, secret_name: str):
+    """
+    Add the LABEL_USER_PASSWORD label to a namespaced secret.
+
+    During testing, the function returns the public IP address, because the
+    operator doesn't run inside Kubernetes during tests but outside. And the
+    only way to connect to the CrateDB cluster is to go through the public
+    interface.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The namespace where the Kubernetes Secret is deployed.
+    :param secret_name: The name of the Kubernetes Secret.
+    """
+    await core.patch_namespaced_secret(
+        namespace=namespace,
+        name=secret_name,
+        body=V1Secret(
+            metadata=V1ObjectMeta(
+                labels={LABEL_USER_PASSWORD: "true"},
+            ),
+        ),
+    )

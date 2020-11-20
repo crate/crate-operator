@@ -27,9 +27,7 @@ from kubernetes_asyncio.client import (
     CoreV1Api,
     CustomObjectsApi,
     V1LocalObjectReference,
-    V1ObjectMeta,
     V1OwnerReference,
-    V1Secret,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
@@ -57,6 +55,7 @@ from crate.operator.operations import get_total_nodes_count, restart_cluster
 from crate.operator.scale import scale_cluster
 from crate.operator.upgrade import upgrade_cluster
 from crate.operator.utils.kopf import subhandler_partial
+from crate.operator.utils.kubeapi import ensure_user_password_label
 from crate.operator.webhooks import (
     WebhookScaleNodePayload,
     WebhookScalePayload,
@@ -590,12 +589,6 @@ async def update_cratedb_resource(
                     secret.metadata.labels is None
                     or LABEL_USER_PASSWORD not in secret.metadata.labels
                 ):
-                    await core.patch_namespaced_secret(
-                        namespace=namespace,
-                        name=user_spec["password"]["secretKeyRef"]["name"],
-                        body=V1Secret(
-                            metadata=V1ObjectMeta(
-                                labels={LABEL_USER_PASSWORD: "true"},
-                            ),
-                        ),
+                    await ensure_user_password_label(
+                        core, namespace, user_spec["password"]["secretKeyRef"]["name"]
                     )

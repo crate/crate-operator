@@ -27,6 +27,7 @@ from crate.operator.config import config
 from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils.kubeapi import (
+    ensure_user_password_label,
     get_host,
     get_system_user_password,
     resolve_secret_key_ref,
@@ -165,7 +166,6 @@ async def bootstrap_system_user(
         "-c",
         f'GRANT ALL PRIVILEGES TO "{SYSTEM_USERNAME}";',
     ]
-
     exception_logger = logger.exception if config.TESTING else logger.error
 
     needs_update = False
@@ -284,8 +284,14 @@ async def bootstrap_users(
         async with conn.cursor() as cursor:
             for user_spec in users:
                 username = user_spec["name"]
+                secret_key_ref = user_spec["password"]["secretKeyRef"]
                 password = await resolve_secret_key_ref(
-                    core, namespace, user_spec["password"]["secretKeyRef"]
+                    core,
+                    namespace,
+                    secret_key_ref,
+                )
+                await ensure_user_password_label(
+                    core, namespace, secret_key_ref["name"]
                 )
                 await create_user(cursor, username, password)
 

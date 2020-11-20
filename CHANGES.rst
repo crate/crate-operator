@@ -5,8 +5,9 @@ Changelog
 Unreleased
 ----------
 
-* Kubernetes Secrets, that contain passwords used by CrateDB users, will
-  receive a ``operator.cloud.crate.io/user-password`` label on resume.
+* To allow CrateDB user password updates, Kubernetes Secrets referenced in the
+  ``.spec.users`` section of a CrateDB custom resource, will have a label
+  ``operator.cloud.crate.io/user-password`` applied.
 
 * Change the Pod spreading on Azure to use the underlying Azure zone instead of
   the fault/failure domain.
