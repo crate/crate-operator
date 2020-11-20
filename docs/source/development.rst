@@ -87,12 +87,23 @@ passed via the ``--kube-config`` and ``--kube-context`` arguments to pytest_.
 Furthermore, the context *must* start with either ``crate-`` or be called
 ``minikube``.
 
+.. note::
+
+   If you are using macOS in combination with Minikube, you need to set up a
+   `Minikube tunnel`_ in order to get an external IP address assigned to the
+   CrateDB services.
+
+   .. code-block:: console
+
+      $ minikube tunnel
+
 .. code-block:: console
 
    (env)$ pytest -vv --kube-config=~/.kube/test_config --kube-context=crate-testing
 
 
 .. _pytest: https://docs.pytest.org/en/latest/
+.. _Minikube tunnel: https://minikube.sigs.k8s.io/docs/handbook/accessing/#using-minikube-tunnel
 
 
 Code style
