@@ -17,7 +17,7 @@
 import asyncio
 import logging
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import kopf
 from aiopg import Cursor
@@ -27,7 +27,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.constants import BACKOFF_TIME
-from crate.operator.cratedb import connection_factory, wait_for_healthy_cluster
+from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -89,10 +89,26 @@ def patch_command(old_command: List[str], total_nodes: int) -> List[str]:
     return new_command
 
 
+def get_container(statefulset: V1StatefulSet) -> V1Container:
+    """
+    Return the ``'crate'`` container inside a StatefulSet
+
+    :param statefulset: The StatefulSet where to lookup the CrateDB container
+        in.
+    :return: The CrateDB container in the provided StatefulSet.
+    """
+    containers = [
+        c for c in statefulset.spec.template.spec.containers if c.name == "crate"
+    ]
+    assert len(containers) == 1, "Only a single crate container must exist!"
+    return containers[0]
+
+
 async def update_statefulset(
     apps: AppsV1Api,
-    namespace: str,
-    sts_name: str,
+    namespace: Optional[str],
+    sts_name: Optional[str],
+    statefulset: Optional[V1StatefulSet],
     replicas: Optional[int],
     total_nodes: int,
 ):
@@ -107,7 +123,7 @@ async def update_statefulset(
     :param total_nodes: The number of nodes that will be in the CrateDB
         cluster.
     """
-    statefulset = await apps.read_namespaced_stateful_set(
+    statefulset = statefulset or await apps.read_namespaced_stateful_set(
         namespace=namespace, name=sts_name
     )
     crate_container = get_container(statefulset)
@@ -126,40 +142,67 @@ async def update_statefulset(
     )
 
 
-async def get_current_statefulset_replicas(
-    apps: AppsV1Api, namespace: str, sts_name: str
-) -> int:
+async def check_nodes_present_or_gone(
+    connection_factory,
+    old_replicas: int,
+    new_replicas: int,
+    node_prefix: str,
+    logger: logging.Logger,
+):
     """
-    Call the Kubernetes API and return the number of replicas for the
-    StatefulSet ``sts_name``.
-
-    :param apps: An instance of the Kubernetes Apps V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param sts_name: The name for the Kubernetes StatefulSet to update.
-    :return: The number of replicas configured on a StatefulSet.
+    :param connection_factory: A callable that allows the operator to connect
+        to the database. We regularly need to reconnect to ensure the
+        connection wasn't closed because it was opened to a CrateDB node that
+        was shut down since the connection was opened.
+    :param old_replicas: The number of replicas in a StatefulSet before
+        scaling.
+    :param new_replicas: The number of replicas in a StatefulSet after scaling.
+    :param node_prefix: The prefix of the node names in CrateDB.
+    :raises: A :class:`kopf.TemporaryError` when nodes are missing (scale up)
+        or still available (scale down).
     """
-    statefulset = await apps.read_namespaced_stateful_set(
-        namespace=namespace, name=sts_name
-    )
-    return statefulset.spec.replicas
-
-
-def get_container(statefulset: V1StatefulSet) -> V1Container:
-    """
-    Return the ``'crate'`` container inside a StatefulSet
-
-    :param statefulset: The StatefulSet where to lookup the CrateDB container
-        in.
-    :return: The CrateDB container in the provided StatefulSet.
-    """
-    containers = [
-        c for c in statefulset.spec.template.spec.containers if c.name == "crate"
+    full_node_list = [
+        f"{node_prefix}-{i}" for i in range(max(old_replicas, new_replicas))
     ]
-    assert len(containers) == 1, "Only a single crate container must exist!"
-    return containers[0]
+    async with connection_factory() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT name FROM sys.nodes WHERE name = ANY(%s)
+                """,
+                (full_node_list,),
+            )
+            rows = await cursor.fetchall()
+            available_nodes = {r[0] for r in rows} if rows else set()
+            candidate_node_names = {
+                f"{node_prefix}-{i}"
+                for i in range(
+                    min(old_replicas, new_replicas), max(old_replicas, new_replicas)
+                )
+            }
+            if old_replicas < new_replicas:
+                # scale up. Wait for missing nodes
+                if not candidate_node_names.issubset(available_nodes):
+                    missing_nodes = ", ".join(sorted(candidate_node_names))
+                    raise kopf.TemporaryError(
+                        f"Waiting for nodes {missing_nodes} to be present."
+                    )
+            elif old_replicas > new_replicas:
+                # scale down
+                if candidate_node_names.issubset(available_nodes):
+                    excess_nodes = ", ".join(sorted(candidate_node_names))
+                    raise kopf.TemporaryError(
+                        f"Waiting for nodes {excess_nodes} to be gone."
+                    )
+            else:
+                logger.info(
+                    "No need to wait for nodes with prefix '%s', since the "
+                    "number of replicas didn't change.",
+                    node_prefix,
+                )
 
 
-async def wait_for_deallocation(
+async def check_for_deallocation(
     cursor: Cursor, node_names: List[str], logger: logging.Logger
 ):
     """
@@ -169,113 +212,48 @@ async def wait_for_deallocation(
     :param node_names: A list of CrateDB node names. These are the names that
         are known to CrateDB, e.g. ``data-hot-2`` or ``master-1``.
     """
-    while True:
-        logger.info(
-            "Waiting for deallocation of CrateDB nodes %s ...", ", ".join(node_names)
-        )
-        # We select the node names and the number of shards for all nodes that
-        # will be torn down. As long as the rowcount is > 0 (see the backoff
-        # predicate above), the nodes in question still have shards allocated
-        # and thus can't be decommissioned. Thus, backoff will retry again.
-        await cursor.execute(
-            """
-            SELECT node['name'], count(*)
-            FROM sys.shards
-            WHERE node['name'] = ANY(%s)
-            GROUP BY 1
-            """,
-            (node_names,),
-        )
-        rows = await cursor.fetchall()
-        if rows:
-            allocations = ", ".join(f"{row[0]}={row[1]}" for row in rows) or "None"
-            logger.info("Current pending allocation %s", allocations)
-            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        else:
-            logger.info("No more pending allocations")
-            break
+    logger.info(
+        "Waiting for deallocation of CrateDB nodes %s ...", ", ".join(node_names)
+    )
+    # We select the node names and the number of shards for all nodes that
+    # will be torn down. As long as the rowcount is > 0 the nodes in question
+    # still have shards allocated and thus can't be decommissioned.
+    await cursor.execute(
+        """
+        SELECT node['name'], count(*)
+        FROM sys.shards
+        WHERE node['name'] = ANY(%s)
+        GROUP BY 1
+        """,
+        (node_names,),
+    )
+    rows = await cursor.fetchall()
+    if rows:
+        allocations = ", ".join(f"{row[0]}={row[1]}" for row in rows) or "None"
+        logger.info("Current pending allocation %s", allocations)
+        raise kopf.TemporaryError("Pending allocation", delay=BACKOFF_TIME / 2.0)
 
 
-async def scale_up_statefulset(
-    apps: AppsV1Api,
-    namespace: str,
-    sts_name: str,
-    node_spec: Dict[str, Any],
+async def deallocate_nodes(
     conn_factory,
-    old_total_nodes: int,
-    num_add_nodes: int,
+    new_num_data_nodes: int,
+    excess_nodes: List[str],
     logger: logging.Logger,
-) -> int:
+) -> None:
     """
-    Scale the StatefulSet ``sts_name`` up to the desired number of replicas.
+    Trigger deallocation of data from nodes ``excess_nodes``.
 
-    :param apps: An instance of the Kubernetes Apps V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param sts_name: The name for the Kubernetes StatefulSet to update.
-    :param node_spec: A node specification from the custom resource. Either
-        ``spec.nodes.master`` or ``spec.nodes.data.*``.
+    When the function exits cleanly, the nodes are deallocated. WHen the
+    function raises a :class:`kopf.TemporaryError`, some shards still need to
+    be relocated.
+
     :param conn_factory: A function that establishes a database connection to
         the CrateDB cluster used for SQL queries.
-    :param old_total_nodes: The total number of nodes in the CrateDB cluster
-        *before* scaling up this StatefulSet.
-    :param num_add_nodes: The number of *additional* nodes to add to the
-        StatefulSet and CrateDB cluster.
-    :return: The total number of nodes in the CrateDB cluster *after* scaling
-        up this StatefulSet.
+    :param new_num_data_nodes: The total number of data nodes in the CrateDB
+        cluster *without* the ``excess_nodes``.
+    :param excess_nodes: The list of CrateDB nodes to deallocate.
+    :raises: A :class:`kopf.TemporaryError` when shards need to be relocated.
     """
-    new_total_nodes = old_total_nodes + num_add_nodes
-
-    replicas = node_spec["replicas"]
-    if await get_current_statefulset_replicas(apps, namespace, sts_name) == replicas:
-        # short-circuit here when nothing needs to be done on the stateful set.
-        return new_total_nodes
-
-    await update_statefulset(apps, namespace, sts_name, replicas, new_total_nodes)
-
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
-
-    return new_total_nodes
-
-
-async def scale_down_statefulset(
-    apps: AppsV1Api,
-    namespace: str,
-    sts_name: str,
-    node_spec: Dict[str, Any],
-    conn_factory,
-    old_total_nodes: int,
-    num_excess_nodes: int,
-    num_master_nodes: int,
-    logger: logging.Logger,
-) -> int:
-    """
-    Scale the StatefulSet ``sts_name`` down to the desired number of replicas.
-
-    :param apps: An instance of the Kubernetes Apps V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param sts_name: The name for the Kubernetes StatefulSet to update.
-    :param node_spec: A node specification from the custom resource. Either
-        ``spec.nodes.master`` or ``spec.nodes.data.*``.
-    :param conn_factory: A function that establishes a database connection to
-        the CrateDB cluster used for SQL queries.
-    :param old_total_nodes: The total number of nodes in the CrateDB cluster
-        *before* scaling down this StatefulSet.
-    :param num_excess_nodes: The number of *excess* nodes to remove from the
-        StatefulSet and CrateDB cluster.
-    :param num_master_nodes: The number of **dedicated** master nodes in the
-        CrateDB cluster. This is required to determine the number of data nodes
-        available in the cluster at a given time.
-    :return: The total number of nodes in the CrateDB cluster *after* scaling
-        down this StatefulSet.
-    """
-    new_total_nodes = old_total_nodes - num_excess_nodes
-
-    replicas = node_spec["replicas"]
-    if await get_current_statefulset_replicas(apps, namespace, sts_name) == replicas:
-        # short-circuit here when nothing needs to be done on the stateful set.
-        return new_total_nodes
-
-    node_name = node_spec["name"]
     async with conn_factory() as conn:
         async with conn.cursor() as cursor:
             # 1. Check that there are not too many replicas for some tables.
@@ -291,137 +269,63 @@ async def scale_down_statefulset(
                 max_replicas = max(parse_replicas(r[0]) for r in rows)
             else:
                 max_replicas = 0
-            # A table has 1 (primary) + n replicas.
-            # If that number is larger than the number of data nodes in the
-            # cluster (total nodes - *dedicated* master nodes) then there are
-            # not enough nodes to have all tables fully replicated. Thus,
-            # failing the scaling.
-            if max_replicas + 1 > new_total_nodes - num_master_nodes:
+            # A table has 1 (primary) + n replicas. If that number is larger
+            # than the number of data nodes in the cluster then there are not
+            # enough nodes to have all tables fully replicated. Thus, failing
+            # the scaling.
+            if max_replicas + 1 > new_num_data_nodes:
                 raise kopf.TemporaryError(
                     "Some tables have too many replicas to scale down"
                 )
 
             # 2. Exclude current-new nodes from allocating shards
             # A list of CrateDB node names that will be removed.
-            to_remove_node_names = [
-                f"data-{node_name}-{x}"
-                for x in range(replicas, replicas + num_excess_nodes)
-            ]
             await cursor.execute(
                 """
-                    SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
-                    """,
-                (",".join(to_remove_node_names),),
+                SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
+                """,
+                (",".join(excess_nodes),),
             )
 
             # 3. Wait for nodes to be deallocated
-            await wait_for_deallocation(cursor, to_remove_node_names, logger)
-
-    # 4. Patch statefulset with new number of nodes. This will kill excess
-    # pods.
-    await update_statefulset(apps, namespace, sts_name, replicas, new_total_nodes)
-
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
-
-    return new_total_nodes
+            await check_for_deallocation(cursor, excess_nodes, logger)
 
 
-async def scale_cluster_data_nodes(
-    apps: AppsV1Api,
-    namespace: str,
-    name: str,
-    spec: kopf.Spec,
-    diff: kopf.Diff,
-    conn_factory,
-    old_total_nodes: int,
-    logger: logging.Logger,
-) -> int:
+async def scale_cluster_patch_total_nodes(
+    apps: AppsV1Api, namespace: str, name: str, spec: kopf.Spec, total_nodes: int
+) -> None:
     """
-    Scale all data node StatefulSets according to their ``diff``.
-
-    The function first works out which StatefulSets need to be scaled up and
-    which need to be scaled down. It will then first perform all scale up
-    operations and then the more time consuming scale down operations. This is
-    so that there are enough data nodes around where shards can be migrated to
-    before terminating excess nodes.
+    Update all StatefulSets to ensure intermittent node restarts will not reset
+    the desired total nodes and quorum in a cluster.
 
     :param apps: An instance of the Kubernetes Apps V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param spec: The ``spec`` field from the new CrateDB cluster custom object.
-    :param diff: A list of changes made to the individual
-         data node specifications.
-    :param conn_factory: A function that establishes a database connection to
-        the CrateDB cluster used for SQL queries.
-    :param old_total_nodes: The total number of nodes in the CrateDB cluster
-        *before* scaling any StatefulSet.
-    :return: The total number of nodes in the CrateDB cluster *after* scaling
-        all data node StatefulSets.
+    :param total_nodes: The total number of nodes in the CrateDB cluster
+        *after* scaling all StatefulSets.
     """
-
-    # The StatefulSets that will be scaled up (index, num additional nodes)
-    scale_up_sts: List[Tuple[int, int]] = []
-    # The StatefulSets that will be scaled down (index, num removed nodes)
-    scale_down_sts: List[Tuple[int, int]] = []
-    for _, field_path, old_value, new_value in diff:
-        index, *_ = field_path
-        index = int(index)
-        if old_value < new_value:
-            scale_up_sts.append((index, new_value - old_value))
-        else:
-            scale_down_sts.append((index, old_value - new_value))
-
-    new_total_nodes = old_total_nodes
-
-    for index, num_add_nodes in scale_up_sts:
-        # We iterate over all StatefulSets that are growing and will update
-        # each one individually. Each time, we increase the number of expected
-        # nodes in the cluster according to that StatefulSet's change.
-        # Later, we'll update all StatefulSets in the cluster with the new
-        # total number of nodes.
-        node_spec = spec["nodes"]["data"][index]
-        node_name = node_spec["name"]
-        new_total_nodes = await scale_up_statefulset(
-            apps,
-            namespace,
-            f"crate-data-{node_name}-{name}",
-            spec["nodes"]["data"][index],
-            conn_factory,
-            new_total_nodes,
-            num_add_nodes,
-            logger,
-        )
-
-    # Number of dedicated master nodes. Required to determine the available
-    # number of data nodes.
-    num_master_nodes = 0
+    updates = []
     if "master" in spec["nodes"]:
-        num_master_nodes = spec["nodes"]["master"]["replicas"]
-
-    for index, num_rem_nodes in scale_down_sts:
-        node_spec = spec["nodes"]["data"][index]
-        node_name = node_spec["name"]
-        new_total_nodes = await scale_down_statefulset(
-            apps,
-            namespace,
-            f"crate-data-{node_name}-{name}",
-            spec["nodes"]["data"][index],
-            conn_factory,
-            new_total_nodes,
-            num_rem_nodes,
-            num_master_nodes,
-            logger,
+        updates.append(
+            update_statefulset(
+                apps, namespace, f"crate-master-{name}", None, None, total_nodes
+            )
         )
-
-    if scale_down_sts:
-        # Reset the deallocation
-        if "master" in spec["nodes"]:
-            reset_pod_name = f"crate-master-{name}-0"
-        else:
-            reset_pod_name = f"crate-data-{spec['nodes']['data'][0]['name']}-{name}-0"
-        await reset_allocation(namespace, reset_pod_name, "ssl" in spec["cluster"])
-
-    return new_total_nodes
+    updates.extend(
+        [
+            update_statefulset(
+                apps,
+                namespace,
+                f"crate-data-{node_spec['name']}-{name}",
+                None,
+                None,
+                total_nodes,
+            )
+            for node_spec in spec["nodes"]["data"]
+        ]
+    )
+    await asyncio.gather(*updates)
 
 
 async def reset_allocation(namespace: str, pod_name: str, has_ssl: bool) -> None:
@@ -433,7 +337,7 @@ async def reset_allocation(namespace: str, pod_name: str, has_ssl: bool) -> None
        Ideally, we'd be using the system user to reset the allocation
        exclusions. However, `due to a bug
        <https://github.com/crate/crate/pull/10083>`_, this isn't possible in
-       CrateDB <= 4.1.6. We therefore fall back to the "exce-in-container"
+       CrateDB <= 4.1.6. We therefore fall back to the "exec-in-container"
        approach that we also use during cluster bootstrapping.
 
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
@@ -477,102 +381,12 @@ async def reset_allocation(namespace: str, pod_name: str, has_ssl: bool) -> None
         )
 
 
-async def scale_cluster_master_nodes(
-    apps: AppsV1Api,
-    namespace: str,
-    name: str,
-    spec: kopf.Spec,
-    diff: kopf.DiffItem,
-    conn_factory,
-    old_total_nodes: int,
-    logger: logging.Logger,
-) -> int:
-    """
-    Scale a dedicated master node StatefulSet to the desired number of replicas.
-
-    Since dedicated master nodes don't have an data, it's fine to "just" scale
-    them, without dealing with CrateDB directly. We'll only wait for a cluster
-    to recover at the end to ensure nothing else broke in the mean time.
-
-    :param apps: An instance of the Kubernetes Apps V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param spec: The ``spec`` field from the new CrateDB cluster custom object.
-    :param diff: The change made to the the master node specification.
-    :param conn_factory: A function that establishes a database connection to
-        the CrateDB cluster used for SQL queries.
-    :param old_total_nodes: The total number of nodes in the CrateDB cluster
-        *before* scaling the StatefulSet.
-    :return: The total number of nodes in the CrateDB cluster *after* scaling
-        the master node StatefulSet.
-    """
-    _, _, old_value, new_value = diff
-    sts_name = f"crate-master-{name}"
-    nodes_count_delta = new_value - old_value
-    new_total_nodes = old_total_nodes + nodes_count_delta
-
-    if await get_current_statefulset_replicas(apps, namespace, sts_name) == new_value:
-        # short-circuit here when nothing needs to be done on the stateful set.
-        return new_total_nodes
-
-    await update_statefulset(
-        apps,
-        namespace,
-        f"crate-master-{name}",
-        spec["nodes"]["master"]["replicas"],
-        new_total_nodes,
-    )
-
-    await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
-
-    return new_total_nodes
-
-
-async def scale_cluster_patch_total_nodes(
-    apps: AppsV1Api, namespace: str, name: str, spec: kopf.Spec, total_nodes: int
-) -> None:
-    """
-    Update all StatefulSets to ensure intermittent node restarts will not reset
-    the desired total nodes and quorum in a cluster.
-
-    :param apps: An instance of the Kubernetes Apps V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param spec: The ``spec`` field from the new CrateDB cluster custom object.
-    :param total_nodes: The total number of nodes in the CrateDB cluster
-        *after* scaling all StatefulSets.
-    """
-    updates = []
-    if "master" in spec["nodes"]:
-        updates.append(
-            update_statefulset(
-                apps, namespace, f"crate-master-{name}", None, total_nodes
-            )
-        )
-    updates.extend(
-        [
-            update_statefulset(
-                apps,
-                namespace,
-                f"crate-data-{node_spec['name']}-{name}",
-                None,
-                total_nodes,
-            )
-            for node_spec in spec["nodes"]["data"]
-        ]
-    )
-    await asyncio.gather(*updates)
-
-
 async def scale_cluster(
     apps: AppsV1Api,
     core: CoreV1Api,
     namespace: str,
     name: str,
-    do_scale_data: bool,
-    do_scale_master: bool,
-    old_total_nodes: int,
-    spec: kopf.Spec,
+    old: kopf.Body,
     master_diff_item: Optional[kopf.DiffItem],
     data_diff_items: Optional[kopf.Diff],
     logger: logging.Logger,
@@ -585,46 +399,146 @@ async def scale_cluster(
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param do_scale_data: ``True``, if data nodes need to be scaled.
-    :param do_scale_master: ``True``, if master nodes need to be scaled.
-    :param old_total_nodes: The total number of nodes in the CrateDB cluster
-        *before* scaling the StatefulSet.
-    :param spec: The ``spec`` field from the new CrateDB cluster custom object.
+    :param old: The old resource body.
     :param master_diff_item: An optional change indicating how many master
         nodes a cluster should have.
     :param data_diff_items: An optional list of changes made to the individual
         data node specifications.
     """
+    spec = old["spec"]
+    total_number_of_nodes = get_total_nodes_count(spec["nodes"])
+
     host = await get_host(core, namespace, name)
     password = await get_system_user_password(core, namespace, name)
     conn_factory = connection_factory(host, password)
 
-    total_nodes = old_total_nodes
-    if do_scale_master:
-        total_nodes = await scale_cluster_master_nodes(
-            apps,
-            namespace,
-            name,
-            spec,
-            master_diff_item,
+    if not is_cluster_healthy(conn_factory, total_number_of_nodes, logger):
+        raise kopf.TemporaryError("Waiting for cluster to be healthy.")
+
+    num_master_nodes = 0
+    if "master" in spec["nodes"]:
+        num_master_nodes = spec["nodes"]["master"]["replicas"]
+
+    if master_diff_item:
+        _, _, old_replicas, new_replicas = master_diff_item
+        total_number_of_nodes = total_number_of_nodes + new_replicas - old_replicas
+        num_master_nodes = new_replicas
+        sts_name = f"crate-master-{name}"
+        statefulset = await apps.read_namespaced_stateful_set(
+            namespace=namespace, name=sts_name
+        )
+        current_replicas = statefulset.spec.replicas
+        if current_replicas != new_replicas:
+            await update_statefulset(
+                apps,
+                namespace,
+                sts_name,
+                statefulset,
+                new_replicas,
+                total_number_of_nodes,
+            )
+            await scale_cluster_patch_total_nodes(
+                apps, namespace, name, spec, total_number_of_nodes
+            )
+
+        await check_nodes_present_or_gone(
             conn_factory,
-            total_nodes,
+            old_replicas,
+            new_replicas,
+            "master",
             logger,
         )
 
-    if do_scale_data:
-        total_nodes = await scale_cluster_data_nodes(
-            apps,
-            namespace,
-            name,
-            spec,
-            data_diff_items,
-            conn_factory,
-            total_nodes,
-            logger,
-        )
+    if data_diff_items:
+        for _, field_path, old_replicas, new_replicas in data_diff_items:
+            if old_replicas < new_replicas:
+                # scale up
+                total_number_of_nodes = (
+                    total_number_of_nodes + new_replicas - old_replicas
+                )
+                index, *_ = field_path
+                index = int(index)
+                node_spec = spec["nodes"]["data"][index]
+                node_name = node_spec["name"]
+                sts_name = f"crate-data-{node_name}-{name}"
+                statefulset = await apps.read_namespaced_stateful_set(
+                    namespace=namespace, name=sts_name
+                )
+                current_replicas = statefulset.spec.replicas
+                if current_replicas != new_replicas:
+                    await update_statefulset(
+                        apps,
+                        namespace,
+                        sts_name,
+                        statefulset,
+                        new_replicas,
+                        total_number_of_nodes,
+                    )
+                    await scale_cluster_patch_total_nodes(
+                        apps, namespace, name, spec, total_number_of_nodes
+                    )
 
-    await scale_cluster_patch_total_nodes(apps, namespace, name, spec, total_nodes)
+                await check_nodes_present_or_gone(
+                    conn_factory,
+                    old_replicas,
+                    new_replicas,
+                    f"data-{node_name}",
+                    logger,
+                )
+
+        for _, field_path, old_replicas, new_replicas in data_diff_items:
+            if old_replicas > new_replicas:
+                # scale down
+                total_number_of_nodes = (
+                    total_number_of_nodes + new_replicas - old_replicas
+                )
+                index, *_ = field_path
+                index = int(index)
+                node_spec = spec["nodes"]["data"][index]
+                node_name = node_spec["name"]
+                sts_name = f"crate-data-{node_name}-{name}"
+                statefulset = await apps.read_namespaced_stateful_set(
+                    namespace=namespace, name=sts_name
+                )
+                current_replicas = statefulset.spec.replicas
+                if current_replicas != new_replicas:
+                    excess_nodes = [
+                        f"data-{node_name}-{i}"
+                        for i in range(new_replicas, old_replicas)
+                    ]
+                    await deallocate_nodes(
+                        conn_factory,
+                        total_number_of_nodes - num_master_nodes,
+                        excess_nodes,
+                        logger,
+                    )
+
+                    await update_statefulset(
+                        apps,
+                        namespace,
+                        sts_name,
+                        statefulset,
+                        new_replicas,
+                        total_number_of_nodes,
+                    )
+                    await scale_cluster_patch_total_nodes(
+                        apps, namespace, name, spec, total_number_of_nodes
+                    )
+
+                await check_nodes_present_or_gone(
+                    conn_factory,
+                    old_replicas,
+                    new_replicas,
+                    f"data-{node_name}",
+                    logger,
+                )
+
+    # Reset the deallocation
+    if "master" in spec["nodes"]:
+        reset_pod_name = f"crate-master-{name}-0"
+    else:
+        reset_pod_name = f"crate-data-{spec['nodes']['data'][0]['name']}-{name}-0"
+    await reset_allocation(namespace, reset_pod_name, "ssl" in spec["cluster"])
 
     # Acknowledge all node checks that state that the expected number of nodes
     # doesn't line up. The StatefulSets have been adjusted, and once a pod
@@ -632,7 +546,9 @@ async def scale_cluster(
     async with conn_factory() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(
-                """UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1"""
+                """
+                UPDATE sys.node_checks SET acknowledged = TRUE WHERE id = 1
+                """
             )
 
 
@@ -643,20 +559,17 @@ class ScaleSubHandler(StateBasedSubHandler):
         self,
         namespace: str,
         name: str,
-        body: kopf.Body,
+        spec: kopf.Spec,
         old: kopf.Body,
         diff: kopf.Diff,
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        do_scale_master = False
-        do_scale_data = False
         scale_master_diff_item: Optional[kopf.DiffItem] = None
         scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
 
         for operation, field_path, old_value, new_value in diff:
             if field_path == ("spec", "nodes", "master", "replicas"):
-                do_scale_master = True
                 scale_master_diff_item = kopf.DiffItem(
                     operation, field_path, old_value, new_value
                 )
@@ -678,7 +591,6 @@ class ScaleSubHandler(StateBasedSubHandler):
                         inner_new_value,
                     ) in inner_diff:
                         if inner_field_path == ("replicas",):
-                            do_scale_data = True
                             scale_data_diff_items.append(
                                 kopf.DiffItem(
                                     inner_operation,
@@ -705,10 +617,7 @@ class ScaleSubHandler(StateBasedSubHandler):
                 core,
                 namespace,
                 name,
-                do_scale_data,
-                do_scale_master,
-                get_total_nodes_count(old["spec"]["nodes"]),
-                body.spec,
+                old,
                 scale_master_diff_item,
                 (kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None),
                 logger,
@@ -727,14 +636,12 @@ class ScaleSubHandler(StateBasedSubHandler):
                     WebhookScaleNodePayload(
                         name=item["name"], replicas=item["replicas"]
                     )
-                    for item in body.spec["nodes"]["data"]
+                    for item in spec["nodes"]["data"]
                 ],
                 old_master_replicas=old["spec"]["nodes"]
                 .get("master", {})
                 .get("replicas"),
-                new_master_replicas=body.spec["nodes"]
-                .get("master", {})
-                .get("replicas"),
+                new_master_replicas=spec["nodes"].get("master", {}).get("replicas"),
             ),
             WebhookStatus.SUCCESS,
         )
