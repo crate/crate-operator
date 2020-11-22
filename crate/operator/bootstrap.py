@@ -285,7 +285,7 @@ async def bootstrap_users(
             for user_spec in users:
                 username = user_spec["name"]
                 password = await resolve_secret_key_ref(
-                    core, namespace, user_spec["password"]["secretKeyRef"],
+                    core, namespace, user_spec["password"]["secretKeyRef"]
                 )
                 await create_user(cursor, username, password)
 
@@ -325,7 +325,7 @@ async def bootstrap_cluster(
         core = CoreV1Api(api_client)
         if license:
             await bootstrap_license(
-                core, namespace, master_node_pod, has_ssl, license, logger,
+                core, namespace, master_node_pod, has_ssl, license, logger
             )
         await bootstrap_system_user(
             core, namespace, name, master_node_pod, has_ssl, logger

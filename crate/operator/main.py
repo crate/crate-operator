@@ -404,7 +404,7 @@ async def cluster_update(
     for operation, field_path, old_value, new_value in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
-            ("spec", "cluster", "version",),
+            ("spec", "cluster", "version"),
         }:
             do_upgrade = True
         elif field_path == ("spec", "nodes", "master", "replicas"):

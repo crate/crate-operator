@@ -25,7 +25,7 @@ from crate.operator.config import config
 
 
 async def login_via_kubernetes_asyncio(
-    logger: Union[logging.Logger, logging.LoggerAdapter], **kwargs: Any,
+    logger: Union[logging.Logger, logging.LoggerAdapter], **kwargs: Any
 ) -> ConnectionInfo:
     """
     Authenticate with the Kubernetes cluster.

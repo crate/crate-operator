@@ -69,7 +69,7 @@ def test_payload_serialization_upgrade():
         cluster="some-cluster",
         scale_data=None,
         upgrade_data=WebhookUpgradePayload(
-            old_registry="a", new_registry="b", old_version="c", new_version="d",
+            old_registry="a", new_registry="b", old_version="c", new_version="d"
         ),
     )
     assert json.loads(json.dumps(p)) == {
@@ -174,7 +174,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "my-namespace",
             "my-cluster",
             WebhookUpgradePayload(
-                old_registry="a", new_registry="b", old_version="c", new_version="d",
+                old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
             logging.getLogger(__name__),
         )
@@ -211,7 +211,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "my-namespace",
             "my-cluster",
             WebhookUpgradePayload(
-                old_registry="a", new_registry="b", old_version="c", new_version="d",
+                old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
             logging.getLogger(__name__),
         )
@@ -225,7 +225,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "my-namespace",
             "my-cluster",
             WebhookUpgradePayload(
-                old_registry="a", new_registry="b", old_version="c", new_version="d",
+                old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
             logging.getLogger(__name__),
         )

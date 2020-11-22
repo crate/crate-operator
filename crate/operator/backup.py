@@ -47,7 +47,7 @@ from crate.operator.utils.typing import LabelType
 
 
 def get_backup_env(
-    name: str, http_port: int, backup_aws: Dict[str, Any], has_ssl: bool,
+    name: str, http_port: int, backup_aws: Dict[str, Any], has_ssl: bool
 ) -> List[V1EnvVar]:
     schema = "https" if has_ssl else "http"
     return [
@@ -66,7 +66,7 @@ def get_backup_env(
             name="PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
-                    key="password", name=f"user-system-{name}",
+                    key="password", name=f"user-system-{name}"
                 ),
             ),
         ),
@@ -129,7 +129,7 @@ def get_backup_cronjob(
                 spec=V1JobSpec(
                     template=V1PodTemplateSpec(
                         metadata=V1ObjectMeta(
-                            labels=labels, name=f"create-snapshot-{name}",
+                            labels=labels, name=f"create-snapshot-{name}"
                         ),
                         spec=V1PodSpec(
                             containers=[

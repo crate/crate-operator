@@ -146,7 +146,7 @@ async def test_bootstrap_license(
 
 
 async def test_bootstrap_users(
-    faker, namespace, cleanup_handler, kopf_runner, api_client,
+    faker, namespace, cleanup_handler, kopf_runner, api_client
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -253,9 +253,9 @@ async def test_bootstrap_users(
     )
 
     await assert_wait_for(
-        True, does_user_exist, host, password1, username1, timeout=BACKOFF_TIME * 3,
+        True, does_user_exist, host, password1, username1, timeout=BACKOFF_TIME * 3
     )
 
     await assert_wait_for(
-        True, does_user_exist, host, password2, username2, timeout=BACKOFF_TIME * 3,
+        True, does_user_exist, host, password2, username2, timeout=BACKOFF_TIME * 3
     )
