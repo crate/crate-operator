@@ -55,9 +55,7 @@ async def test_success(faker, namespace, api_client):
 
 
 @pytest.mark.k8s
-async def test_absent_raises(
-    faker, namespace, api_client,
-):
+async def test_absent_raises(faker, namespace, api_client):
     core = CoreV1Api(api_client)
     name = faker.domain_word()
     with pytest.raises(ApiException):

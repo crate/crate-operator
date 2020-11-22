@@ -110,7 +110,7 @@ async def get_healthiness(cursor: Cursor) -> int:
 
 
 async def wait_for_healthy_cluster(
-    connection_factory, expected_nodes: int, logger: logging.Logger,
+    connection_factory, expected_nodes: int, logger: logging.Logger
 ) -> None:
     """
     Indefinitely wait for the cluster to become healty.

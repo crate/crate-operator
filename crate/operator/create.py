@@ -157,7 +157,7 @@ def get_sql_exporter_config(
 ) -> V1ConfigMap:
     sql_exporter_config = pkgutil.get_data("crate.operator", "data/sql-exporter.yaml")
     responsivity_collector_config = pkgutil.get_data(
-        "crate.operator", "data/responsivity-collector.yaml",
+        "crate.operator", "data/responsivity-collector.yaml"
     )
     if sql_exporter_config and responsivity_collector_config:
         return V1ConfigMap(
@@ -208,10 +208,10 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                     label_selector=V1LabelSelector(
                         match_expressions=[
                             V1LabelSelectorRequirement(
-                                key=LABEL_COMPONENT, operator="In", values=["cratedb"],
+                                key=LABEL_COMPONENT, operator="In", values=["cratedb"]
                             ),
                             V1LabelSelectorRequirement(
-                                key=LABEL_NAME, operator="In", values=[name],
+                                key=LABEL_NAME, operator="In", values=[name]
                             ),
                         ],
                     ),
@@ -232,10 +232,10 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                     label_selector=V1LabelSelector(
                         match_expressions=[
                             V1LabelSelectorRequirement(
-                                key=LABEL_COMPONENT, operator="In", values=["cratedb"],
+                                key=LABEL_COMPONENT, operator="In", values=["cratedb"]
                             ),
                             V1LabelSelectorRequirement(
-                                key=LABEL_NAME, operator="In", values=[name],
+                                key=LABEL_NAME, operator="In", values=[name]
                             ),
                         ],
                     ),
@@ -279,7 +279,7 @@ def get_statefulset_containers(
             ports=[V1ContainerPort(container_port=9399, name="sql-exporter")],
             volume_mounts=[
                 V1VolumeMount(
-                    mount_path="/config", name="crate-sql-exporter", read_only=True,
+                    mount_path="/config", name="crate-sql-exporter", read_only=True
                 ),
             ],
         ),
@@ -473,7 +473,7 @@ def get_statefulset_crate_env(
 
 
 def get_statefulset_crate_volume_mounts(
-    node_spec: Dict[str, Any], ssl: Optional[Dict[str, Any]],
+    node_spec: Dict[str, Any], ssl: Optional[Dict[str, Any]]
 ) -> List[V1VolumeMount]:
     volume_mounts = [
         V1VolumeMount(
@@ -497,7 +497,7 @@ def get_statefulset_crate_volume_mounts(
         # for changed keystores.
         volume_mounts.append(
             V1VolumeMount(
-                mount_path="/var/lib/crate/ssl/", name="keystore", read_only=True,
+                mount_path="/var/lib/crate/ssl/", name="keystore", read_only=True
             ),
         )
 
@@ -673,7 +673,8 @@ def get_statefulset(
             service_name="cratedb",
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
-                    annotations=node_annotations, labels=node_labels,
+                    annotations=node_annotations,
+                    labels=node_labels,
                 ),
                 spec=V1PodSpec(
                     affinity=get_statefulset_affinity(name, logger),

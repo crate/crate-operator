@@ -105,7 +105,7 @@ async def call_kubeapi(
 
 
 async def resolve_secret_key_ref(
-    core: CoreV1Api, namespace: str, secret_key_ref: SecretKeyRef,
+    core: CoreV1Api, namespace: str, secret_key_ref: SecretKeyRef
 ) -> str:
     """
     Lookup the secret value defined by ``secret_key_ref`` in ``namespace``.
@@ -130,7 +130,7 @@ async def get_system_user_password(core: CoreV1Api, namespace: str, name: str) -
     :param name: The name of the CrateDB cluster.
     """
     return await resolve_secret_key_ref(
-        core, namespace, {"key": "password", "name": f"user-system-{name}"},
+        core, namespace, {"key": "password", "name": f"user-system-{name}"}
     )
 
 

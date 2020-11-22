@@ -97,9 +97,7 @@ class TestDebugVolume:
             (pvc.metadata.namespace, pvc.metadata.name) for pvc in pvcs.items
         )
 
-    async def test_create(
-        self, faker, namespace, cleanup_handler, api_client,
-    ):
+    async def test_create(self, faker, namespace, cleanup_handler, api_client):
         core = CoreV1Api(api_client)
         name = faker.domain_word()
 
@@ -111,10 +109,10 @@ class TestDebugVolume:
         )
 
         await create_debug_volume(
-            None, namespace.metadata.name, name, {}, logging.getLogger(__name__),
+            None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
         )
         await assert_wait_for(
-            True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}",
+            True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}"
         )
         await assert_wait_for(
             True,
@@ -739,7 +737,7 @@ class TestSystemUser:
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
             secret = await create_system_user(
-                None, namespace.metadata.name, name, {}, logging.getLogger(__name__),
+                None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
             )
         await assert_wait_for(
             True,

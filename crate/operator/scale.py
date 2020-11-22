@@ -111,12 +111,12 @@ async def update_statefulset(
     if replicas is not None:
         body["spec"]["replicas"] = replicas
     await apps.patch_namespaced_stateful_set(
-        namespace=namespace, name=sts_name, body=body,
+        namespace=namespace, name=sts_name, body=body
     )
 
 
 async def get_current_statefulset_replicas(
-    apps: AppsV1Api, namespace: str, sts_name: str,
+    apps: AppsV1Api, namespace: str, sts_name: str
 ) -> int:
     """
     Call the Kubernetes API and return the number of replicas for the
@@ -149,7 +149,7 @@ def get_container(statefulset: V1StatefulSet) -> V1Container:
 
 
 async def wait_for_deallocation(
-    cursor: Cursor, node_names: List[str], logger: logging.Logger,
+    cursor: Cursor, node_names: List[str], logger: logging.Logger
 ):
     """
     Wait until the nodes ``node_names`` have no more shards.
@@ -219,9 +219,7 @@ async def scale_up_statefulset(
         # short-circuit here when nothing needs to be done on the stateful set.
         return new_total_nodes
 
-    await update_statefulset(
-        apps, namespace, sts_name, replicas, new_total_nodes,
-    )
+    await update_statefulset(apps, namespace, sts_name, replicas, new_total_nodes)
 
     await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
 
@@ -310,9 +308,7 @@ async def scale_down_statefulset(
 
     # 4. Patch statefulset with new number of nodes. This will kill excess
     # pods.
-    await update_statefulset(
-        apps, namespace, sts_name, replicas, new_total_nodes,
-    )
+    await update_statefulset(apps, namespace, sts_name, replicas, new_total_nodes)
 
     await wait_for_healthy_cluster(conn_factory, new_total_nodes, logger)
 
