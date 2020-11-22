@@ -1,0 +1,80 @@
+@startuml concept-cluster-scale
+
+start
+
+:Get ""total_number_of_nodes"" of cluster from ""old"";
+
+:Wait for cluster to be healty;
+
+partition "1. Scale master nodes" {
+    if (""diff"" changes the number of dedicated master nodes) then (yes)
+        :Update ""total_number_of_nodes"" with diff;
+
+        if (CRD "".spec.nodes.master.replicas"" != STS "".spec.replicas"") then (yes)
+            :Update StatefulSet;
+
+            :Patch "".spec.template.spec.containers['crate'].command"
+            with new total number of nodes;
+            note right: This is so intermitted\nnode restarts don't\nreset the cluster state.
+        endif
+
+        if (new nodes missing in crate or old nodes present in crate) then (yes)
+            #pink:Wait for some time;
+            kill
+        endif
+    endif
+}
+
+partition "2. Scale up data nodes" {
+    while (Find next node_spec in diff that's a scale-up)
+        :Update ""total_number_of_nodes"" with diff;
+
+        if (CRD "".spec.nodes.data.*.replicas"" != STS "".spec.replicas"") then (yes)
+            :Update StatefulSet;
+
+            :Patch "".spec.template.spec.containers['crate'].command"
+            with new total number of nodes;
+            note right: This is so intermitted\nnode restarts don't\nreset the cluster state.
+        endif
+
+        if (new nodes missing in crate or old nodes present in crate) then (yes)
+            #pink:Wait for some time;
+            kill
+        endif
+    endwhile
+}
+
+partition "3. Scale down data nodes" {
+    while (Find next node_spec in diff that's a scale-down)
+        :Update ""total_number_of_nodes"" with diff;
+
+        if (CRD "".spec.nodes.data.*.replicas"" != STS "".spec.replicas"") then (yes)
+            if (old nodes in crate and shards on old nodes) then (yes)
+                :Deallocate old nodes;
+
+                #pink:Wait for some time;
+                kill
+            endif
+            :Update StatefulSet;
+
+            :Patch "".spec.template.spec.containers['crate'].command"
+            with new total number of nodes;
+            note right: This is so intermitted\nnode restarts don't\nreset the cluster state.
+        endif
+
+        if (new nodes missing in crate or old nodes present in crate) then (yes)
+            #pink:Wait for some time;
+            kill
+        endif
+    endwhile
+}
+
+partition "4. Cleanup" {
+    :Reset deallocations;
+
+    :Acknowledge node check;
+}
+
+stop
+
+@enduml

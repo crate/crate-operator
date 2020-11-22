@@ -81,7 +81,11 @@ a cluster contains 3 master nodes - 4 data nodes with name "hot" and 10 data
 nodes with name "cold" - each of them can be scaled up or down (with a minimum
 of 3 master nodes) as one pleases.
 
-The scaling operation will follow these four basic steps:
+The scaling operation will follow this process which is explained in depth
+below:
+
+.. figure:: _static/concept-cluster-scale.svg
+   :alt: The scaling process for a CrateDB cluster.
 
 #. First, all master nodes will be scaled. Whether up or down doesn't matter.
 
@@ -108,11 +112,15 @@ The scaling operation will follow these four basic steps:
    Once the data has been moved, the corresponding nodes are turned off by
    decreasing the number of replicas in the Kubernetes StatefulSet.
 
-#. The last step for the operator is to update all StatefulSets that make a
-   CrateDB cluster to the expected total number of nodes. This ensures that if
-   a pod dies, its restart won't alter CrateDB's expected number of nodes. This
-   will also involve acknowledging all ``gateway.expected_nodes`` :ref:`node
-   checks <cratedb:sys-node-checks>` (ID 1).
+#. The last step for the operator is to reset all allocations and then
+   acknowledge the ``gateway.expected_nodes`` :ref:`node checks
+   <cratedb:sys-node-checks>` (ID 1).
+
+Whenever the process calls for "Wait for some time", a
+:class:`kopf.TemporaryError` is raised, causing the Kopf sub-handler to be
+rescheduled and re-executed. That allows for the sub-handler to be called
+multiple times and allows for the operator to be restarted in the mean time, as
+it continues where it left of.
 
 The entire scaling operation may not take longer than 3600 seconds by default,
 or no longer than whatever is configured in the :envvar:`SCALING_TIMEOUT`
