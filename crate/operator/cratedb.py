@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
 import functools
 import logging
 
@@ -23,7 +22,7 @@ from aiopg import Cursor
 from psycopg2 import ProgrammingError
 from psycopg2.extensions import quote_ident
 
-from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
+from crate.operator.constants import SYSTEM_USERNAME
 
 HEALTHINESS = {1: "GREEN", 2: "YELLOW", 3: "RED"}
 
@@ -165,88 +164,3 @@ async def is_cluster_healthy(
             except ProgrammingError as e:
                 logger.warning("Failed to run health check query", exc_info=e)
                 return False
-
-
-async def wait_for_healthy_cluster(
-    connection_factory, expected_nodes: int, logger: logging.Logger
-) -> None:
-    """
-    Indefinitely wait for the cluster to become healthy.
-
-    The function repeatedly checks for the cluster health using the
-    `sys.health
-    <https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health>`_
-    table and the expected number of nodes in the cluster. The function
-    potentially runs indefinitely if the cluster is not in a ``GREEN`` state.
-    The reason for that is, that an issue with cluster health could be solved
-    by intervening on the cluster directly, e.g. by adjusting the number of
-    replicas.
-
-    :param connection_factory: A callable that allows the operator to connect
-        to the database. We regularly need to reconnect to ensure the
-        connection wasn't closed because it was opened to a CrateDB node that
-        was shut down since the connection was opened.
-    :param expected_nodes: The number of nodes that make up a healthy cluster.
-    """
-    # An integer healthiness flag. Increased upon succeeding healthy
-    # responses, and expected number of nodes; reset to 0 upon unhealtiness or
-    # on missing nodes.
-    healthy_count = 0
-
-    # An integer that counts the number of unhandled exceptions that occurred
-    # while trying to obtain the cluster health.
-    exception_count = 0
-
-    while True:
-        try:
-            # We need to establish a new connection because the peer of a
-            # previous connection could have been shut down. And by
-            # re-establishing a connection for _each_ polling we can assert
-            # that the connection is open
-            async with connection_factory() as conn:
-                async with conn.cursor() as cursor:
-                    logger.info("Waiting for cluster to get healthy again ...")
-                    try:
-                        num_nodes = await get_number_of_nodes(cursor)
-                        healthiness = await get_healthiness(cursor)
-                        if num_nodes == expected_nodes and healthiness in {1, None}:
-                            healthy_count += 1
-                            logger.info(
-                                "Cluster has expected nodes and is healthy (%d of 3)",
-                                healthy_count,
-                            )
-                        else:
-                            logger.info(
-                                "Cluster has %d of %d nodes and is in %s state.",
-                                num_nodes,
-                                expected_nodes,
-                                HEALTHINESS.get(healthiness, "UNKNOWN"),
-                            )
-                            healthy_count = 0
-                    except ProgrammingError as e:
-                        logger.warning("Failed to run health check query", exc_info=e)
-                        # We decided to endlessly retry. The reason for that
-                        # is, that an issue with cluster health could be solved
-                        # by intervening on the cluster directly, e.g. by
-                        # adjusting the number of replicas, and in this case
-                        # the operator should not fail but continue.
-                        healthy_count = 0
-                        await asyncio.sleep(BACKOFF_TIME)
-                    else:
-                        if healthy_count >= 3:
-                            break
-                        else:
-                            # Wait some time before we retry.
-                            await asyncio.sleep(BACKOFF_TIME / 2.0)
-        except Exception as e:
-            # Sometimes the client is not able to connect to a CrateDB cluster,
-            # e.g. when a load balancer is timing out, or when a load balancer
-            # routes to an non-existent node. In this case we retry 5 times and
-            # only fail then.
-            if exception_count > 5:
-                raise e
-            else:
-                healthy_count = 0
-                logger.warning("Failed to connect to cluster", exc_info=e)
-            exception_count += 1
-            await asyncio.sleep(BACKOFF_TIME)
