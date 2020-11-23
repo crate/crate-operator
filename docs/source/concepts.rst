@@ -33,6 +33,27 @@ The entire bootstrapping process may not take longer than (by default) 1800
 seconds before it is considered failed. The timeout can be configured with the
 :envvar:`BOOTSTRAP_TIMEOUT` environment variable.
 
+User Passwords
+~~~~~~~~~~~~~~
+
+When creating the CrateDB users specified under ``.spec.users``, the operator
+will add the ``operator.cloud.crate.io/user-password`` label to each of the
+Kubernetes Secrets assigned to one of the users. To keep backward
+compatibility, it also adds the label to Kubernetes Secrets referenced in
+existing CrateDB resources :func:`on resume <kopf:kopf.on.resume>`.
+
+The ``operator.cloud.crate.io/user-password`` label is used to filter the
+events when watching for changes on one of the Kubernetes Secrets. If one of
+the Kubernetes Secrets is updated, the operator will update all CrateDB users
+that use that secret by iterating over all CrateDB resources. The operator
+updates the password in a CrateDB cluster by logging in to one of the CrateDB
+nodes with the corresponding username and old password. It will then use the
+:ref:`cratedb:ref-alter-user` query to update the password.
+
+.. note::
+
+   If one changes the CrateDB user's password directly in CrateDB, the operator
+   won't be able to update that user anymore.
 
 Cluster Restart
 ---------------

@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Watch on Kubernetes Secrets that have the
+  ``operator.cloud.crate.io/user-password`` label assigned and update the users
+  of all CrateDB resources in the same namespace if the password changed.
+
 * Fixed an inconsistent behavior where the configuration option
   :envvar:`CLOUD_PROVIDER` would override an explicitly defined
   ``node.attr.zone`` in either ``.spec.cluster.settings``,

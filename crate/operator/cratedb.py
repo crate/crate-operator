@@ -86,6 +86,22 @@ async def create_user(cursor: Cursor, username: str, password: str) -> None:
     await cursor.execute(f"GRANT ALL PRIVILEGES TO {username_ident}")
 
 
+async def update_user(cursor: Cursor, username: str, password: str) -> None:
+    """
+    Update the users password.
+
+    :param cursor: A database cursor object to the CrateDB cluster where the
+        user should be updated.
+    :param username: The username of the user that should be updated.
+    :param password: The new password.
+    """
+
+    username_ident = quote_ident(username, cursor._impl)
+    await cursor.execute(
+        f"ALTER USER {username_ident} SET (password = %s)", (password,)
+    )
+
+
 async def get_number_of_nodes(cursor: Cursor) -> int:
     """
     Return the number of nodes in the cluster from ``sys.nodes``, which is the
