@@ -430,6 +430,36 @@ class TestStatefulSetCrateCommand:
             additional_args = " -H 'Metadata: true'"
         assert f"-Cnode.attr.zone=$(curl -s '{url}'{additional_args})" in cmd
 
+    @pytest.mark.parametrize(
+        "node_settings, cluster_settings",
+        [
+            ({"node.attr.zone": "test"}, None),
+            ({}, {"node.attr.zone": "test"}),
+        ],
+    )
+    def test_zone_attr_with_override(self, node_settings, cluster_settings):
+        with mock.patch(
+            "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.AZURE
+        ):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={
+                    "resources": {"cpus": 1, "disk": {"count": 1}},
+                    "settings": node_settings,
+                },
+                cluster_settings=cluster_settings,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+            )
+        assert "-Cnode.attr.zone=test" in cmd
+
 
 class TestStatefulSetCrateEnv:
     def test_without_ssl(self, faker):
