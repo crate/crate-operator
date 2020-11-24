@@ -385,6 +385,13 @@ def get_statefulset_crate_command(
             }
         )
 
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"
+        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
+    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
+        url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
+        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
+
     if cluster_settings:
         for k, v in cluster_settings.items():
             settings[f"-C{k}"] = v
@@ -392,13 +399,6 @@ def get_statefulset_crate_command(
     node_settings = node_spec.get("settings", {})
     for k, v in node_settings.items():
         settings[f"-C{k}"] = v
-
-    if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
-    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
-        url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
 
     return ["/docker-entrypoint.sh", "crate"] + [
         f"{k}={v}" for k, v in settings.items()

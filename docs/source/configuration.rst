@@ -43,6 +43,21 @@ expected to use upper-case letters and must be prefixed with
    - ``aws``
    - ``azure``
 
+   Under the hood, the operator will pass a ``zone`` attribute to all CrateDB
+   nodes. This attribute can also be defined explicitly or override the one set
+   by the operator. To do this on a cluster level, set ``.spec.cluster.settings``:
+
+   .. code-block:: yaml
+
+      kind: CrateDB
+      spec:
+        cluster:
+          settings:
+            node.attr.zone: "some-value"
+
+   To set or override the attribute on a node type level, set it in
+   ``.spec.nodes.master.settings`` or ``.spec.nodes.data.*.settings``.
+
 .. envvar:: CLUSTER_BACKUP_IMAGE
 
    (**Required**)

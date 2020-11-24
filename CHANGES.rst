@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ----------
 
+* Fixed an inconsistent behavior where the configuration option
+  :envvar:`CLOUD_PROVIDER` would override an explicitly defined
+  ``node.attr.zone`` in either ``.spec.cluster.settings``,
+  ``.spec.nodes.master.settings``, or ``.spec.nodes.data.*.settings``.
+
 * To allow CrateDB user password updates, Kubernetes Secrets referenced in the
   ``.spec.users`` section of a CrateDB custom resource, will have a label
   ``operator.cloud.crate.io/user-password`` applied.
