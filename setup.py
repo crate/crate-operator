@@ -52,7 +52,7 @@ setup(
     extras_require={
         "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],
         "testing": [
-            "faker==4.15.0",
+            "faker==4.17.1",
             "pytest==6.1.2",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.14.0",
