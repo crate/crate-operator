@@ -48,9 +48,9 @@ Operator will perform a rolling cluster restart, following this process:
 
 Restarting a CrateDB node works by deleting the corresponding Kubernetes pod.
 The operator will then wait for a new pod to go down and another one to come up
-and join the CrateDB cluster. Finally, the cluster needs to `report a green
-health label`_ three times in a row, with a 30 second wait time in between, for
-a pod to be considered back in service.
+and join the CrateDB cluster. Finally, the cluster needs to :ref:`report a
+green health label <cratedb:sys-health>` three times in a row, with a 30 second
+wait time in between, for a pod to be considered back in service.
 
 
 Cluster Scaling
@@ -92,8 +92,8 @@ The scaling operation will follow these four basic steps:
 #. The last step for the operator is to update all StatefulSets that make a
    CrateDB cluster to the expected total number of nodes. This ensures that if
    a pod dies, its restart won't alter CrateDB's expected number of nodes. This
-   will also involve acknowledging all ``gateway.expected_nodes`` `node
-   checks`_ (ID 1).
+   will also involve acknowledging all ``gateway.expected_nodes`` :ref:`node
+   checks <cratedb:sys-node-checks>` (ID 1).
 
 The entire scaling operation may not take longer than 3600 seconds by default,
 or no longer than whatever is configured in the :envvar:`SCALING_TIMEOUT`
@@ -186,7 +186,3 @@ documented below.
    :``new_version``:
       The new image version (Docker tag) as defined in
       ``.spec.cluster.version``.
-
-
-.. _report a green health label: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health
-.. _node checks: https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#node-checks
