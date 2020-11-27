@@ -144,5 +144,5 @@ async def test_update_cluster_password(
         host,
         new_password,
         username,
-        timeout=BACKOFF_TIME,
+        timeout=BACKOFF_TIME * 5,
     )
