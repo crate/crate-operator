@@ -44,8 +44,8 @@ class Config:
     #: AWS pass the availability zone as a CrateDB node attribute.
     CLOUD_PROVIDER: Optional[CloudProvider] = None
 
-    #: The Docker image that contians scripts to run cluster backups.
-    CLUSTER_BACKUP_IMAGE: str
+    #: The Docker image that contains scripts to run cluster backups.
+    CLUSTER_BACKUP_IMAGE: Optional[str] = None
 
     #: The volume size for the ``PersistentVolume`` that is used as a storage
     #: location for Java heap dumps.
@@ -125,7 +125,9 @@ class Config:
                     f"'{cloud_provider}'. Needs to be of {allowed}."
                 )
 
-        self.CLUSTER_BACKUP_IMAGE = self.env("CLUSTER_BACKUP_IMAGE")
+        self.CLUSTER_BACKUP_IMAGE = self.env(
+            "CLUSTER_BACKUP_IMAGE", default=self.CLUSTER_BACKUP_IMAGE
+        )
 
         debug_volume_size = self.env(
             "DEBUG_VOLUME_SIZE", default=str(self.DEBUG_VOLUME_SIZE)
