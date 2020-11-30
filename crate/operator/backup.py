@@ -32,6 +32,7 @@ from kubernetes_asyncio.client import (
     V1JobSpec,
     V1LabelSelector,
     V1LocalObjectReference,
+    V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
     V1PodSpec,
@@ -51,7 +52,19 @@ def get_backup_env(
 ) -> List[V1EnvVar]:
     schema = "https" if has_ssl else "http"
     return [
+        # The base path is here for backwards-compatibility and
+        # is not used by newer versions of the backup CronJob,
+        # in favour of the namespace.
         V1EnvVar(name="BASE_PATH", value=backup_aws.get("basePath", "")),
+        V1EnvVar(
+            name="NAMESPACE",
+            value_from=V1EnvVarSource(
+                field_ref=V1ObjectFieldSelector(
+                    api_version="v1",
+                    field_path="metadata.namespace",
+                )
+            ),
+        ),
         V1EnvVar(
             name="BUCKET",
             value_from=V1EnvVarSource(
@@ -83,6 +96,20 @@ def get_backup_env(
     ]
 
 
+def get_webhook_env():
+    if (
+        config.WEBHOOK_URL is not None
+        and config.WEBHOOK_USERNAME is not None
+        and config.WEBHOOK_PASSWORD is not None
+    ):
+        return [
+            V1EnvVar(name="WEBHOOK_URL", value=config.WEBHOOK_URL),
+            V1EnvVar(name="AUTH_USER", value=config.WEBHOOK_USERNAME),
+            V1EnvVar(name="AUTH_PASS", value=config.WEBHOOK_PASSWORD),
+        ]
+    return []
+
+
 def get_backup_cronjob(
     owner_references: Optional[List[V1OwnerReference]],
     name: str,
@@ -92,29 +119,33 @@ def get_backup_cronjob(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     has_ssl: bool,
 ) -> V1beta1CronJob:
-    env = [
-        V1EnvVar(
-            name="AWS_ACCESS_KEY_ID",
-            value_from=V1EnvVarSource(
-                secret_key_ref=V1SecretKeySelector(
-                    key=backup_aws["accessKeyId"]["secretKeyRef"]["key"],
-                    name=backup_aws["accessKeyId"]["secretKeyRef"]["name"],
+    env = (
+        [
+            V1EnvVar(
+                name="AWS_ACCESS_KEY_ID",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_aws["accessKeyId"]["secretKeyRef"]["key"],
+                        name=backup_aws["accessKeyId"]["secretKeyRef"]["name"],
+                    ),
                 ),
             ),
-        ),
-        V1EnvVar(
-            name="AWS_SECRET_ACCESS_KEY",
-            value_from=V1EnvVarSource(
-                secret_key_ref=V1SecretKeySelector(
-                    key=backup_aws["secretAccessKey"]["secretKeyRef"]["key"],
-                    name=backup_aws["secretAccessKey"]["secretKeyRef"]["name"],
+            V1EnvVar(
+                name="AWS_SECRET_ACCESS_KEY",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_aws["secretAccessKey"]["secretKeyRef"]["key"],
+                        name=backup_aws["secretAccessKey"]["secretKeyRef"]["name"],
+                    ),
                 ),
             ),
-        ),
-        V1EnvVar(name="CLUSTER_ID", value=name),
-        V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
-        V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
-    ] + get_backup_env(name, http_port, backup_aws, has_ssl)
+            V1EnvVar(name="CLUSTER_ID", value=name),
+            V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
+            V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
+        ]
+        + get_backup_env(name, http_port, backup_aws, has_ssl)
+        + get_webhook_env()
+    )
     return V1beta1CronJob(
         metadata=V1ObjectMeta(
             name=f"create-snapshot-{name}",
