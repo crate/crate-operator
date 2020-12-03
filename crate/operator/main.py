@@ -354,25 +354,30 @@ async def cluster_create(
     )
 
     if "backups" in spec:
-        backup_metrics_labels = base_labels.copy()
-        backup_metrics_labels[LABEL_COMPONENT] = "backup"
-        backup_metrics_labels.update(meta.get("labels", {}))
-        kopf.register(
-            fn=subhandler_partial(
-                create_backups,
-                owner_references,
-                namespace,
-                name,
-                backup_metrics_labels,
-                http_port,
-                prometheus_port,
-                spec["backups"],
-                image_pull_secrets,
-                "ssl" in spec["cluster"],
-                logger,
-            ),
-            id="backup",
-        )
+        if config.CLUSTER_BACKUP_IMAGE is None:
+            logger.info(
+                "Not deploying backup tools because no backup image is defined."
+            )
+        else:
+            backup_metrics_labels = base_labels.copy()
+            backup_metrics_labels[LABEL_COMPONENT] = "backup"
+            backup_metrics_labels.update(meta.get("labels", {}))
+            kopf.register(
+                fn=subhandler_partial(
+                    create_backups,
+                    owner_references,
+                    namespace,
+                    name,
+                    backup_metrics_labels,
+                    http_port,
+                    prometheus_port,
+                    spec["backups"],
+                    image_pull_secrets,
+                    "ssl" in spec["cluster"],
+                    logger,
+                ),
+                id="backup",
+            )
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)

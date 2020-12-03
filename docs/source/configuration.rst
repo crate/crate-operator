@@ -3,7 +3,7 @@ Configuration
 
 The configuration for the CrateDB Kubernetes Operator follows the `12 Factor
 Principles`_ and uses environment variables. All environment variables are
-expected to use upper-case letters and must be prefixed with
+expected to use upper case letters and must be prefixed with
 ``CRATEDB_OPERATOR_``.
 
 .. envvar:: BOOTSTRAP_TIMEOUT
@@ -59,8 +59,6 @@ expected to use upper-case letters and must be prefixed with
    ``.spec.nodes.master.settings`` or ``.spec.nodes.data.*.settings``.
 
 .. envvar:: CLUSTER_BACKUP_IMAGE
-
-   (**Required**)
 
    When enabling backups for a cluster, the operator deploys a Prometheus_
    exporter to be scraped for backup metrics, and a Kubernetes CronJob that

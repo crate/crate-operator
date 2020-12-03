@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Made ``CLUSTER_BACKUP_IMAGE`` configuration parameter optional to remove
+  dependency on external Docker image.
+
 * Will now pass the ``WEBHOOK_URL`` and credentials to the created backup cronjob.
 
 * Watch on Kubernetes Secrets that have the
@@ -17,10 +20,10 @@ Unreleased
   ``.spec.nodes.master.settings``, or ``.spec.nodes.data.*.settings``.
 
 * To allow CrateDB user password updates, Kubernetes Secrets referenced in the
-  ``.spec.users`` section of a CrateDB custom resource, will have a label
-  ``operator.cloud.crate.io/user-password`` applied.
+  ``.spec.users`` section of a CrateDB custom resource, will have a
+  ``operator.cloud.crate.io/user-password`` label applied.
 
-* Change the Pod spreading on Azure to use the underlying Azure zone instead of
+* Changed the pod spreading on Azure to use the underlying Azure zone instead of
   the fault/failure domain.
 
 * Fixed configuration parsing of the :envvar:`KUBECONFIG` environment variable.
@@ -47,6 +50,7 @@ Unreleased
 
 * Fixed a bug that would prevent the version of the Docker image of the
   ``mkdir-heapdump`` init container to be updated when a cluster is upgraded.
+
 
 1.0b4 (2020-11-03)
 ------------------
