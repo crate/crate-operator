@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Will now pass the ``WEBHOOK_URL`` and credentials to the created backup cronjob.
+
 * Watch on Kubernetes Secrets that have the
   ``operator.cloud.crate.io/user-password`` label assigned and update the users
   of all CrateDB resources in the same namespace if the password changed.

@@ -64,7 +64,9 @@ expected to use upper-case letters and must be prefixed with
 
    When enabling backups for a cluster, the operator deploys a Prometheus_
    exporter to be scraped for backup metrics, and a Kubernetes CronJob that
-   creates backups every defined interval. This variable needs to point to a
+   creates backups every defined interval. If :envvar:`WEBHOOK_URL` and
+   related credentials are specified, the backup CronJob will post backup
+   creation events back to the webhook URL. This variable needs to point to a
    Docker image *and* tag to use it for the exporter and CronJob.
 
 .. envvar:: DEBUG_VOLUME_SIZE
