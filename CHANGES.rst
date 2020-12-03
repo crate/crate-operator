@@ -2,8 +2,8 @@
 Changelog
 =========
 
-Unreleased
-----------
+1.0 (2020-12-03)
+----------------
 
 * Made ``CLUSTER_BACKUP_IMAGE`` configuration parameter optional to remove
   dependency on external Docker image.
