@@ -21,7 +21,7 @@ from typing import Awaitable, Callable, Optional
 from kubernetes_asyncio.client import ApiException, CoreV1Api, V1ObjectMeta, V1Secret
 
 from crate.operator.config import config
-from crate.operator.constants import BACKOFF_TIME, LABEL_USER_PASSWORD
+from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.typing import K8sModel, SecretKeyRef
 
@@ -162,7 +162,7 @@ async def get_public_host(core: CoreV1Api, namespace: str, name: str) -> str:
         except ApiException:
             pass
 
-        await asyncio.sleep(BACKOFF_TIME / 2)
+        await asyncio.sleep(5.0)
 
 
 async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:

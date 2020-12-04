@@ -24,7 +24,7 @@ from kubernetes_asyncio.stream import WsApiClient
 from psycopg2.extensions import QuotedString
 
 from crate.operator.config import config
-from crate.operator.constants import BACKOFF_TIME, SYSTEM_USERNAME
+from crate.operator.constants import CONNECT_TIMEOUT, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils.kubeapi import (
     ensure_user_password_label,
@@ -280,7 +280,7 @@ async def bootstrap_users(
     """
     host = await get_host(core, namespace, name)
     password = await get_system_user_password(core, namespace, name)
-    async with get_connection(host, password, timeout=BACKOFF_TIME / 4.0) as conn:
+    async with get_connection(host, password, timeout=CONNECT_TIMEOUT) as conn:
         async with conn.cursor() as cursor:
             for user_spec in users:
                 username = user_spec["name"]

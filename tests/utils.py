@@ -19,16 +19,16 @@ import logging
 
 from kubernetes_asyncio.client import StorageV1Api, V1ObjectMeta, V1StorageClass
 
-from crate.operator.constants import BACKOFF_TIME
 from crate.operator.utils.kubeapi import call_kubeapi
 
 logger = logging.getLogger(__name__)
 
 LOCAL_FS_STORAGE_CLASS_NAME = "crate-operator-local-fs"
+DEFAULT_TIMEOUT = 60
 
 
 async def assert_wait_for(
-    condition, coro_func, *args, err_msg="", timeout=BACKOFF_TIME, **kwargs
+    condition, coro_func, *args, err_msg="", timeout=DEFAULT_TIMEOUT, **kwargs
 ):
     ret_val = await coro_func(*args, **kwargs)
     duration = 0.0
