@@ -23,7 +23,7 @@ import pytest
 from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
-from crate.operator.constants import API_GROUP, BACKOFF_TIME, RESOURCE_CRATEDB
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import (
     connection_factory,
     get_healthiness,
@@ -32,7 +32,7 @@ from crate.operator.cratedb import (
 from crate.operator.scale import parse_replicas
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import assert_wait_for
+from .utils import DEFAULT_TIMEOUT, assert_wait_for
 
 
 @pytest.mark.parametrize(
@@ -160,7 +160,8 @@ async def test_scale_cluster(
 
     host = await asyncio.wait_for(
         get_public_host(core, namespace.metadata.name, name),
-        timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
+        # It takes a while to retrieve an external IP on AKS.
+        timeout=DEFAULT_TIMEOUT * 5,
     )
     password = await get_system_user_password(core, namespace.metadata.name, name)
 
@@ -170,7 +171,7 @@ async def test_scale_cluster(
         connection_factory(host, password),
         repl_master_from + repl_hot_from + repl_cold_from,
         err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=BACKOFF_TIME * 5,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     patch_body = []
@@ -213,5 +214,5 @@ async def test_scale_cluster(
         connection_factory(host, password),
         repl_master_to + repl_hot_to + repl_cold_to,
         err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=BACKOFF_TIME * 5,
+        timeout=DEFAULT_TIMEOUT * 5,
     )

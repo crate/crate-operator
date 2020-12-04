@@ -16,7 +16,7 @@
 
 import logging
 
-from crate.operator.constants import BACKOFF_TIME
+from crate.operator.constants import CONNECT_TIMEOUT
 from crate.operator.cratedb import get_connection, update_user
 from crate.operator.utils.formatting import b64decode
 
@@ -39,7 +39,7 @@ async def update_user_password(
     :param new_password: The new password of the user that should be updated.
     """
     async with get_connection(
-        host, b64decode(old_password), username, timeout=BACKOFF_TIME / 4.0
+        host, b64decode(old_password), username, timeout=CONNECT_TIMEOUT
     ) as conn:
         async with conn.cursor() as cursor:
             logger.info("Updating password for user '%s'", username)

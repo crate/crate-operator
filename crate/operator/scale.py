@@ -26,7 +26,6 @@ from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, V1Container, V1State
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
-from crate.operator.constants import BACKOFF_TIME
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import quorum
@@ -231,7 +230,7 @@ async def check_for_deallocation(
     if rows:
         allocations = ", ".join(f"{row[0]}={row[1]}" for row in rows) or "None"
         logger.info("Current pending allocation %s", allocations)
-        raise kopf.TemporaryError("Pending allocation", delay=BACKOFF_TIME / 2.0)
+        raise kopf.TemporaryError("Pending allocation")
 
 
 async def deallocate_nodes(

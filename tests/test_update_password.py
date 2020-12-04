@@ -25,17 +25,12 @@ from kubernetes_asyncio.client import (
 )
 from psycopg2 import DatabaseError, OperationalError
 
-from crate.operator.constants import (
-    API_GROUP,
-    BACKOFF_TIME,
-    LABEL_USER_PASSWORD,
-    RESOURCE_CRATEDB,
-)
+from crate.operator.constants import API_GROUP, LABEL_USER_PASSWORD, RESOURCE_CRATEDB
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.utils.kubeapi import get_public_host
 
-from .utils import assert_wait_for
+from .utils import DEFAULT_TIMEOUT, assert_wait_for
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -127,7 +122,8 @@ async def test_update_cluster_password(
 
     host = await asyncio.wait_for(
         get_public_host(core, namespace.metadata.name, name),
-        timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
+        # It takes a while to retrieve an external IP on AKS.
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     await core.patch_namespaced_secret(
@@ -144,5 +140,5 @@ async def test_update_cluster_password(
         host,
         new_password,
         username,
-        timeout=BACKOFF_TIME * 5,
+        timeout=DEFAULT_TIMEOUT * 5,
     )

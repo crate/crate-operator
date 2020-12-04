@@ -29,7 +29,6 @@ from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.constants import (
     API_GROUP,
-    BACKOFF_TIME,
     LABEL_USER_PASSWORD,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
@@ -38,7 +37,7 @@ from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import assert_wait_for
+from .utils import DEFAULT_TIMEOUT, assert_wait_for
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -142,7 +141,7 @@ async def test_bootstrap_license(
         f"crate-data-data-{name}-0",
         False,
         {"secretKeyRef": {"key": "license", "name": f"license-{name}"}},
-        timeout=BACKOFF_TIME * 3,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
 
@@ -238,7 +237,8 @@ async def test_bootstrap_users(
 
     host = await asyncio.wait_for(
         get_public_host(core, namespace.metadata.name, name),
-        timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
+        # It takes a while to retrieve an external IP on AKS.
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     password_system = await get_system_user_password(
@@ -250,15 +250,15 @@ async def test_bootstrap_users(
         host,
         password_system,
         SYSTEM_USERNAME,
-        timeout=BACKOFF_TIME * 5,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     await assert_wait_for(
-        True, does_user_exist, host, password1, username1, timeout=BACKOFF_TIME * 3
+        True, does_user_exist, host, password1, username1, timeout=DEFAULT_TIMEOUT * 3
     )
 
     await assert_wait_for(
-        True, does_user_exist, host, password2, username2, timeout=BACKOFF_TIME * 3
+        True, does_user_exist, host, password2, username2, timeout=DEFAULT_TIMEOUT * 3
     )
 
     secret_user_1 = await core.read_namespaced_secret(

@@ -22,11 +22,11 @@ import pytest
 from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
-from crate.operator.constants import API_GROUP, BACKOFF_TIME, RESOURCE_CRATEDB
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import assert_wait_for
+from .utils import DEFAULT_TIMEOUT, assert_wait_for
 
 
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
@@ -115,7 +115,8 @@ async def test_restart_cluster(
 
     host = await asyncio.wait_for(
         get_public_host(core, namespace.metadata.name, name),
-        timeout=BACKOFF_TIME * 5,  # It takes a while to retrieve an external IP on AKS.
+        # It takes a while to retrieve an external IP on AKS.
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     password = await get_system_user_password(core, namespace.metadata.name, name)
@@ -137,7 +138,7 @@ async def test_restart_cluster(
         is_cluster_healthy,
         connection_factory(host, password),
         err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=BACKOFF_TIME * 5,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
@@ -164,5 +165,5 @@ async def test_restart_cluster(
         core,
         namespace.metadata.name,
         original_pods,
-        timeout=BACKOFF_TIME * 15,
+        timeout=DEFAULT_TIMEOUT * 15,
     )

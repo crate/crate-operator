@@ -28,7 +28,7 @@ LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
 SYSTEM_USERNAME = "system"
 
-BACKOFF_TIME = 60.0
+CONNECT_TIMEOUT = 10.0
 
 
 class CloudProvider(str, enum.Enum):
