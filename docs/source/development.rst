@@ -87,15 +87,45 @@ passed via the ``--kube-config`` and ``--kube-context`` arguments to pytest_.
 Furthermore, the context *must* start with either ``crate-`` or be called
 ``minikube``.
 
-.. note::
+Minikube
+^^^^^^^^
 
-   If you are using macOS in combination with Minikube, you need to set up a
-   `Minikube tunnel`_ in order to get an external IP address assigned to the
-   CrateDB services.
+Using minikube_ as Kubernetes backend for the tests requires a few
+preparations. For example, make sure your minikube has configured enough
+resources for example:
 
-   .. code-block:: console
+.. code-block:: console
 
-      $ minikube tunnel
+   $ minikube config view
+   - cpus: 4
+   - disk-size: 64G
+   - memory: 8192
+
+First, create a storage class named ``default``, which uses the
+``k8s.io/minikube-hostpath`` provisioner:
+
+.. code-block:: yaml
+
+   apiVersion: storage.k8s.io/v1
+   kind: StorageClass
+   metadata:
+     name: default
+   provisioner: k8s.io/minikube-hostpath
+   reclaimPolicy: Delete
+   volumeBindingMode: Immediate
+
+Then, change the environment variable
+``CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS`` in ``tests/conftest.py`` to
+``default``.
+
+Additionally, you need to set up a `minikube tunnel`_ in order to get
+an external IP address assigned to the CrateDB services.
+
+.. code-block:: console
+
+   $ minikube tunnel
+
+Finally, you can run ``pytest`` using the required arguments:
 
 .. code-block:: console
 
@@ -103,7 +133,8 @@ Furthermore, the context *must* start with either ``crate-`` or be called
 
 
 .. _pytest: https://docs.pytest.org/en/latest/
-.. _Minikube tunnel: https://minikube.sigs.k8s.io/docs/handbook/accessing/#using-minikube-tunnel
+.. _minikube: https://minikube.sigs.k8s.io
+.. _minikube tunnel: https://minikube.sigs.k8s.io/docs/handbook/accessing/#using-minikube-tunnel
 
 
 Code style
