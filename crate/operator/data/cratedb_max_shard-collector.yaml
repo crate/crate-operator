@@ -1,0 +1,17 @@
+---
+collector_name: cratedb_max_shards_collector
+# This metric only publishes the configuration set at the cluster level of the maximum number of shards a node can
+# handle.
+# This metric is to be used to alert us when the current number of shards per node surpasses a certain threshold.
+# Please note the calculation happens at Prometheus level and not here so that the metrics can be kept generic
+# and changed without the need of redeploying the operators.
+# The other required metric with the current number of shards nodes are handling is extracted via JMX.
+metrics:
+- help: "Indicates the maximum number of shards allowed per node defined in the configuration of the cluster."
+  metric_name: cratedb_max_shards_per_node
+  query: |
+    SELECT settings['cluster']['max_shards_per_node'] AS cratedb_max_shards_per_node
+    FROM sys.cluster LIMIT 1;
+  type: gauge
+  value_label: cratedb_max_shards_per_node
+  values: [cratedb_max_shards_per_node]
