@@ -2,6 +2,10 @@
 Changelog
 =========
 
+* Removed username validation from the custom resource definition.
+  Since CrateDB accepts every string as a username, we also don't want
+  to validate the username in the crate-operator.
+
 1.0 (2020-12-03)
 ----------------
 
