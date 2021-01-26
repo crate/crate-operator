@@ -37,7 +37,7 @@ from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for
+from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -109,7 +109,7 @@ async def test_bootstrap_license(
                         "secretKeyRef": {"key": "license", "name": f"license-{name}"},
                     },
                     "name": "my-crate-cluster",
-                    "version": "4.3.3",
+                    "version": CRATE_VERSION,
                 },
                 "nodes": {
                     "data": [
@@ -191,7 +191,7 @@ async def test_bootstrap_users(
                 "cluster": {
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
-                    "version": "4.3.3",
+                    "version": CRATE_VERSION,
                 },
                 "nodes": {
                     "data": [

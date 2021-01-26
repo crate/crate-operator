@@ -32,7 +32,7 @@ from crate.operator.cratedb import (
 from crate.operator.scale import parse_replicas
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for
+from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
 
 
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ async def test_scale_cluster(
             "cluster": {
                 "imageRegistry": "crate",
                 "name": "my-crate-cluster",
-                "version": "4.3.3",
+                "version": CRATE_VERSION,
             },
             "nodes": {"data": []},
         },

@@ -30,7 +30,7 @@ from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.utils.kubeapi import get_public_host
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for
+from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -85,7 +85,7 @@ async def test_update_cluster_password(
                 "cluster": {
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
-                    "version": "4.3.3",
+                    "version": CRATE_VERSION,
                 },
                 "nodes": {
                     "data": [
