@@ -17,13 +17,8 @@
 import asyncio
 import logging
 
-from kubernetes_asyncio.client import StorageV1Api, V1ObjectMeta, V1StorageClass
-
-from crate.operator.utils.kubeapi import call_kubeapi
-
 logger = logging.getLogger(__name__)
 
-LOCAL_FS_STORAGE_CLASS_NAME = "crate-operator-local-fs"
 DEFAULT_TIMEOUT = 60
 
 
@@ -49,17 +44,3 @@ async def assert_wait_for(
 async def does_namespace_exist(core, namespace: str) -> bool:
     namespaces = await core.list_namespace()
     return namespace in (ns.metadata.name for ns in namespaces.items)
-
-
-async def create_local_fs_storage_class(sapi: StorageV1Api):
-    await call_kubeapi(
-        sapi.create_storage_class,
-        logger,
-        continue_on_conflict=True,
-        body=V1StorageClass(
-            metadata=V1ObjectMeta(name=LOCAL_FS_STORAGE_CLASS_NAME),
-            provisioner="kubernetes.io/no-provisioner",
-            reclaim_policy="Delete",
-            volume_binding_mode="WaitForFirstConsumer",
-        ),
-    )

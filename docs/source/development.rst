@@ -101,7 +101,7 @@ resources for example:
    - disk-size: 64G
    - memory: 8192
 
-First, create a storage class named ``default``, which uses the
+Make sure you have a storage class named ``default``, which uses the
 ``k8s.io/minikube-hostpath`` provisioner:
 
 .. code-block:: yaml
@@ -113,10 +113,6 @@ First, create a storage class named ``default``, which uses the
    provisioner: k8s.io/minikube-hostpath
    reclaimPolicy: Delete
    volumeBindingMode: Immediate
-
-Then, change the environment variable
-``CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS`` in ``tests/conftest.py`` to
-``default``.
 
 Additionally, you need to set up a `minikube tunnel`_ in order to get
 an external IP address assigned to the CrateDB services.
