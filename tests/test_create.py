@@ -652,7 +652,7 @@ class TestStatefulSet:
             30000,
             40000,
             50000,
-            "crate:4.1.5",
+            "crate:4.3.3",
             {
                 "keystore": {"secretKeyRef": {"key": "keystore", "name": "sslcert"}},
                 "keystoreKeyPassword": {
@@ -821,7 +821,7 @@ class TestCreateCustomResource:
                     "cluster": {
                         "imageRegistry": "crate",
                         "name": "my-crate-cluster",
-                        "version": "4.1.5",
+                        "version": "4.3.3",
                     },
                     "nodes": {
                         "data": [
@@ -882,7 +882,7 @@ class TestCreateCustomResource:
                         "imageRegistry": "crate",
                         "name": "my-crate-cluster",
                         "settings": {"s.c.s": "1"},
-                        "version": "4.1.5",
+                        "version": "4.3.3",
                     },
                     "nodes": {
                         "data": [
