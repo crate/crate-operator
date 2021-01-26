@@ -109,7 +109,7 @@ async def test_bootstrap_license(
                         "secretKeyRef": {"key": "license", "name": f"license-{name}"},
                     },
                     "name": "my-crate-cluster",
-                    "version": "4.1.5",
+                    "version": "4.3.3",
                 },
                 "nodes": {
                     "data": [
@@ -191,7 +191,7 @@ async def test_bootstrap_users(
                 "cluster": {
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
-                    "version": "4.1.5",
+                    "version": "4.3.3",
                 },
                 "nodes": {
                     "data": [

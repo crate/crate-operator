@@ -80,7 +80,7 @@ async def test_resume_set_secret_labels(
             "cluster": {
                 "imageRegistry": "crate",
                 "name": "my-crate-cluster",
-                "version": "4.1.5",
+                "version": "4.3.3",
             },
             "nodes": {
                 "data": [
