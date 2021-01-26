@@ -26,7 +26,7 @@ from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for
+from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
 
 
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
@@ -75,7 +75,7 @@ async def test_restart_cluster(
                 "cluster": {
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
-                    "version": "4.3.0",
+                    "version": CRATE_VERSION,
                 },
                 "nodes": {
                     "data": [

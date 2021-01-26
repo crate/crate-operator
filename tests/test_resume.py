@@ -22,6 +22,7 @@ from kubernetes_asyncio.client import CoreV1Api, V1ObjectMeta, V1Secret
 from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.main import update_cratedb_resource
 from crate.operator.utils.formatting import b64encode
+from tests.utils import CRATE_VERSION
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -80,7 +81,7 @@ async def test_resume_set_secret_labels(
             "cluster": {
                 "imageRegistry": "crate",
                 "name": "my-crate-cluster",
-                "version": "4.3.3",
+                "version": CRATE_VERSION,
             },
             "nodes": {
                 "data": [

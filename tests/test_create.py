@@ -49,7 +49,7 @@ from crate.operator.create import (
 )
 from crate.operator.utils.formatting import b64decode
 
-from .utils import assert_wait_for
+from .utils import CRATE_VERSION, assert_wait_for
 
 
 @pytest.fixture
@@ -652,7 +652,7 @@ class TestStatefulSet:
             30000,
             40000,
             50000,
-            "crate:4.3.3",
+            f"crate:{CRATE_VERSION}",
             {
                 "keystore": {"secretKeyRef": {"key": "keystore", "name": "sslcert"}},
                 "keystoreKeyPassword": {
@@ -821,7 +821,7 @@ class TestCreateCustomResource:
                     "cluster": {
                         "imageRegistry": "crate",
                         "name": "my-crate-cluster",
-                        "version": "4.3.3",
+                        "version": CRATE_VERSION,
                     },
                     "nodes": {
                         "data": [
@@ -882,7 +882,7 @@ class TestCreateCustomResource:
                         "imageRegistry": "crate",
                         "name": "my-crate-cluster",
                         "settings": {"s.c.s": "1"},
-                        "version": "4.3.3",
+                        "version": CRATE_VERSION,
                     },
                     "nodes": {
                         "data": [

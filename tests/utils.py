@@ -19,6 +19,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+CRATE_VERSION = "4.4.0"
 DEFAULT_TIMEOUT = 60
 
 
