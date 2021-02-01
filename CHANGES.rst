@@ -5,7 +5,7 @@ Changelog
 1.0.2 (2021-02-01)
 __________________
 
-* Bumped version of the JMX Exporter to 1.0.0
+* Bumped version of the JMX Exporter to ``1.0.0``
 
 * Modified the tests to not use a custom storageclass anymore, which was causing
   issues.
