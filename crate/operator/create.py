@@ -21,6 +21,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import bitmath
+import yaml
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
@@ -155,12 +156,15 @@ async def create_debug_volume(
 def get_sql_exporter_config(
     owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
 ) -> V1ConfigMap:
+
     sql_exporter_config = pkgutil.get_data("crate.operator", "data/sql-exporter.yaml")
-    responsivity_collector_config = pkgutil.get_data(
-        "crate.operator", "data/responsivity-collector.yaml"
-    )
-    if sql_exporter_config and responsivity_collector_config:
-        return V1ConfigMap(
+
+    if sql_exporter_config:
+        # Parse the config yaml file to get the defined collectors and load them
+        parsed_sql_exporter_config = yaml.load(sql_exporter_config.decode())
+        collectors = parsed_sql_exporter_config["target"]["collectors"]
+
+        result = V1ConfigMap(
             metadata=V1ObjectMeta(
                 name=f"crate-sql-exporter-{name}",
                 labels=labels,
@@ -168,9 +172,28 @@ def get_sql_exporter_config(
             ),
             data={
                 "sql-exporter.yaml": sql_exporter_config.decode(),
-                "responsivity-collector.yaml": responsivity_collector_config.decode(),
             },
         )
+
+        # Add the yaml collectors to the configmap dynamically
+        for collector in collectors:
+            # Remove the `_collector` suffix from the collector name if present
+            if collector.endswith("_collector"):
+                collector = collector[:-10]
+            yaml_filename = (
+                f"{collector}-collector.yaml"  # Notice the `-` instead of `_`!
+            )
+            collector_config = pkgutil.get_data(
+                "crate.operator", f"data/{yaml_filename}"
+            )
+
+            if collector_config is None:
+                raise FileNotFoundError(
+                    f"Could not load config for collector {collector}"
+                )
+            result.data[yaml_filename] = collector_config.decode()
+
+        return result
     else:
         warnings.warn(
             "Cannot load or missing SQL Exporter or Responsivity Collector config!"

@@ -16,6 +16,7 @@
 
 import logging
 import string
+from os import walk
 from typing import Set
 from unittest import mock
 
@@ -38,6 +39,7 @@ from crate.operator.create import (
     create_statefulset,
     create_system_user,
     get_data_service,
+    get_sql_exporter_config,
     get_statefulset_affinity,
     get_statefulset_containers,
     get_statefulset_crate_command,
@@ -941,3 +943,15 @@ class TestCreateCustomResource:
         assert resource["spec"]["nodes"]["master"]["labels"] == {"s.n.m.l": "1"}
         assert resource["spec"]["nodes"]["master"]["settings"] == {"s.n.m.s": "1"}
         assert resource["status"] == {"foo": "bar", "buz": {"lorem": "ipsum"}}
+
+
+def test_sql_exporter_config():
+    result = get_sql_exporter_config(None, "test-name", None)
+    assert result.metadata.name == "crate-sql-exporter-test-name"
+
+    _, _, filenames = next(walk("crate/operator/data"))
+
+    assert len(result.data) == len(filenames)
+    for filename in filenames:
+        assert filename in result.data.keys()
+        assert result.data[filename] is not None
