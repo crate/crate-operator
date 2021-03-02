@@ -2,6 +2,11 @@
 Changelog
 =========
 
+1.1.0 (2021-03-02)
+------------------
+
+* Added max-shards-per-node metric to the sql exporter
+
 1.0.2 (2021-02-01)
 __________________
 
