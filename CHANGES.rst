@@ -2,6 +2,11 @@
 Changelog
 =========
 
+Unreleased
+----------
+
+* Fixed the notifications, which were broken for some time due to a missing 'await'
+
 1.1.0 (2021-03-02)
 ------------------
 
