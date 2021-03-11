@@ -98,7 +98,7 @@ class StateBasedSubHandler(abc.ABC):
                 notification["event"],
                 notification["payload"],
             )
-            webhook_client.send_notification(
+            await webhook_client.send_notification(
                 self.namespace,
                 self.name,
                 notification["event"],
