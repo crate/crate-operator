@@ -543,7 +543,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
                 "wget",
                 "-O",
                 f"/jmxdir/crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar",
-                f"https://dl.bintray.com/crate/crate/io/crate/crate-jmx-exporter/{config.JMX_EXPORTER_VERSION}/crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar",  # noqa
+                f"https://repo1.maven.org/maven2/io/crate/crate-jmx-exporter/{config.JMX_EXPORTER_VERSION}/crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar",  # noqa
             ],
             image="busybox",
             name="fetch-jmx-exporter",
