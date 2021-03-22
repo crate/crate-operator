@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+1.2.0 (2021-03-22)
+------------------
+
 * Changed the external traffic policy to local. This allows seeing the actual IP of
   the client that is connecting to CrateDB.
 
