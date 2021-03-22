@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Changed the external traffic policy to local. This allows seeing the actual IP of
+  the client that is connecting to CrateDB.
+
 * Fixed the notifications, which were broken for some time due to a missing 'await'
 
 1.1.0 (2021-03-02)

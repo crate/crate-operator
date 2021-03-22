@@ -815,6 +815,7 @@ def get_data_service(
             ],
             selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
             type="LoadBalancer",
+            external_traffic_policy="Local",
         ),
     )
 
