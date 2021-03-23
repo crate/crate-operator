@@ -98,6 +98,7 @@ def load_config():
         "CRATEDB_OPERATOR_JMX_EXPORTER_VERSION": "1.0.0",
         "CRATEDB_OPERATOR_LOG_LEVEL": "DEBUG",
         "CRATEDB_OPERATOR_TESTING": "true",
+        "CRATEDB_OPERATOR_JOBS_TABLE": "test.test_sys_jobs",
     }
     with mock.patch.dict(os.environ, env):
         config.load()

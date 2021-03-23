@@ -92,6 +92,9 @@ class Config:
     #: HTTP Basic Auth username for web requests made to :attr:`WEBHOOK_URL`.
     WEBHOOK_USERNAME: Optional[str] = None
 
+    #: Which table are the running jobs stored in. This is only changed in tests.
+    JOBS_TABLE: str = "sys.jobs"
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -213,6 +216,7 @@ class Config:
         self.WEBHOOK_USERNAME = self.env(
             "WEBHOOK_USERNAME", default=self.WEBHOOK_USERNAME
         )
+        self.JOBS_TABLE = self.env("JOBS_TABLE", default=self.JOBS_TABLE)
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """

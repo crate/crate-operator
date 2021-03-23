@@ -162,7 +162,8 @@ async def restart_cluster(
         # of the Pod.
         await core.delete_namespaced_pod(namespace=namespace, name=next_pod_name)
         raise kopf.TemporaryError(
-            f"Waiting for pod {next_pod_name} ({next_pod_uid}) to be terminated."
+            f"Waiting for pod {next_pod_name} ({next_pod_uid}) to be terminated.",
+            delay=15,
         )
     elif next_pod_name in all_pod_names:
         total_nodes = get_total_nodes_count(old["spec"]["nodes"])
@@ -186,10 +187,10 @@ async def restart_cluster(
                 patch.status["pendingPods"] = None  # Remove attribute from `.status`
                 return
         else:
-            raise kopf.TemporaryError("Cluster is not healthy yet.")
+            raise kopf.TemporaryError("Cluster is not healthy yet.", delay=30)
     else:
         raise kopf.TemporaryError(
-            "Scheduling rerun because there are pods to be restarted"
+            "Scheduling rerun because there are pods to be restarted", delay=15
         )
 
 

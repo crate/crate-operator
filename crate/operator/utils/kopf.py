@@ -78,7 +78,8 @@ class StateBasedSubHandler(abc.ABC):
         else:
             raise kopf.TemporaryError(
                 f"Waiting to reach state '{self.state}'. "
-                f"Current state '{self._context.state_machine.current}'."
+                f"Current state '{self._context.state_machine.current}'.",
+                delay=30,
             )
 
     @abc.abstractmethod

@@ -29,7 +29,7 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
-from crate.operator.backup import create_backups
+from crate.operator.backup import EnsureNoBackupsSubHandler, create_backups
 from crate.operator.bootstrap import bootstrap_cluster
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -409,6 +409,14 @@ async def cluster_update(
             do_scale = True
         elif field_path == ("spec", "nodes", "data"):
             do_scale = True
+
+    if do_upgrade or do_restart or do_scale:
+        if new_cycle:
+            context.state_machine.add(State.ENSURE_NO_BACKUPS)
+        kopf.register(
+            fn=EnsureNoBackupsSubHandler(namespace, name, context)(),
+            id="ensure_no_backups",
+        )
 
     if do_upgrade:
         if new_cycle:

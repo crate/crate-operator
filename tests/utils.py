@@ -16,23 +16,38 @@
 
 import asyncio
 import logging
+from typing import Callable, Tuple
+
+import psycopg2
+from aiopg import Connection
+from kubernetes_asyncio.client import (
+    BatchV1Api,
+    CoreV1Api,
+    CustomObjectsApi,
+    V1Namespace,
+)
+
+from crate.operator.config import config
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
+from crate.operator.cratedb import (
+    connection_factory,
+    get_healthiness,
+    get_number_of_nodes,
+)
+from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
 logger = logging.getLogger(__name__)
 
-CRATE_VERSION = "4.4.0"
+CRATE_VERSION = "4.4.2"
 DEFAULT_TIMEOUT = 60
 
 
 async def assert_wait_for(
-    condition, coro_func, *args, err_msg="", timeout=DEFAULT_TIMEOUT, **kwargs
+    condition, coro_func, *args, err_msg="", timeout=DEFAULT_TIMEOUT, delay=2, **kwargs
 ):
     ret_val = await coro_func(*args, **kwargs)
     duration = 0.0
-    base = 2.0
-    count = 0
     while ret_val is not condition:
-        count += 1
-        delay = base ** (count * 0.5)
         await asyncio.sleep(delay)
         ret_val = await coro_func(*args, **kwargs)
         if ret_val is not condition and duration > timeout:
@@ -45,3 +60,170 @@ async def assert_wait_for(
 async def does_namespace_exist(core, namespace: str) -> bool:
     namespaces = await core.list_namespace()
     return namespace in (ns.metadata.name for ns in namespaces.items)
+
+
+async def start_cluster(
+    name: str,
+    namespace: V1Namespace,
+    cleanup_handler,
+    core: CoreV1Api,
+    coapi: CustomObjectsApi,
+    hot_nodes: int = 0,
+    crate_version: str = CRATE_VERSION,
+) -> Tuple[str, str]:
+    # Clean up persistent volume after the test
+    cleanup_handler.append(
+        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
+    )
+    body = {
+        "apiVersion": "cloud.crate.io/v1",
+        "kind": "CrateDB",
+        "metadata": {"name": name},
+        "spec": {
+            "cluster": {
+                "imageRegistry": "crate",
+                "name": "my-crate-cluster",
+                "version": crate_version,
+            },
+            "nodes": {
+                "data": [
+                    {
+                        "name": "hot",
+                        "replicas": hot_nodes,
+                        "resources": {
+                            "cpus": 0.5,
+                            "memory": "1Gi",
+                            "heapRatio": 0.25,
+                            "disk": {
+                                "storageClass": "default",
+                                "size": "16GiB",
+                                "count": 1,
+                            },
+                        },
+                    },
+                ]
+            },
+        },
+    }
+    await coapi.create_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        body=body,
+    )
+
+    host = await asyncio.wait_for(
+        get_public_host(core, namespace.metadata.name, name),
+        # It takes a while to retrieve an external IP on AKS.
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+    password = await get_system_user_password(core, namespace.metadata.name, name)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        hot_nodes,
+        err_msg="Cluster wasn't healthy after 5 minutes.",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    return host, password
+
+
+async def is_cluster_healthy(
+    conn_factory: Callable[[], Connection], expected_num_nodes: int
+):
+    try:
+        async with conn_factory() as conn:
+            async with conn.cursor() as cursor:
+                num_nodes = await get_number_of_nodes(cursor)
+                healthines = await get_healthiness(cursor)
+                return expected_num_nodes == num_nodes and healthines in {1, None}
+    except psycopg2.DatabaseError:
+        return False
+
+
+async def is_kopf_handler_finished(
+    coapi: CustomObjectsApi, name, namespace: str, handler_name: str
+):
+    cratedb = await coapi.get_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace,
+        name=name,
+    )
+
+    scale_status = cratedb["metadata"]["annotations"].get(handler_name, None)
+    return scale_status is None
+
+
+async def create_test_sys_jobs_table(conn_factory):
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            table_name = config.JOBS_TABLE
+            logger.info(f"Creating {table_name}")
+            await cursor.execute(
+                f"CREATE TABLE {table_name} (id INTEGER, stmt VARCHAR)"
+            )
+
+
+async def insert_test_snapshot_job(conn_factory):
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            table_name = config.JOBS_TABLE
+            logger.info(f"Creating {table_name}")
+            await cursor.execute(
+                f"INSERT INTO {table_name} (id, stmt) VALUES (1, 'CREATE SNAPSHOT ...')"
+            )
+
+
+async def clear_test_snapshot_jobs(conn_factory):
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            table_name = config.JOBS_TABLE
+            logger.info(f"Creating {table_name}")
+            await cursor.execute(f"DELETE FROM {table_name}")
+
+
+async def create_fake_snapshot_job(api_client, name, namespace):
+    """
+    As the name implies, this creates a k8s job that looks like a snapshot job.
+    It pulls busybox and sleeps for 60s, long enough for scaling to block.
+    """
+    batch = BatchV1Api(api_client)
+    body = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": f"cluster-backup-{name}",
+            "labels": {
+                "app.kubernetes.io/component": "backup",
+                "app.kubernetes.io/managed-by": "crate-operator",
+                "app.kubernetes.io/name": name,
+                "app.kubernetes.io/part-of": "cratedb",
+            },
+        },
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "busybox",
+                            "image": "busybox",
+                            "command": ["sleep", "60"],
+                        }
+                    ],
+                    "restartPolicy": "Never",
+                }
+            },
+        },
+    }
+    await batch.create_namespaced_job(namespace, body)
+
+
+async def delete_fake_snapshot_job(api_client, name, namespace):
+    batch = BatchV1Api(api_client)
+    await batch.delete_namespaced_job(f"cluster-backup-{name}", namespace)

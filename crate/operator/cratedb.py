@@ -16,12 +16,14 @@
 
 import functools
 import logging
+from typing import Optional, Tuple
 
 import aiopg
 from aiopg import Cursor
 from psycopg2 import ProgrammingError
 from psycopg2.extensions import quote_ident
 
+from crate.operator.config import config
 from crate.operator.constants import SYSTEM_USERNAME
 
 HEALTHINESS = {1: "GREEN", 2: "YELLOW", 3: "RED"}
@@ -125,7 +127,7 @@ async def get_healthiness(cursor: Cursor) -> int:
 
 
 async def is_cluster_healthy(
-    connection_factory, expected_nodes: int, logger: logging.Logger
+    conn_factory, expected_nodes: int, logger: logging.Logger
 ) -> bool:
     """
     Check if a cluster is healthy.
@@ -134,7 +136,7 @@ async def is_cluster_healthy(
     <https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health>`_
     table and the expected number of nodes in the cluster three times.
 
-    :param connection_factory: A callable that allows the operator to connect
+    :param conn_factory: A callable that allows the operator to connect
         to the database. We regularly need to reconnect to ensure the
         connection wasn't closed because it was opened to a CrateDB node that
         was shut down since the connection was opened.
@@ -144,7 +146,7 @@ async def is_cluster_healthy(
     # previous connection could have been shut down. And by
     # re-establishing a connection for _each_ polling we can assert
     # that the connection is open
-    async with connection_factory() as conn:
+    async with conn_factory() as conn:
         async with conn.cursor() as cursor:
             logger.debug("Checking if cluster is healthy ...")
             try:
@@ -164,3 +166,22 @@ async def is_cluster_healthy(
             except ProgrammingError as e:
                 logger.warning("Failed to run health check query", exc_info=e)
                 return False
+
+
+async def are_snapshots_in_progress(
+    conn_factory, logger: logging.Logger
+) -> Tuple[bool, Optional[str]]:
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            logger.info("Checking if there are running snapshots ...")
+            try:
+                await cursor.execute(
+                    f"SELECT stmt FROM {config.JOBS_TABLE} WHERE stmt "
+                    f"LIKE '%CREATE SNAPSHOT%' "
+                    f"AND stmt NOT LIKE '%{config.JOBS_TABLE}%'"
+                )
+                row = await cursor.fetchone()
+                return (True, row[0]) if row else (False, None)
+            except ProgrammingError as e:
+                logger.warning("Failed to run snapshot query", exc_info=e)
+                return False, None

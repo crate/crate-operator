@@ -17,9 +17,12 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import kopf
 from kubernetes_asyncio.client import (
     AppsV1Api,
+    BatchV1Api,
     BatchV1beta1Api,
+    CoreV1Api,
     V1beta1CronJob,
     V1beta1CronJobSpec,
     V1beta1JobTemplateSpec,
@@ -29,6 +32,7 @@ from kubernetes_asyncio.client import (
     V1DeploymentSpec,
     V1EnvVar,
     V1EnvVarSource,
+    V1JobList,
     V1JobSpec,
     V1LabelSelector,
     V1LocalObjectReference,
@@ -43,7 +47,14 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAME
-from crate.operator.utils.kubeapi import call_kubeapi
+from crate.operator.cratedb import are_snapshots_in_progress, connection_factory
+from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.utils.kubeapi import (
+    call_kubeapi,
+    get_host,
+    get_system_user_password,
+)
+from crate.operator.utils.state import State
 from crate.operator.utils.typing import LabelType
 
 
@@ -291,3 +302,52 @@ async def create_backups(
             )
             return (cron, deployment)
     return ()
+
+
+class EnsureNoBackupsSubHandler(StateBasedSubHandler):
+    state = State.ENSURE_NO_BACKUPS
+
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        async with ApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            batch = BatchV1Api(api_client)
+
+            host = await get_host(core, namespace, name)
+            password = await get_system_user_password(core, namespace, name)
+            conn_factory = connection_factory(host, password)
+
+            snapshots_in_progress, statement = await are_snapshots_in_progress(
+                conn_factory, logger
+            )
+            if snapshots_in_progress:
+                raise kopf.TemporaryError(
+                    "A snapshot is currently in progress, "
+                    f"waiting for it to finish: {statement}",
+                    delay=30,
+                )
+
+            jobs: V1JobList = await call_kubeapi(
+                batch.list_namespaced_job, logger, namespace=namespace
+            )
+            for job in jobs.items:
+                job_name = job.metadata.name
+                labels = job.metadata.labels
+                job_status = job.status
+                if (
+                    labels.get("app.kubernetes.io/component") == "backup"
+                    and labels.get("app.kubernetes.io/name") == name
+                    and job_status.completion_time is None
+                ):
+                    raise kopf.TemporaryError(
+                        "A snapshot k8s job is currently running, "
+                        f"waiting for it to finish: {job_name}",
+                        delay=30,
+                    )
