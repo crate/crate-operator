@@ -14,25 +14,27 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
 import sys
-from typing import Callable
 
-import psycopg2
 import pytest
-from aiopg import Connection
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi, V1Namespace
 
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
-from crate.operator.cratedb import (
-    connection_factory,
-    get_healthiness,
-    get_number_of_nodes,
-)
+from crate.operator.cratedb import connection_factory
 from crate.operator.scale import parse_replicas
-from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
+from .utils import (
+    DEFAULT_TIMEOUT,
+    assert_wait_for,
+    clear_test_snapshot_jobs,
+    create_fake_snapshot_job,
+    create_test_sys_jobs_table,
+    delete_fake_snapshot_job,
+    insert_test_snapshot_job,
+    is_cluster_healthy,
+    is_kopf_handler_finished,
+    start_cluster,
+)
 
 
 @pytest.mark.parametrize(
@@ -51,43 +53,18 @@ def test_parse_replicas(input, expected):
     assert parse_replicas(input) == expected
 
 
-async def is_cluster_healthy(
-    conn_factory: Callable[[], Connection], expected_num_nodes: int
-):
-    try:
-        async with conn_factory() as conn:
-            async with conn.cursor() as cursor:
-                num_nodes = await get_number_of_nodes(cursor)
-                healthines = await get_healthiness(cursor)
-                return expected_num_nodes == num_nodes and healthines in {1, None}
-    except psycopg2.DatabaseError:
-        return False
-
-
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "repl_master_from,repl_master_to,repl_hot_from,repl_hot_to,repl_cold_from,repl_cold_to",  # noqa
+    "repl_hot_from,repl_hot_to",  # noqa
     [
-        (0, 0, 1, 2, 0, 0),  # scale up from 1 to 2 data nodes
-        (0, 0, 3, 2, 0, 0),  # scale down from 3 to 2 data nodes
-        # These can't be tested due to license violations:
-        # License is violated - Statement not allowed. If expired or more cluster nodes
-        # are in need, please request a new license and use 'SET LICENSE' statement to
-        # register it. Alternatively, if the allowed number of nodes is exceeded, use
-        # the 'ALTER CLUSTER DECOMMISSION' statement to downscale your cluster
-        # (3, 4, 1, 1, 0, 0),  # scale master nodes from 3 to 4
-        # (4, 3, 1, 1, 0, 0),  # scale master nodes from 4 to 3
-        # (3, 3, 1, 2, 3, 2),  # scale up hot data nodes and down cold data nodes
+        (1, 2),  # scale up from 1 to 2 data nodes
+        (3, 2),  # scale down from 3 to 2 data nodes
     ],
 )
 async def test_scale_cluster(
-    repl_master_from,
-    repl_master_to,
     repl_hot_from,
     repl_hot_to,
-    repl_cold_from,
-    repl_cold_to,
     faker,
     namespace,
     cleanup_handler,
@@ -98,107 +75,183 @@ async def test_scale_cluster(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    # Clean up persistent volume after the test
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
-    body = {
-        "apiVersion": "cloud.crate.io/v1",
-        "kind": "CrateDB",
-        "metadata": {"name": name},
-        "spec": {
-            "cluster": {
-                "imageRegistry": "crate",
-                "name": "my-crate-cluster",
-                "version": CRATE_VERSION,
-            },
-            "nodes": {"data": []},
-        },
-    }
-    if repl_master_from:
-        body["spec"]["nodes"]["master"] = {
-            "replicas": repl_master_from,
-            "resources": {
-                "cpus": 0.5,
-                "memory": "1Gi",
-                "heapRatio": 0.25,
-                "disk": {"storageClass": "default", "size": "16GiB", "count": 1},
-            },
-        }
-    body["spec"]["nodes"]["data"].append(
-        {
-            "name": "hot",
-            "replicas": repl_hot_from,
-            "resources": {
-                "cpus": 0.5,
-                "memory": "1Gi",
-                "heapRatio": 0.25,
-                "disk": {"storageClass": "default", "size": "16GiB", "count": 1},
-            },
-        },
-    )
-    if repl_cold_from:
-        body["spec"]["nodes"]["data"].append(
-            {
-                "name": "cold",
-                "replicas": repl_cold_from,
-                "resources": {
-                    "cpus": 0.5,
-                    "memory": "1Gi",
-                    "heapRatio": 0.25,
-                    "disk": {"storageClass": "default", "size": "16GiB", "count": 1},
-                },
-            },
-        )
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body=body,
+    host, password = await start_cluster(
+        name,
+        namespace,
+        cleanup_handler,
+        core,
+        coapi,
+        repl_hot_from,
     )
 
-    host = await asyncio.wait_for(
-        get_public_host(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-    password = await get_system_user_password(core, namespace.metadata.name, name)
+    conn_factory = connection_factory(host, password)
+    await create_test_sys_jobs_table(conn_factory)
+
+    await _scale_cluster(coapi, name, namespace, repl_hot_to)
 
     await assert_wait_for(
         True,
         is_cluster_healthy,
         connection_factory(host, password),
-        repl_master_from + repl_hot_from + repl_cold_from,
+        repl_hot_to,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
-    patch_body = []
-    if repl_master_from != repl_master_to:
-        patch_body.append(
-            {
-                "op": "replace",
-                "path": "/spec/nodes/master/replicas",
-                "value": repl_master_to,
-            }
-        )
-    if repl_hot_from != repl_hot_to:
-        patch_body.append(
-            {
-                "op": "replace",
-                "path": "/spec/nodes/data/0/replicas",
-                "value": repl_hot_to,
-            }
-        )
-    if repl_cold_from != repl_cold_to:
-        patch_body.append(
-            {
-                "op": "replace",
-                "path": "/spec/nodes/data/1/replicas",
-                "value": repl_cold_to,
-            }
-        )
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "kopf.zalando.org/cluster_update.scale",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+async def test_scale_cluster_while_create_snapshot_running(
+    faker, namespace, cleanup_handler, kopf_runner, api_client
+):
+    # Given
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    host, password = await start_cluster(
+        name, namespace, cleanup_handler, core, coapi, 1
+    )
+
+    conn_factory = connection_factory(host, password)
+    await create_test_sys_jobs_table(conn_factory)
+    await insert_test_snapshot_job(conn_factory)
+
+    # When
+    await _scale_cluster(coapi, name, namespace, 2)
+
+    # Then
+    await assert_wait_for(
+        True,
+        _is_blocked_on_running_snapshot,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "snapshot is currently in progress",
+        err_msg="Scaling was not blocked by a snapshot job",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await clear_test_snapshot_jobs(conn_factory)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        2,
+        err_msg="Cluster wasn't healthy after 2 minutes.",
+        timeout=DEFAULT_TIMEOUT * 2,
+    )
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "kopf.zalando.org/cluster_update.scale",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+async def test_scale_cluster_while_k8s_snapshot_job_running(
+    faker, namespace, cleanup_handler, kopf_runner, api_client
+):
+    # Given
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    host, password = await start_cluster(
+        name, namespace, cleanup_handler, core, coapi, 1
+    )
+
+    conn_factory = connection_factory(host, password)
+    await create_test_sys_jobs_table(conn_factory)
+    await create_fake_snapshot_job(api_client, name, namespace.metadata.name)
+
+    # When
+    await _scale_cluster(coapi, name, namespace, 2)
+
+    # Then
+    await assert_wait_for(
+        True,
+        _is_blocked_on_running_snapshot,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "A snapshot k8s job is currently running",
+        err_msg="Scaling was not blocked by a snapshot job",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await delete_fake_snapshot_job(api_client, name, namespace.metadata.name)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        2,
+        err_msg="Cluster wasn't healthy after 3 minutes.",
+        timeout=DEFAULT_TIMEOUT * 3,
+    )
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "kopf.zalando.org/cluster_update.scale",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+
+async def _is_blocked_on_running_snapshot(
+    coapi: CustomObjectsApi, name, namespace: str, expected_str: str
+):
+    cratedb = await coapi.get_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace,
+        name=name,
+    )
+
+    scale_status = cratedb["metadata"]["annotations"].get(
+        "kopf.zalando.org/cluster_update.ensure_no_backups", None
+    )
+    if not scale_status:
+        return False
+
+    return expected_str in scale_status
+
+
+async def _scale_cluster(
+    coapi: CustomObjectsApi, name: str, namespace: V1Namespace, new_replicas: int
+):
+    patch_body = [
+        {
+            "op": "replace",
+            "path": "/spec/nodes/data/0/replicas",
+            "value": new_replicas,
+        }
+    ]
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -206,13 +259,4 @@ async def test_scale_cluster(
         namespace=namespace.metadata.name,
         name=name,
         body=patch_body,
-    )
-
-    await assert_wait_for(
-        True,
-        is_cluster_healthy,
-        connection_factory(host, password),
-        repl_master_to + repl_hot_to + repl_cold_to,
-        err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=DEFAULT_TIMEOUT * 5,
     )

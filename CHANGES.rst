@@ -5,6 +5,18 @@ Changelog
 Unreleased
 ----------
 
+* Added a check for any running snapshots (either k8s jobs or CREATE SNAPSHOT stmts.)
+  before performing scaling/upgrades/restarts. This ensures we don't inadvertently
+  interfere with an existing snapshot operation
+
+* Fixed a bug that caused us not to wait for a cluster to be healthy when performing
+  scaling operations (due to a missing await).
+
+* Refactored some of the tests, specifically reusing repetitive operations.
+
+* Removed handling of master & cold replicas from integration tests as these are not
+  used in practice.
+
 1.2.0 (2021-03-22)
 ------------------
 

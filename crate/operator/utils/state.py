@@ -5,6 +5,7 @@ from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookSubPaylo
 
 
 class State(str, Enum):
+    ENSURE_NO_BACKUPS = "ensure_no_backups"
     RESTART = "restart"
     SCALE = "scale"
     UPGRADE = "upgrade"

@@ -22,7 +22,13 @@ from typing import Any, Dict, List, Optional
 import kopf
 from aiopg import Cursor
 from kopf.structs.diffs import diff as calc_diff
-from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, V1Container, V1StatefulSet
+from kubernetes_asyncio.client import (
+    AppsV1Api,
+    CoreV1Api,
+    V1Container,
+    V1StatefulSet,
+    V1StatefulSetList,
+)
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
@@ -184,14 +190,14 @@ async def check_nodes_present_or_gone(
                 if not candidate_node_names.issubset(available_nodes):
                     missing_nodes = ", ".join(sorted(candidate_node_names))
                     raise kopf.TemporaryError(
-                        f"Waiting for nodes {missing_nodes} to be present."
+                        f"Waiting for nodes {missing_nodes} to be present.", delay=15
                     )
             elif old_replicas > new_replicas:
                 # scale down
                 if candidate_node_names.issubset(available_nodes):
                     excess_nodes = ", ".join(sorted(candidate_node_names))
                     raise kopf.TemporaryError(
-                        f"Waiting for nodes {excess_nodes} to be gone."
+                        f"Waiting for nodes {excess_nodes} to be gone.", delay=15
                     )
             else:
                 logger.info(
@@ -411,8 +417,7 @@ async def scale_cluster(
     password = await get_system_user_password(core, namespace, name)
     conn_factory = connection_factory(host, password)
 
-    if not is_cluster_healthy(conn_factory, total_number_of_nodes, logger):
-        raise kopf.TemporaryError("Waiting for cluster to be healthy.")
+    await _ensure_cluster_healthy(name, namespace, apps, conn_factory, logger)
 
     num_master_nodes = 0
     if "master" in spec["nodes"]:
@@ -645,3 +650,23 @@ class ScaleSubHandler(StateBasedSubHandler):
             WebhookStatus.SUCCESS,
         )
         await self.send_notifications(logger)
+
+
+async def _ensure_cluster_healthy(
+    name: str, namespace: str, apps: AppsV1Api, conn_factory, logger
+):
+    """
+    This looks for all the StatefulSets for this cluster and makes sure that the
+    number of nodes in all the STS matches what CrateDB has in the sys.nodes table.
+
+    If we have specific master/hot/cold node types configured these would be
+    separate StatefulSets.
+    """
+    expected_number_of_nodes = 0
+    all_sts: V1StatefulSetList = await apps.list_namespaced_stateful_set(namespace)
+    for sts in all_sts.items:
+        if sts.metadata.labels["app.kubernetes.io/name"] == name:
+            expected_number_of_nodes += sts.spec.replicas
+
+    if not await is_cluster_healthy(conn_factory, expected_number_of_nodes, logger):
+        raise kopf.TemporaryError("Waiting for cluster to be healthy.", delay=15)

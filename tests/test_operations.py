@@ -14,19 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
-from typing import Callable, Set
+from typing import Set
 
-import psycopg2
 import pytest
-from aiopg import Connection
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
-from crate.operator.cratedb import connection_factory, get_healthiness
-from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
+from crate.operator.cratedb import connection_factory
 
-from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
+from .utils import (
+    DEFAULT_TIMEOUT,
+    assert_wait_for,
+    create_test_sys_jobs_table,
+    is_cluster_healthy,
+    is_kopf_handler_finished,
+    start_cluster,
+)
 
 
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
@@ -39,87 +42,20 @@ async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -
     return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
 
 
-async def is_cluster_healthy(conn_factory: Callable[[], Connection]):
-    try:
-        async with conn_factory() as conn:
-            async with conn.cursor() as cursor:
-                healthines = await get_healthiness(cursor)
-                return healthines in {1, None}
-    except psycopg2.DatabaseError:
-        return False
-
-
 @pytest.mark.k8s
 @pytest.mark.asyncio
-async def test_restart_cluster(
+async def test_upgrade_cluster(
     faker, namespace, cleanup_handler, kopf_runner, api_client
 ):
+    version_from = "4.4.1"
+    version_to = "4.4.2"
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    # Clean up persistent volume after the test
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
+    host, password = await start_cluster(
+        name, namespace, cleanup_handler, core, coapi, 3, version_from
     )
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body={
-            "apiVersion": "cloud.crate.io/v1",
-            "kind": "CrateDB",
-            "metadata": {"name": name},
-            "spec": {
-                "cluster": {
-                    "imageRegistry": "crate",
-                    "name": "my-crate-cluster",
-                    "version": CRATE_VERSION,
-                },
-                "nodes": {
-                    "data": [
-                        {
-                            "name": "hot",
-                            "replicas": 1,
-                            "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        },
-                        {
-                            "name": "cold",
-                            "replicas": 2,
-                            "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        },
-                    ],
-                },
-            },
-        },
-    )
-
-    host = await asyncio.wait_for(
-        get_public_host(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    password = await get_system_user_password(core, namespace.metadata.name, name)
 
     await assert_wait_for(
         True,
@@ -128,18 +64,23 @@ async def test_restart_cluster(
         namespace.metadata.name,
         {
             f"crate-data-hot-{name}-0",
-            f"crate-data-cold-{name}-0",
-            f"crate-data-cold-{name}-1",
+            f"crate-data-hot-{name}-1",
+            f"crate-data-hot-{name}-2",
         },
     )
+
+    conn_factory = connection_factory(host, password)
 
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
-        err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=DEFAULT_TIMEOUT * 5,
+        conn_factory,
+        3,
+        err_msg="Cluster wasn't healthy",
+        timeout=DEFAULT_TIMEOUT,
     )
+
+    await create_test_sys_jobs_table(conn_factory)
 
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
     original_pods = {p.metadata.uid for p in pods.items}
@@ -154,7 +95,7 @@ async def test_restart_cluster(
             {
                 "op": "replace",
                 "path": "/spec/cluster/version",
-                "value": "4.3.1",
+                "value": version_to,
             },
         ],
     )
@@ -166,4 +107,35 @@ async def test_restart_cluster(
         namespace.metadata.name,
         original_pods,
         timeout=DEFAULT_TIMEOUT * 15,
+    )
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "operator.cloud.crate.io/cluster_update.upgrade",
+        err_msg="Upgrade has not finished",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "operator.cloud.crate.io/cluster_update.restart",
+        err_msg="Restart has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        3,
+        err_msg="Cluster wasn't healthy",
+        timeout=DEFAULT_TIMEOUT,
     )
