@@ -417,8 +417,6 @@ async def scale_cluster(
     password = await get_system_user_password(core, namespace, name)
     conn_factory = connection_factory(host, password)
 
-    await _ensure_cluster_healthy(name, namespace, apps, conn_factory, logger)
-
     num_master_nodes = 0
     if "master" in spec["nodes"]:
         num_master_nodes = spec["nodes"]["master"]["replicas"]
@@ -493,6 +491,12 @@ async def scale_cluster(
         for _, field_path, old_replicas, new_replicas in data_diff_items:
             if old_replicas > new_replicas:
                 # scale down
+                # First check if the cluster is healthy at all,
+                # and prevent scaling down if not.
+                await _ensure_cluster_healthy(
+                    name, namespace, apps, conn_factory, logger
+                )
+
                 total_number_of_nodes = (
                     total_number_of_nodes + new_replicas - old_replicas
                 )
