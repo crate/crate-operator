@@ -171,6 +171,17 @@ async def is_cluster_healthy(
 async def are_snapshots_in_progress(
     conn_factory, logger: logging.Logger
 ) -> Tuple[bool, Optional[str]]:
+    """
+    Check if there are any snapshots in progress by querying sys.jobs
+    (or the configured table for testing purposes).
+
+    Since sys.jobs will also contain the current query (i.e. us selecting from sys.jobs)
+    we also need to exclude our statement.
+
+    :param conn_factory the connection factory to connect to CrateDB
+    :param logger the logger on which we're logging
+    :return A Tuple of the result (Bool) and the statement that is progress (if any).
+    """
     async with conn_factory() as conn:
         async with conn.cursor() as cursor:
             logger.info("Checking if there are running snapshots ...")
