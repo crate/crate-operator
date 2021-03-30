@@ -391,6 +391,7 @@ async def cluster_update(
     **kwargs,
 ):
     context = Context.deserialize(status.get("updateContext"))
+    state = status.get("updateState", {})
     new_cycle = False
     if context.state_machine.done:
         new_cycle = True
@@ -414,8 +415,9 @@ async def cluster_update(
         if new_cycle:
             context.state_machine.add(State.ENSURE_NO_BACKUPS)
         kopf.register(
-            fn=EnsureNoBackupsSubHandler(namespace, name, context)(),
+            fn=EnsureNoBackupsSubHandler(namespace, name, context)(state=state),
             id="ensure_no_backups",
+            timeout=config.SCALING_TIMEOUT,
         )
 
     if do_upgrade:
@@ -442,6 +444,7 @@ async def cluster_update(
         )
 
     patch.status["updateContext"] = context.serialize()
+    patch.status["updateState"] = state
 
 
 @kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)

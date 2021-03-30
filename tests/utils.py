@@ -22,6 +22,7 @@ import psycopg2
 from aiopg import Connection
 from kubernetes_asyncio.client import (
     BatchV1Api,
+    BatchV1beta1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1Namespace,
@@ -224,6 +225,49 @@ async def create_fake_snapshot_job(api_client, name, namespace):
         },
     }
     await batch.create_namespaced_job(namespace, body)
+
+
+async def create_fake_cronjob(api_client, name, namespace):
+    """
+    As the name implies, this creates a scheduled CronJob.
+
+    This can be used in tests to check for cronjobs existing, and their statuses.
+    """
+    batch = BatchV1beta1Api(api_client)
+    body = {
+        "apiVersion": "batch/v1beta1",
+        "kind": "CronJob",
+        "metadata": {
+            "name": f"create-snapshot-{name}",
+            "labels": {
+                "app.kubernetes.io/component": "backup",
+                "app.kubernetes.io/managed-by": "crate-operator",
+                "app.kubernetes.io/name": name,
+                "app.kubernetes.io/part-of": "cratedb",
+            },
+        },
+        "spec": {
+            "jobTemplate": {
+                "metadata": {"name": name},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "busybox",
+                                    "image": "busybox",
+                                    "command": ["sleep", "60"],
+                                }
+                            ],
+                            "restartPolicy": "Never",
+                        }
+                    },
+                },
+            },
+            "schedule": "* * 1 1 0",
+        },
+    }
+    await batch.create_namespaced_cron_job(namespace, body)
 
 
 async def delete_fake_snapshot_job(api_client, name, namespace):
