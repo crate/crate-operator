@@ -30,6 +30,7 @@ class WebhookEvent(str, enum.Enum):
 class WebhookStatus(str, enum.Enum):
     FAILURE = "failure"
     SUCCESS = "success"
+    TEMPORARY_FAILURE = "temporary_failure"
 
 
 class WebhookSubPayload(TypedDict):
@@ -46,6 +47,10 @@ class WebhookScalePayload(WebhookSubPayload):
     new_data_replicas: List[WebhookScaleNodePayload]
     old_master_replicas: Optional[int]
     new_master_replicas: Optional[int]
+
+
+class WebhookTemporaryFailurePayload(WebhookSubPayload):
+    reason: str
 
 
 class WebhookUpgradePayload(WebhookSubPayload):

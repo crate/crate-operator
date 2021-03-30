@@ -68,8 +68,8 @@ class StateBasedSubHandler(abc.ABC):
         self.name = name
         self._context = context
 
-    def __call__(self):
-        return functools.partial(self._subhandler)
+    def __call__(self, **kwargs: Any):
+        return functools.partial(self._subhandler, **kwargs)
 
     async def _subhandler(self, **kwargs: Any):
         if self._context.state_machine.current == self.state:

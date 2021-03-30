@@ -24,6 +24,7 @@ from kubernetes_asyncio.client import (
     BatchV1beta1Api,
     CoreV1Api,
     V1beta1CronJob,
+    V1beta1CronJobList,
     V1beta1CronJobSpec,
     V1beta1JobTemplateSpec,
     V1Container,
@@ -56,6 +57,11 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.state import State
 from crate.operator.utils.typing import LabelType
+from crate.operator.webhooks import (
+    WebhookEvent,
+    WebhookStatus,
+    WebhookTemporaryFailurePayload,
+)
 
 
 def get_backup_env(
@@ -312,40 +318,96 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
         body: kopf.Body,
         old: kopf.Body,
         logger: logging.Logger,
+        state: dict,
         **kwargs: Any,
     ):
         async with ApiClient() as api_client:
-            core = CoreV1Api(api_client)
-            batch = BatchV1Api(api_client)
-
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
-
-            snapshots_in_progress, statement = await are_snapshots_in_progress(
-                conn_factory, logger
+            await self._ensure_cronjob_suspended(
+                api_client, namespace, name, state, logger
             )
-            if snapshots_in_progress:
+            await self._ensure_no_snapshots_in_progress(
+                api_client, namespace, name, state, logger
+            )
+            await self._ensure_no_cronjobs_running(api_client, namespace, name, logger)
+
+    @staticmethod
+    async def _ensure_cronjob_suspended(api_client, namespace, name, state, logger):
+        if state.get("cronjob_suspended", False):
+            return
+
+        batch = BatchV1beta1Api(api_client)
+
+        jobs: V1beta1CronJobList = await batch.list_namespaced_cron_job(namespace)
+
+        for job in jobs.items:
+            job_name = job.metadata.name
+            labels = job.metadata.labels
+            if (
+                labels.get("app.kubernetes.io/component") == "backup"
+                and labels.get("app.kubernetes.io/name") == name
+            ):
+                current_suspend_status = job.spec.suspend
+                if current_suspend_status:
+                    logger.warn(
+                        f"Found job {job_name} that is already suspended, ignoring"
+                    )
+                    state["cronjob_suspended"] = True
+                    state["re_enable_cronjob"] = False
+                    return
+
+                logger.info(
+                    f"Temporarily suspending CronJob {job_name} "
+                    f"while cluster update in progress"
+                )
+                update = {"spec": {"suspend": True}}
+                await batch.patch_namespaced_cron_job(job_name, namespace, update)
+                state["cronjob_suspended"] = True
+
+    async def _ensure_no_snapshots_in_progress(
+        self, api_client, namespace, name, state, logger
+    ):
+        core = CoreV1Api(api_client)
+
+        host = await get_host(core, namespace, name)
+        password = await get_system_user_password(core, namespace, name)
+        conn_factory = connection_factory(host, password)
+
+        snapshots_in_progress, statement = await are_snapshots_in_progress(
+            conn_factory, logger
+        )
+        if snapshots_in_progress:
+            if not state.get("notification_sent", False):
+                state["notification_sent"] = True
+                self.schedule_notification(
+                    WebhookEvent.SCALE,
+                    WebhookTemporaryFailurePayload(reason="A backup is in progress"),
+                    WebhookStatus.TEMPORARY_FAILURE,
+                )
+                await self.send_notifications(logger)
+            raise kopf.TemporaryError(
+                "A snapshot is currently in progress, "
+                f"waiting for it to finish: {statement}",
+                delay=30,
+            )
+
+    @staticmethod
+    async def _ensure_no_cronjobs_running(api_client, namespace, name, logger):
+        batch = BatchV1Api(api_client)
+
+        jobs: V1JobList = await call_kubeapi(
+            batch.list_namespaced_job, logger, namespace=namespace
+        )
+        for job in jobs.items:
+            job_name = job.metadata.name
+            labels = job.metadata.labels
+            job_status = job.status
+            if (
+                labels.get("app.kubernetes.io/component") == "backup"
+                and labels.get("app.kubernetes.io/name") == name
+                and job_status.completion_time is None
+            ):
                 raise kopf.TemporaryError(
-                    "A snapshot is currently in progress, "
-                    f"waiting for it to finish: {statement}",
+                    "A snapshot k8s job is currently running, "
+                    f"waiting for it to finish: {job_name}",
                     delay=30,
                 )
-
-            jobs: V1JobList = await call_kubeapi(
-                batch.list_namespaced_job, logger, namespace=namespace
-            )
-            for job in jobs.items:
-                job_name = job.metadata.name
-                labels = job.metadata.labels
-                job_status = job.status
-                if (
-                    labels.get("app.kubernetes.io/component") == "backup"
-                    and labels.get("app.kubernetes.io/name") == name
-                    and job_status.completion_time is None
-                ):
-                    raise kopf.TemporaryError(
-                        "A snapshot k8s job is currently running, "
-                        f"waiting for it to finish: {job_name}",
-                        delay=30,
-                    )

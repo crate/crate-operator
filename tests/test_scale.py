@@ -17,7 +17,12 @@
 import sys
 
 import pytest
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi, V1Namespace
+from kubernetes_asyncio.client import (
+    BatchV1beta1Api,
+    CoreV1Api,
+    CustomObjectsApi,
+    V1Namespace,
+)
 
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
@@ -27,6 +32,7 @@ from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
     clear_test_snapshot_jobs,
+    create_fake_cronjob,
     create_fake_snapshot_job,
     create_test_sys_jobs_table,
     delete_fake_snapshot_job,
@@ -120,6 +126,8 @@ async def test_scale_cluster_while_create_snapshot_running(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
+    await create_fake_cronjob(api_client, name, namespace.metadata.name)
+
     host, password = await start_cluster(
         name, namespace, cleanup_handler, core, coapi, 1
     )
@@ -132,6 +140,15 @@ async def test_scale_cluster_while_create_snapshot_running(
     await _scale_cluster(coapi, name, namespace, 2)
 
     # Then
+    await assert_wait_for(
+        True,
+        _backup_cronjob_is_suspended,
+        api_client,
+        namespace.metadata.name,
+        err_msg="Snapshot cronjob is not suspended",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
     await assert_wait_for(
         True,
         _is_blocked_on_running_snapshot,
@@ -240,6 +257,14 @@ async def _is_blocked_on_running_snapshot(
         return False
 
     return expected_str in scale_status
+
+
+async def _backup_cronjob_is_suspended(api_client, namespace: str):
+    batch = BatchV1beta1Api(api_client)
+    jobs = await batch.list_namespaced_cron_job(namespace)
+
+    for job in jobs.items:
+        return job.spec.suspend
 
 
 async def _scale_cluster(
