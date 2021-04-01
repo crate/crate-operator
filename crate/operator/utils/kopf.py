@@ -37,7 +37,7 @@ def subhandler_partial(awaitable: Callable, *args, **kwargs):
 
     @wraps(awaitable)
     async def _wrapper(**_):
-        await awaitable(*args, **kwargs)
+        return await awaitable(*args, **kwargs)
 
     return _wrapper
 

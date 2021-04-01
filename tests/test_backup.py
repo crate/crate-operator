@@ -104,8 +104,10 @@ class TestBackup:
 
     async def test_not_enabled(self, faker, namespace, api_client):
         name = faker.domain_word()
+        apps = AppsV1Api(api_client)
+        batchv1_beta1 = BatchV1beta1Api(api_client)
 
-        ret = await create_backups(
+        await create_backups(
             None,
             namespace.metadata.name,
             name,
@@ -117,4 +119,15 @@ class TestBackup:
             True,
             logging.getLogger(__name__),
         )
-        assert ret == ()
+        assert (
+            await self.does_cronjob_exist(
+                batchv1_beta1, namespace.metadata.name, f"create-snapshot-{name}"
+            )
+            is False
+        )
+        assert (
+            await self.does_deployment_exist(
+                apps, namespace.metadata.name, f"backup-metrics-{name}"
+            )
+            is False
+        )

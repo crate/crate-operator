@@ -18,7 +18,7 @@ import logging
 import math
 import pkgutil
 import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import bitmath
 import yaml
@@ -128,7 +128,7 @@ async def create_debug_volume(
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> Tuple[V1PersistentVolume, V1PersistentVolumeClaim]:
+) -> None:
     """
     Creates a ``PersistentVolume`` and ``PersistentVolumeClaim`` to be used for
     exporting Java Heapdumps from CrateDB. The volume can be configured
@@ -137,20 +137,19 @@ async def create_debug_volume(
     """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        pv = await call_kubeapi(
+        await call_kubeapi(
             core.create_persistent_volume,
             logger,
             continue_on_conflict=True,
             body=get_debug_persistent_volume(owner_references, namespace, name, labels),
         )
-        pvc = await call_kubeapi(
+        await call_kubeapi(
             core.create_namespaced_persistent_volume_claim,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
             body=get_debug_persistent_volume_claim(owner_references, name, labels),
         )
-    return (pv, pvc)
 
 
 def get_sql_exporter_config(
@@ -206,10 +205,10 @@ async def create_sql_exporter_config(
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> V1ConfigMap:
+) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        return await call_kubeapi(
+        await call_kubeapi(
             core.create_namespaced_config_map,
             logger,
             continue_on_conflict=True,
@@ -736,10 +735,10 @@ async def create_statefulset(
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     logger: logging.Logger,
-) -> V1StatefulSet:
+) -> None:
     async with ApiClient() as api_client:
         apps = AppsV1Api(api_client)
-        return await call_kubeapi(
+        await call_kubeapi(
             apps.create_namespaced_stateful_set,
             logger,
             continue_on_conflict=True,
@@ -849,10 +848,10 @@ async def create_services(
     transport_port: int,
     dns_record: Optional[str],
     logger: logging.Logger,
-) -> Tuple[V1Service, V1Service]:
+) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        data = await call_kubeapi(
+        await call_kubeapi(
             core.create_namespaced_service,
             logger,
             continue_on_conflict=True,
@@ -861,14 +860,13 @@ async def create_services(
                 owner_references, name, labels, http_port, postgres_port, dns_record
             ),
         )
-        discovery = await call_kubeapi(
+        await call_kubeapi(
             core.create_namespaced_service,
             logger,
             continue_on_conflict=True,
             namespace=namespace,
             body=get_discovery_service(owner_references, name, labels, transport_port),
         )
-    return (data, discovery)
 
 
 def get_system_user_secret(
@@ -891,7 +889,7 @@ async def create_system_user(
     name: str,
     labels: LabelType,
     logger: logging.Logger,
-) -> V1Secret:
+) -> None:
     """
     The *CrateDB Operator* will need to perform operations on the CrateDB
     cluster. For that, it will use a ``system`` user who's credentials are
@@ -899,7 +897,7 @@ async def create_system_user(
     """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        return await call_kubeapi(
+        await call_kubeapi(
             core.create_namespaced_secret,
             logger,
             continue_on_conflict=True,

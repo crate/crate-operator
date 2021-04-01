@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 
 import kopf
 from kubernetes_asyncio.client import (
@@ -263,13 +263,13 @@ async def create_backups(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     has_ssl: bool,
     logger: logging.Logger,
-) -> Union[Tuple[V1beta1CronJob, V1Deployment], Tuple]:
+) -> None:
     backup_aws = backups.get("aws")
     async with ApiClient() as api_client:
         apps = AppsV1Api(api_client)
         batchv1_beta1 = BatchV1beta1Api(api_client)
         if backup_aws:
-            cron = await call_kubeapi(
+            await call_kubeapi(
                 batchv1_beta1.create_namespaced_cron_job,
                 logger,
                 continue_on_conflict=True,
@@ -284,7 +284,7 @@ async def create_backups(
                     has_ssl,
                 ),
             )
-            deployment = await call_kubeapi(
+            await call_kubeapi(
                 apps.create_namespaced_deployment,
                 logger,
                 continue_on_conflict=True,
@@ -300,8 +300,6 @@ async def create_backups(
                     has_ssl,
                 ),
             )
-            return (cron, deployment)
-    return ()
 
 
 class EnsureNoBackupsSubHandler(StateBasedSubHandler):
