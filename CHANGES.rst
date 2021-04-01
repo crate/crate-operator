@@ -17,6 +17,9 @@ Unreleased
 * Removed handling of master & cold replicas from integration tests as these are not
   used in practice.
 
+* Changed how (sub)handlers are treated to allow returning statuses, which get persisted
+  against the CrateDB resource in k8s.
+
 1.2.0 (2021-03-22)
 ------------------
 

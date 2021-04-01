@@ -178,6 +178,7 @@ async def insert_test_snapshot_job(conn_factory):
             await cursor.execute(
                 f"INSERT INTO {table_name} (id, stmt) VALUES (1, 'CREATE SNAPSHOT ...')"
             )
+            await cursor.execute(f"REFRESH TABLE {table_name}")
 
 
 async def clear_test_snapshot_jobs(conn_factory):
@@ -186,6 +187,7 @@ async def clear_test_snapshot_jobs(conn_factory):
             table_name = config.JOBS_TABLE
             logger.info(f"Creating {table_name}")
             await cursor.execute(f"DELETE FROM {table_name}")
+            await cursor.execute(f"REFRESH TABLE {table_name}")
 
 
 async def create_fake_snapshot_job(api_client, name, namespace):

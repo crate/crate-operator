@@ -768,7 +768,7 @@ class TestSystemUser:
         name = faker.domain_word()
         password = faker.password(length=12)
         with mock.patch("crate.operator.create.gen_password", return_value=password):
-            secret = await create_system_user(
+            await create_system_user(
                 None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
             )
         await assert_wait_for(
@@ -777,6 +777,10 @@ class TestSystemUser:
             core,
             namespace.metadata.name,
             f"user-system-{name}",
+        )
+        secrets = (await core.list_namespaced_secret(namespace.metadata.name)).items
+        secret = next(
+            filter(lambda x: x.metadata.name == f"user-system-{name}", secrets)
         )
         assert b64decode(secret.data["password"]) == password
 
