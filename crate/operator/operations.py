@@ -32,7 +32,6 @@ from crate.operator.constants import (
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
-from crate.operator.utils.state import State
 
 
 def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
@@ -195,8 +194,6 @@ async def restart_cluster(
 
 
 class RestartSubHandler(StateBasedSubHandler):
-    state = State.RESTART
-
     async def handle(  # type: ignore
         self,
         namespace: str,

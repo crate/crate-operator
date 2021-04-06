@@ -37,7 +37,6 @@ from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
-from crate.operator.utils.state import State
 from crate.operator.webhooks import (
     WebhookEvent,
     WebhookScaleNodePayload,
@@ -561,8 +560,6 @@ async def scale_cluster(
 
 
 class ScaleSubHandler(StateBasedSubHandler):
-    state = State.SCALE
-
     async def handle(  # type: ignore
         self,
         namespace: str,
