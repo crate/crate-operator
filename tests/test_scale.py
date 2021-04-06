@@ -24,7 +24,11 @@ from kubernetes_asyncio.client import (
     V1Namespace,
 )
 
-from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
+from crate.operator.constants import (
+    API_GROUP,
+    KOPF_STATE_STORE_PREFIX,
+    RESOURCE_CRATEDB,
+)
 from crate.operator.cratedb import connection_factory
 from crate.operator.scale import parse_replicas
 
@@ -110,7 +114,7 @@ async def test_scale_cluster(
         coapi,
         name,
         namespace.metadata.name,
-        "kopf.zalando.org/cluster_update.scale",
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Scaling has not finished",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -177,8 +181,17 @@ async def test_scale_cluster_while_create_snapshot_running(
         coapi,
         name,
         namespace.metadata.name,
-        "kopf.zalando.org/cluster_update.scale",
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        False,
+        _backup_cronjob_is_suspended,
+        api_client,
+        namespace.metadata.name,
+        err_msg="Snapshot cronjob has not been re-enabled.",
         timeout=DEFAULT_TIMEOUT,
     )
 
@@ -233,7 +246,7 @@ async def test_scale_cluster_while_k8s_snapshot_job_running(
         coapi,
         name,
         namespace.metadata.name,
-        "kopf.zalando.org/cluster_update.scale",
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Scaling has not finished",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -250,13 +263,17 @@ async def _is_blocked_on_running_snapshot(
         name=name,
     )
 
-    scale_status = cratedb["metadata"]["annotations"].get(
-        "kopf.zalando.org/cluster_update.ensure_no_backups", None
+    ensure_no_backups = cratedb["metadata"]["annotations"].get(
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update.ensure_no_backups", None
     )
-    if not scale_status:
+    if not ensure_no_backups:
         return False
 
-    return expected_str in scale_status
+    for v in cratedb["metadata"]["annotations"].values():
+        if expected_str in v:
+            return True
+
+    return False
 
 
 async def _backup_cronjob_is_suspended(api_client, namespace: str):

@@ -22,7 +22,6 @@ from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.utils.kopf import StateBasedSubHandler
-from crate.operator.utils.state import State
 from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
 
 
@@ -86,8 +85,6 @@ async def upgrade_cluster(apps: AppsV1Api, namespace: str, name: str, body: kopf
 
 
 class UpgradeSubHandler(StateBasedSubHandler):
-    state = State.UPGRADE
-
     async def handle(  # type: ignore
         self, namespace: str, name: str, body: kopf.Body, old: kopf.Body, **kwargs: Any
     ):

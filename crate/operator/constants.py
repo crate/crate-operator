@@ -30,6 +30,8 @@ SYSTEM_USERNAME = "system"
 
 CONNECT_TIMEOUT = 10.0
 
+KOPF_STATE_STORE_PREFIX = f"operator.{API_GROUP}"
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"

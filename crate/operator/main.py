@@ -16,6 +16,7 @@
 
 import asyncio
 import enum
+import hashlib
 import logging
 import warnings
 from typing import Any, Awaitable, Dict, List
@@ -29,11 +30,16 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
-from crate.operator.backup import EnsureNoBackupsSubHandler, create_backups
+from crate.operator.backup import (
+    EnsureCronjobReenabled,
+    EnsureNoBackupsSubHandler,
+    create_backups,
+)
 from crate.operator.bootstrap import bootstrap_cluster
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    KOPF_STATE_STORE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -55,7 +61,6 @@ from crate.operator.update_user_password import update_user_password
 from crate.operator.upgrade import UpgradeSubHandler
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.kubeapi import ensure_user_password_label, get_host
-from crate.operator.utils.state import Context, State
 from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
@@ -131,7 +136,7 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
     settings.persistence.diffbase_storage = kopf.MultiDiffBaseStorage(
         [
             kopf.AnnotationsDiffBaseStorage(
-                prefix=f"operator.{API_GROUP}", key="last", v1=False
+                prefix=KOPF_STATE_STORE_PREFIX, key="last", v1=False
             ),
             kopf.AnnotationsDiffBaseStorage(),  # For backwards compatibility
         ]
@@ -380,21 +385,54 @@ async def cluster_create(
             )
 
 
-@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB)
+@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id="cluster_update")
 async def cluster_update(
     namespace: str,
     name: str,
     patch: kopf.Patch,
     status: kopf.Status,
     diff: kopf.Diff,
-    logger,
     **kwargs,
 ):
-    context = Context.deserialize(status.get("updateContext"))
-    state = status.get("updateState", {})
-    new_cycle = False
-    if context.state_machine.done:
-        new_cycle = True
+    """
+    Handle cluster updates.
+
+    This is done as a chain of sub-handlers that depend on the previous ones completing.
+    The state of each handler is stored in the status field of the CrateDB
+    custom resource. Since the status field persists between runs of this handler
+    (even for unrelated runs), we calculate and store a hash of what changed as well.
+    This hash is then used by the sub-handlers to work out which run they are part of.
+
+    i.e., consider this status:
+
+    ::
+
+        status:
+          cluster_update:
+            ref: 24b527bf0eada363bf548f19b98dd9cb
+          cluster_update/ensure_enabled_cronjob:
+            ref: 24b527bf0eada363bf548f19b98dd9cb
+            success: true
+          cluster_update/ensure_no_backups:
+            ref: 24b527bf0eada363bf548f19b98dd9cb
+            success: true
+          cluster_update/scale:
+            ref: 24b527bf0eada363bf548f19b98dd9cb
+            success: true
+
+
+    here ``status.cluster_update.ref`` is the hash of the last diff that was being acted
+    upon. Since kopf *does not clean up statuses*, when we start a new run we check if
+    the hash matches - if not, it means we can disregard any refs that are not for this
+    run.
+    """
+    context = status.get("cluster_update")
+    hash = hashlib.md5(str(diff).encode("utf-8")).hexdigest()
+    if not context:
+        context = {"ref": hash}
+
+    if context.get("ref", "") != hash:
+        context["ref"] = hash
 
     do_upgrade = False
     do_restart = False
@@ -411,40 +449,55 @@ async def cluster_update(
         elif field_path == ("spec", "nodes", "data"):
             do_scale = True
 
-    if do_upgrade or do_restart or do_scale:
-        if new_cycle:
-            context.state_machine.add(State.ENSURE_NO_BACKUPS)
-        kopf.register(
-            fn=EnsureNoBackupsSubHandler(namespace, name, context)(state=state),
-            id="ensure_no_backups",
-            timeout=config.SCALING_TIMEOUT,
-        )
+    depends_on = ["cluster_update/ensure_no_backups"]
+    kopf.register(
+        fn=EnsureNoBackupsSubHandler(namespace, name, hash, context)(),
+        id="ensure_no_backups",
+        timeout=config.SCALING_TIMEOUT,
+    )
 
     if do_upgrade:
-        if new_cycle:
-            context.state_machine.add(State.UPGRADE)
-        kopf.register(fn=UpgradeSubHandler(namespace, name, context)(), id="upgrade")
+        kopf.register(
+            fn=UpgradeSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
+            id="upgrade",
+        )
+        depends_on.append("cluster_update/upgrade")
 
     if do_restart:
-        if new_cycle:
-            context.state_machine.add(State.RESTART)
         kopf.register(
-            fn=RestartSubHandler(namespace, name, context)(),
+            fn=RestartSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
             id="restart",
             timeout=config.ROLLING_RESTART_TIMEOUT,
         )
+        depends_on.append("cluster_update/restart")
 
     if do_scale:
-        if new_cycle:
-            context.state_machine.add(State.SCALE)
         kopf.register(
-            fn=ScaleSubHandler(namespace, name, context)(),
+            fn=ScaleSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
             id="scale",
             timeout=config.SCALING_TIMEOUT,
         )
+        depends_on.append("cluster_update/scale")
 
-    patch.status["updateContext"] = context.serialize()
-    patch.status["updateState"] = state
+    kopf.register(
+        fn=EnsureCronjobReenabled(
+            namespace,
+            name,
+            hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(),
+        id="ensure_enabled_cronjob",
+    )
+
+    patch.status["cluster_update"] = context
 
 
 @kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
