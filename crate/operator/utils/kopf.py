@@ -76,7 +76,8 @@ class StateBasedSubHandler(abc.ABC):
 
         :param namespace: the namespace to use
         :param name: the name of the CrateDB resource we're working on
-        :param context: _deprecated_
+        :param ref: reference for the current execution run.
+        :param context: a dict allowing storage of status info between executions.
         :param depends_on: list of dependent handler this handler should wait for.
         :param run_on_dep_failures: whether we should still execute if our dependencies
             have failed. This is useful for handlers that clean up resources after
@@ -151,7 +152,9 @@ class StateBasedSubHandler(abc.ABC):
             return None
 
         if status.get("ref", None) != self.ref:
-            logger.warning("Ignoring status from previous run: %s", status)
+            logger.debug(
+                "Ignoring status for '%s' from previous run: %s", dependency, status
+            )
             return None
 
         return status
@@ -170,7 +173,7 @@ class StateBasedSubHandler(abc.ABC):
         # Handler names have dots instead of slashes in annotations
         normalized_name = handler_name.replace("/", ".")
         key = f"{KOPF_STATE_STORE_PREFIX}/{normalized_name}"
-        status_str = annotations.get(key, None)
+        status_str = annotations.get(key)
         if not status_str:
             return False
         status = json.loads(status_str)

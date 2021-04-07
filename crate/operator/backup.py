@@ -57,11 +57,6 @@ from crate.operator.utils.kubeapi import (
     get_system_user_password,
 )
 from crate.operator.utils.typing import LabelType
-from crate.operator.webhooks import (
-    WebhookEvent,
-    WebhookStatus,
-    WebhookTemporaryFailurePayload,
-)
 
 
 def get_backup_env(
@@ -338,13 +333,15 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
         )
         kopf.register(
             fn=subhandler_partial(
-                self._ensure_no_cronjobs_running, namespace, name, logger
+                self._ensure_no_backup_cronjobs_running, namespace, name, logger
             ),
             id="ensure_no_cronjobs_running",
         )
 
     @staticmethod
-    async def _ensure_cronjob_suspended(namespace, name, logger):
+    async def _ensure_cronjob_suspended(
+        namespace: str, name: str, logger: logging.Logger
+    ) -> Optional[Dict]:
         async with ApiClient() as api_client:
             batch = BatchV1beta1Api(api_client)
 
@@ -376,6 +373,8 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
                     await batch.patch_namespaced_cron_job(job_name, namespace, update)
                     return {CRONJOB_NAME: job_name, CRONJOB_SUSPENDED: True}
 
+        return None
+
     async def _ensure_no_snapshots_in_progress(self, namespace, name, logger):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
@@ -404,7 +403,9 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
                     delay=30,
                 )
 
-    async def _ensure_no_cronjobs_running(self, namespace, name, logger):
+    async def _ensure_no_backup_cronjobs_running(
+        self, namespace: str, name: str, logger: logging.Logger
+    ):
         async with ApiClient() as api_client:
             batch = BatchV1Api(api_client)
 
@@ -434,12 +435,14 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
                     )
 
     async def _notify_backup_running(self, logger):
-        self.schedule_notification(
-            WebhookEvent.SCALE,
-            WebhookTemporaryFailurePayload(reason="A backup is in progress"),
-            WebhookStatus.TEMPORARY_FAILURE,
-        )
-        await self.send_notifications(logger)
+        ...
+        # TODO: Send notification. This throws an exception as the API validation fails.
+        # self.schedule_notification(
+        #     WebhookEvent.SCALE,
+        #     WebhookTemporaryFailurePayload(reason="A backup is in progress"),
+        #     WebhookStatus.TEMPORARY_FAILURE,
+        # )
+        # await self.send_notifications(logger)
 
 
 class EnsureCronjobReenabled(StateBasedSubHandler):
@@ -457,6 +460,7 @@ class EnsureCronjobReenabled(StateBasedSubHandler):
         for key in status.keys():
             if key.endswith(DISABLE_CRONJOB_HANDLER_ID):
                 disabler_job_status = status.get(key)
+                break
 
         if disabler_job_status is None:
             logger.info("No cronjob was disabled, so can't re-enable anything.")
