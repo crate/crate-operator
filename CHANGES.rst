@@ -22,15 +22,12 @@ Unreleased
 
 * Changed cluster updates to disable any backup cronjobs, so that a job doesn't
   kick in just as we are performing a cluster update. The job will be re-enabled
-  once the update is complete
+  once the update is complete.
 
 * Completely refactored cluster updates to not use the state machine any more,
   but rather added an ability to specify dependencies between handlers.
 
 * Removed the Context class in favour of simple storing the context as a dictionary.
-
-* Added a new notification that is sent if a cluster update cannot be performed
-  due to a running backup.
 
 
 1.2.0 (2021-03-22)

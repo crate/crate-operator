@@ -385,7 +385,10 @@ async def cluster_create(
             )
 
 
-@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id="cluster_update")
+CLUSTER_UPDATE_ID = "cluster_update"
+
+
+@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)
 async def cluster_update(
     namespace: str,
     name: str,
@@ -426,12 +429,11 @@ async def cluster_update(
     the hash matches - if not, it means we can disregard any refs that are not for this
     run.
     """
-    context = status.get("cluster_update")
+    context = status.get(CLUSTER_UPDATE_ID)
     hash = hashlib.md5(str(diff).encode("utf-8")).hexdigest()
     if not context:
         context = {"ref": hash}
-
-    if context.get("ref", "") != hash:
+    elif context.get("ref", "") != hash:
         context["ref"] = hash
 
     do_upgrade = False
@@ -449,7 +451,7 @@ async def cluster_update(
         elif field_path == ("spec", "nodes", "data"):
             do_scale = True
 
-    depends_on = ["cluster_update/ensure_no_backups"]
+    depends_on = [f"{CLUSTER_UPDATE_ID}/ensure_no_backups"]
     kopf.register(
         fn=EnsureNoBackupsSubHandler(namespace, name, hash, context)(),
         id="ensure_no_backups",
@@ -463,7 +465,7 @@ async def cluster_update(
             )(),
             id="upgrade",
         )
-        depends_on.append("cluster_update/upgrade")
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
 
     if do_restart:
         kopf.register(
@@ -473,7 +475,7 @@ async def cluster_update(
             id="restart",
             timeout=config.ROLLING_RESTART_TIMEOUT,
         )
-        depends_on.append("cluster_update/restart")
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
 
     if do_scale:
         kopf.register(
@@ -483,7 +485,7 @@ async def cluster_update(
             id="scale",
             timeout=config.SCALING_TIMEOUT,
         )
-        depends_on.append("cluster_update/scale")
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
 
     kopf.register(
         fn=EnsureCronjobReenabled(
@@ -497,7 +499,7 @@ async def cluster_update(
         id="ensure_enabled_cronjob",
     )
 
-    patch.status["cluster_update"] = context
+    patch.status[CLUSTER_UPDATE_ID] = context
 
 
 @kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
