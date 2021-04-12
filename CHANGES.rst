@@ -29,6 +29,7 @@ Unreleased
 
 * Removed the Context class in favour of simple storing the context as a dictionary.
 
+* Added PodDisruptionBudget to keep a cratedb statefulset up during k8s upgrades.
 
 1.2.0 (2021-03-22)
 ------------------
