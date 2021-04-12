@@ -25,7 +25,10 @@ import yaml
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
+    PolicyV1beta1Api,
     V1Affinity,
+    V1beta1PodDisruptionBudget,
+    V1beta1PodDisruptionBudgetSpec,
     V1ConfigMap,
     V1ConfigMapVolumeSource,
     V1Container,
@@ -767,6 +770,30 @@ async def create_statefulset(
                 image_pull_secrets,
                 logger,
             ),
+        )
+        policy = PolicyV1beta1Api(api_client)
+        pdb = V1beta1PodDisruptionBudget(
+            metadata=V1ObjectMeta(
+                name=f"crate-{name}",
+                owner_references=owner_references,
+            ),
+            spec=V1beta1PodDisruptionBudgetSpec(
+                max_unavailable=1,
+                selector=V1LabelSelector(
+                    match_labels={
+                        LABEL_COMPONENT: "cratedb",
+                        LABEL_NAME: name,
+                        LABEL_NODE_NAME: node_name,
+                    }
+                ),
+            ),
+        )
+        await call_kubeapi(
+            policy.create_namespaced_pod_disruption_budget,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=pdb,
         )
 
 
