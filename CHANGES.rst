@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added PodDisruptionBudget to keep a cratedb statefulset up during kubernetes upgrades.
+
 * Added a check for any running snapshots (either k8s jobs or CREATE SNAPSHOT stmts.)
   before performing scaling/upgrades/restarts. This ensures we don't inadvertently
   interfere with an existing snapshot operation
@@ -29,7 +31,6 @@ Unreleased
 
 * Removed the Context class in favour of simple storing the context as a dictionary.
 
-* Added PodDisruptionBudget to keep a cratedb statefulset up during k8s upgrades.
 
 1.2.0 (2021-03-22)
 ------------------
