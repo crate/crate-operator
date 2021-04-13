@@ -18,7 +18,6 @@ import asyncio
 import enum
 import hashlib
 import logging
-import warnings
 from typing import Any, Awaitable, Dict, List
 
 import kopf
@@ -123,33 +122,17 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
 
-    warnings.warn(
-        "The 'kopf.zalando.org/*' annotations and the "
-        "'kopf.zalando.org/KopfFinalizerMarker' finalizer are deprecated and will be "
-        "removed in version 2.0.",
-        DeprecationWarning,
-    )
-    # TODO: In version 2.0 change to:
-    # settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(
-    #     prefix=f"operator.{API_GROUP}", key="last", v1=False
-    # )
     settings.persistence.diffbase_storage = kopf.MultiDiffBaseStorage(
         [
             kopf.AnnotationsDiffBaseStorage(
                 prefix=KOPF_STATE_STORE_PREFIX, key="last", v1=False
             ),
-            kopf.AnnotationsDiffBaseStorage(),  # For backwards compatibility
         ]
     )
     settings.persistence.finalizer = f"operator.{API_GROUP}/finalizer"
-    # TODO: In version 2.0 change to:
-    # settings.persistence.progress_storage = (
-    #     kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
-    # )
     settings.persistence.progress_storage = kopf.MultiProgressStorage(
         [
             kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
-            kopf.AnnotationsProgressStorage(),  # For backwards compatibility
         ]
     )
 

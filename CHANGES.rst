@@ -31,6 +31,7 @@ Unreleased
 
 * Removed the Context class in favour of simple storing the context as a dictionary.
 
+* Removed the deprecated ``zalando...`` annotations. This will require a 2.0 release.
 
 1.2.0 (2021-03-22)
 ------------------
