@@ -50,6 +50,7 @@ rules:
   - ""
   - apps
   - batch
+  - policy
   resources:
   - configmaps
   - cronjobs
@@ -62,6 +63,7 @@ rules:
   - secrets
   - services
   - statefulsets
+  - poddisruptionbudgets
   verbs:
   - create
   - delete
