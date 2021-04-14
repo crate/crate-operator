@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Removed the deprecated ``zalando...`` annotations. This will require a 2.0 release.
+
 * Added PodDisruptionBudget to keep a cratedb statefulset up during kubernetes upgrades.
 
 * Added a check for any running snapshots (either k8s jobs or CREATE SNAPSHOT stmts.)
@@ -30,8 +32,6 @@ Unreleased
   but rather added an ability to specify dependencies between handlers.
 
 * Removed the Context class in favour of simple storing the context as a dictionary.
-
-* Removed the deprecated ``zalando...`` annotations. This will require a 2.0 release.
 
 1.2.0 (2021-03-22)
 ------------------
