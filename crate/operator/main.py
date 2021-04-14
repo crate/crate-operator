@@ -127,7 +127,7 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
     )
     settings.persistence.finalizer = f"operator.{API_GROUP}/finalizer"
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(
-        prefix=f"operator.{API_GROUP}", v1=False
+        prefix=KOPF_STATE_STORE_PREFIX, v1=False
     )
 
     # Timeout passed along to the Kubernetes API as timeoutSeconds=x
