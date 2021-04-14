@@ -789,9 +789,9 @@ async def create_statefulset(
             ),
         )
         """
-           A Pod Distruption Budget ensures that when performing Kubernetes cluster maintenance
-           (i.e. upgrades), we make sure to not disrupt more than 1 pod in a StatefulSet 
-           at a time. 
+           A Pod Distruption Budget ensures that when performing Kubernetes cluster
+           maintenance (i.e. upgrades), we make sure to not disrupt more than
+           1 pod in a StatefulSet at a time.
         """
         await call_kubeapi(
             policy.create_namespaced_pod_disruption_budget,
