@@ -122,18 +122,12 @@ async def startup(settings: kopf.OperatorSettings, **kwargs):
             config.WEBHOOK_URL, config.WEBHOOK_USERNAME, config.WEBHOOK_PASSWORD
         )
 
-    settings.persistence.diffbase_storage = kopf.MultiDiffBaseStorage(
-        [
-            kopf.AnnotationsDiffBaseStorage(
-                prefix=KOPF_STATE_STORE_PREFIX, key="last", v1=False
-            ),
-        ]
+    settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(
+        prefix=KOPF_STATE_STORE_PREFIX, key="last", v1=False
     )
     settings.persistence.finalizer = f"operator.{API_GROUP}/finalizer"
-    settings.persistence.progress_storage = kopf.MultiProgressStorage(
-        [
-            kopf.AnnotationsProgressStorage(prefix=f"operator.{API_GROUP}", v1=False),
-        ]
+    settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(
+        prefix=f"operator.{API_GROUP}", v1=False
     )
 
     # Timeout passed along to the Kubernetes API as timeoutSeconds=x
