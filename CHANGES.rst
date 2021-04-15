@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.0.0 (2021-04-15)
+------------------
+
 * Removed the deprecated ``zalando...`` annotations. This will require a 2.0 release.
 
 * Added PodDisruptionBudget to keep a cratedb statefulset up during kubernetes upgrades.
