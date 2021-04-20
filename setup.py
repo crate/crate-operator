@@ -55,7 +55,7 @@ setup(
             "faker==8.0.0",
             "pytest==6.2.2",
             "pytest-aiohttp==0.3.0",
-            "pytest-asyncio==0.14.0",
+            "pytest-asyncio==0.15.0",
         ],
     },
     python_requires=">=3.8",
