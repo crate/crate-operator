@@ -28,6 +28,7 @@ from crate.operator.webhooks import (
     WebhookPayload,
     WebhookScalePayload,
     WebhookStatus,
+    WebhookTemporaryFailurePayload,
     WebhookUpgradePayload,
 )
 
@@ -45,6 +46,7 @@ def test_payload_serialization_scale():
             new_master_replicas=4,
         ),
         upgrade_data=None,
+        temporary_failure_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "scale",
@@ -58,6 +60,7 @@ def test_payload_serialization_scale():
             "new_master_replicas": 4,
         },
         "upgrade_data": None,
+        "temporary_failure_data": None,
     }
 
 
@@ -71,6 +74,7 @@ def test_payload_serialization_upgrade():
         upgrade_data=WebhookUpgradePayload(
             old_registry="a", new_registry="b", old_version="c", new_version="d"
         ),
+        temporary_failure_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "upgrade",
@@ -84,6 +88,7 @@ def test_payload_serialization_upgrade():
             "old_version": "c",
             "new_version": "d",
         },
+        "temporary_failure_data": None,
     }
 
 
@@ -158,6 +163,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                     "new_master_replicas": 4,
                 },
                 "upgrade_data": None,
+                "temporary_failure_data": None,
             },
         }
 
@@ -194,6 +200,41 @@ class TestWebhookClientSending(AioHTTPTestCase):
                     "new_registry": "b",
                     "old_version": "c",
                     "new_version": "d",
+                },
+                "temporary_failure_data": None,
+            },
+        }
+
+    @unittest_run_loop
+    async def test_send_delay_notification(self):
+        client = WebhookClient()
+        client.configure(
+            f"{self.server.scheme}://{self.server.host}:{self.server.port}/some/path/",
+            "itsme",
+            "secr3t password",
+        )
+        response = await client.send_notification(
+            "my-namespace",
+            "my-cluster",
+            WebhookEvent.DELAY,
+            WebhookTemporaryFailurePayload(reason="A snapshot is in progress"),
+            WebhookStatus.TEMPORARY_FAILURE,
+            logging.getLogger(__name__),
+        )
+        assert response.status == 200
+        data = await response.json()
+        assert data == {
+            "username": "itsme",
+            "password": "secr3t password",
+            "payload": {
+                "event": "delay",
+                "status": "temporary_failure",
+                "namespace": "my-namespace",
+                "cluster": "my-cluster",
+                "scale_data": None,
+                "upgrade_data": None,
+                "temporary_failure_data": {
+                    "reason": "A snapshot is in progress",
                 },
             },
         }

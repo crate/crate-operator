@@ -25,6 +25,8 @@ from pkg_resources import get_distribution
 class WebhookEvent(str, enum.Enum):
     SCALE = "scale"
     UPGRADE = "upgrade"
+    SNAPSHOT = "snapshot"
+    DELAY = "delay"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -67,6 +69,7 @@ class WebhookPayload(TypedDict):
     cluster: str
     scale_data: Optional[WebhookScalePayload]
     upgrade_data: Optional[WebhookUpgradePayload]
+    temporary_failure_data: Optional[WebhookTemporaryFailurePayload]
 
 
 class WebhookClient:
@@ -128,6 +131,7 @@ class WebhookClient:
         *,
         scale_data: Optional[WebhookScalePayload] = None,
         upgrade_data: Optional[WebhookUpgradePayload] = None,
+        temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
@@ -141,6 +145,7 @@ class WebhookClient:
             or was attempted.
         :param upgrade_data: Details about the upgrading operation that took
             place or was attempted.
+        :param temporary_failure_data: Details about the temporary failure
         """
         if not self.configured:
             # When the webhook is fired but not configured, we're short-circuiting here
@@ -160,6 +165,7 @@ class WebhookClient:
             cluster=name,
             scale_data=scale_data,
             upgrade_data=upgrade_data,
+            temporary_failure_data=temporary_failure_data,
         )
 
         logger.info(
@@ -223,6 +229,8 @@ class WebhookClient:
             kwargs = {"scale_data": sub_payload}
         elif event == WebhookEvent.UPGRADE:
             kwargs = {"upgrade_data": sub_payload}
+        elif event == WebhookEvent.DELAY:
+            kwargs = {"temporary_failure_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 

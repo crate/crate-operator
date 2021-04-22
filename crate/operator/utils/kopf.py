@@ -119,7 +119,10 @@ class StateBasedSubHandler(abc.ABC):
         raise NotImplementedError()
 
     def schedule_notification(
-        self, event: WebhookEvent, payload: WebhookSubPayload, status: WebhookStatus
+        self,
+        event: WebhookEvent,
+        payload: WebhookSubPayload,
+        status: WebhookStatus,
     ):
         self._context.setdefault("notifications", []).append(
             Notification(event=event, payload=payload, status=status)

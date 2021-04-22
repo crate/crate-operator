@@ -57,6 +57,11 @@ from crate.operator.utils.kubeapi import (
     get_system_user_password,
 )
 from crate.operator.utils.typing import LabelType
+from crate.operator.webhooks import (
+    WebhookEvent,
+    WebhookStatus,
+    WebhookTemporaryFailurePayload,
+)
 
 
 def get_backup_env(
@@ -435,14 +440,12 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
                     )
 
     async def _notify_backup_running(self, logger):
-        ...
-        # TODO: Send notification. This throws an exception as the API validation fails.
-        # self.schedule_notification(
-        #     WebhookEvent.SCALE,
-        #     WebhookTemporaryFailurePayload(reason="A backup is in progress"),
-        #     WebhookStatus.TEMPORARY_FAILURE,
-        # )
-        # await self.send_notifications(logger)
+        self.schedule_notification(
+            WebhookEvent.DELAY,
+            WebhookTemporaryFailurePayload(reason="A snapshot is in progress"),
+            WebhookStatus.TEMPORARY_FAILURE,
+        )
+        await self.send_notifications(logger)
 
 
 class EnsureCronjobReenabled(StateBasedSubHandler):
