@@ -238,50 +238,5 @@ class WebhookClient:
             event, status, namespace, name, logger=logger, **kwargs  # type:ignore
         )
 
-    async def send_scale_notification(
-        self,
-        namespace: str,
-        name: str,
-        status: WebhookStatus,
-        data: WebhookScalePayload,
-        logger: logging.Logger,
-    ) -> Optional[aiohttp.ClientResponse]:
-        """
-        Send a notification about a failed or successful scaling operation.
-
-        :param status: Did the scaling fail or succeed?
-        :param namespace: The namespace the cluster resides in.
-        :param name: The name of the cluster.
-        :param data: Details about the scaling that took place or was attempted.
-        """
-        return await self._send(
-            WebhookEvent.SCALE, status, namespace, name, scale_data=data, logger=logger
-        )
-
-    async def send_upgrade_notification(
-        self,
-        status: WebhookStatus,
-        namespace: str,
-        name: str,
-        data: WebhookUpgradePayload,
-        logger: logging.Logger,
-    ) -> Optional[aiohttp.ClientResponse]:
-        """
-        Send a notification about a failed or successful upgrade operation.
-
-        :param status: Did the upgrade fail or succeed?
-        :param namespace: The namespace the cluster resides in.
-        :param name: The name of the cluster.
-        :param data: Details about the upgrade that took place or was attempted.
-        """
-        return await self._send(
-            WebhookEvent.UPGRADE,
-            status,
-            namespace,
-            name,
-            upgrade_data=data,
-            logger=logger,
-        )
-
 
 webhook_client = WebhookClient()

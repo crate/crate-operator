@@ -134,16 +134,17 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "itsme",
             "secr3t password",
         )
-        response = await client.send_scale_notification(
+        response = await client.send_notification(
             "my-namespace",
             "my-cluster",
-            WebhookStatus.SUCCESS,
+            WebhookEvent.SCALE,
             WebhookScalePayload(
                 old_data_replicas={"a": 1},
                 new_data_replicas={"a": 2},
                 old_master_replicas=3,
                 new_master_replicas=4,
             ),
+            WebhookStatus.SUCCESS,
             logging.getLogger(__name__),
         )
         assert response.status == 200
@@ -175,13 +176,14 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "itsme",
             "secr3t password",
         )
-        response = await client.send_upgrade_notification(
-            WebhookStatus.SUCCESS,
+        response = await client.send_notification(
             "my-namespace",
             "my-cluster",
+            WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
+            WebhookStatus.SUCCESS,
             logging.getLogger(__name__),
         )
         assert response.status == 200
@@ -247,13 +249,14 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "itsme",
             "secr3t password",
         )
-        response = await client.send_upgrade_notification(
-            WebhookStatus.SUCCESS,
+        response = await client.send_notification(
             "my-namespace",
             "my-cluster",
+            WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
+            WebhookStatus.SUCCESS,
             logging.getLogger(__name__),
         )
         assert response.status == 418
@@ -261,13 +264,14 @@ class TestWebhookClientSending(AioHTTPTestCase):
     @unittest_run_loop
     async def test_not_configured(self):
         client = WebhookClient()
-        response = await client.send_upgrade_notification(
-            WebhookStatus.SUCCESS,
+        response = await client.send_notification(
             "my-namespace",
             "my-cluster",
+            WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
                 old_registry="a", new_registry="b", old_version="c", new_version="d"
             ),
+            WebhookStatus.SUCCESS,
             logging.getLogger(__name__),
         )
         assert response is None
