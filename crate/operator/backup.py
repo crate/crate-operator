@@ -392,16 +392,6 @@ class EnsureNoBackupsSubHandler(StateBasedSubHandler):
                 conn_factory, logger
             )
             if snapshots_in_progress:
-                # Raising a TemporaryError will clear any registered subhandlers, so we
-                # execute this one directly instead to make sure it runs.
-                # The same guarantees about it being executed only once still stand.
-                await kopf.execute(
-                    fns={
-                        "notify_backup_running": subhandler_partial(
-                            self._notify_backup_running, logger
-                        )
-                    }
-                )
                 raise kopf.TemporaryError(
                     "A snapshot is currently in progress, "
                     f"waiting for it to finish: {statement}",
