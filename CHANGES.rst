@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ----------
 
+2.1.0 (2021-04-28)
+------------------
+
+* Send a notification if a snapshot / backup is in progress while attempting a
+  cluster update.
+
 2.0.0 (2021-04-15)
 ------------------
 
