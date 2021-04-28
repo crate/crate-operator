@@ -53,7 +53,7 @@ setup(
         "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],
         "testing": [
             "faker==8.1.1",
-            "pytest==6.2.2",
+            "pytest==6.2.3",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.15.1",
         ],
