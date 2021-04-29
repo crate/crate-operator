@@ -42,7 +42,7 @@ async def is_password_set(host: str, system_password: str, user: str) -> bool:
                 await cursor.execute("SELECT 1")
                 row = await cursor.fetchone()
                 return bool(row and row[0] == 1)
-    except (DatabaseError, OperationalError):
+    except (DatabaseError, OperationalError, asyncio.exceptions.TimeoutError):
         return False
 
 

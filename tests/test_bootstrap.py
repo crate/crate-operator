@@ -49,7 +49,7 @@ async def does_user_exist(host: str, password: str, username: str) -> bool:
                 await cursor.execute("SELECT 1")
                 row = await cursor.fetchone()
                 return bool(row and row[0] == 1)
-    except (DatabaseError, OperationalError):
+    except (DatabaseError, OperationalError, asyncio.exceptions.TimeoutError):
         return False
 
 
