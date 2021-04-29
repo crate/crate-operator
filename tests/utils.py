@@ -142,7 +142,7 @@ async def is_cluster_healthy(
                 num_nodes = await get_number_of_nodes(cursor)
                 healthines = await get_healthiness(cursor)
                 return expected_num_nodes == num_nodes and healthines in {1, None}
-    except psycopg2.DatabaseError:
+    except (psycopg2.DatabaseError, asyncio.exceptions.TimeoutError):
         return False
 
 

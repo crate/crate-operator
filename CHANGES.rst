@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fix tests that did not catch the async TimeoutError that aiopg started using
+  following a dependabot-triggered update.
+
 2.1.0 (2021-04-28)
 ------------------
 
