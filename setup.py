@@ -47,6 +47,9 @@ setup(
         "aiopg==1.2.1",
         "bitmath==1.3.3.1",
         "kopf==0.28.3",
+        # kopf depends on an undefined click version, and the latest (8.0.0) has broken
+        # backwards-compatibility. Fixing the version here instead.
+        "click==7.1.2",
         "kubernetes-asyncio==12.1.0",
     ],
     extras_require={
