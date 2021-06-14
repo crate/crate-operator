@@ -21,6 +21,7 @@ import logging
 from typing import Any, Awaitable, Dict, List
 
 import kopf
+from kopf.structs.diffs import DiffItem, DiffOperation
 from kubernetes_asyncio.client import (
     CoreV1Api,
     CustomObjectsApi,
@@ -53,6 +54,7 @@ from crate.operator.create import (
     create_statefulset,
     create_system_user,
 )
+from crate.operator.edge import notify_service_ip
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import RestartSubHandler, get_total_nodes_count
 from crate.operator.scale import ScaleSubHandler
@@ -550,3 +552,48 @@ async def secret_update(
                             id=f"update-{crate_custom_object['metadata']['name']}-{user_spec['name']}",  # noqa
                             timeout=config.BOOTSTRAP_TIMEOUT,
                         )
+
+
+@kopf.on.field(
+    "",
+    "v1",
+    "services",
+    labels={LABEL_PART_OF: "cratedb", LABEL_MANAGED_BY: "crate-operator"},
+    field="status.loadBalancer.ingress",
+)
+async def service_external_ip_update(
+    namespace: str,
+    diff: kopf.Diff,
+    meta: dict,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handle new IP addresses being assigned to LoadBalancer-type services.
+
+    This gets posted to the backend for further handling as a webhook
+    (if webhooks are enabled).
+    """
+    if len(diff) == 0:
+        return
+
+    op: DiffItem = diff[0]
+
+    # Don't care about IPs being removed (also does not happen)
+    if op.operation == DiffOperation.REMOVE:
+        return
+
+    # Sometimes when a service is just created, we get an _empty_ IP added,
+    # also ignore these.
+    if not op.new:
+        return
+
+    cluster_id = meta["labels"][LABEL_NAME]
+
+    if len(op.new) == 0:
+        logger.warning(f"No IP received for LoadBalancer {diff}")
+        return
+
+    # TODO: Multiple IPs?
+    ip = op.new[0]["ip"]
+    await notify_service_ip(namespace, cluster_id, ip, logger)

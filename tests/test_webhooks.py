@@ -25,6 +25,7 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 from crate.operator.webhooks import (
     WebhookClient,
     WebhookEvent,
+    WebhookInfoChangedPayload,
     WebhookPayload,
     WebhookScalePayload,
     WebhookStatus,
@@ -47,6 +48,7 @@ def test_payload_serialization_scale():
         ),
         upgrade_data=None,
         temporary_failure_data=None,
+        info_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "scale",
@@ -61,6 +63,7 @@ def test_payload_serialization_scale():
         },
         "upgrade_data": None,
         "temporary_failure_data": None,
+        "info_data": None,
     }
 
 
@@ -75,6 +78,7 @@ def test_payload_serialization_upgrade():
             old_registry="a", new_registry="b", old_version="c", new_version="d"
         ),
         temporary_failure_data=None,
+        info_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "upgrade",
@@ -89,6 +93,7 @@ def test_payload_serialization_upgrade():
             "new_version": "d",
         },
         "temporary_failure_data": None,
+        "info_data": None,
     }
 
 
@@ -126,15 +131,17 @@ class TestWebhookClientSending(AioHTTPTestCase):
         app.router.add_post("/error/", error_handler)
         return app
 
-    @unittest_run_loop
-    async def test_send_scale_notification(self):
-        client = WebhookClient()
-        client.configure(
+    async def setUpAsync(self):
+        self.webhook_client = WebhookClient()
+        self.webhook_client.configure(
             f"{self.server.scheme}://{self.server.host}:{self.server.port}/some/path/",
             "itsme",
             "secr3t password",
         )
-        response = await client.send_notification(
+
+    @unittest_run_loop
+    async def test_send_scale_notification(self):
+        response = await self.webhook_client.send_notification(
             "my-namespace",
             "my-cluster",
             WebhookEvent.SCALE,
@@ -165,18 +172,13 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 },
                 "upgrade_data": None,
                 "temporary_failure_data": None,
+                "info_data": None,
             },
         }
 
     @unittest_run_loop
     async def test_send_upgrade_notification(self):
-        client = WebhookClient()
-        client.configure(
-            f"{self.server.scheme}://{self.server.host}:{self.server.port}/some/path/",
-            "itsme",
-            "secr3t password",
-        )
-        response = await client.send_notification(
+        response = await self.webhook_client.send_notification(
             "my-namespace",
             "my-cluster",
             WebhookEvent.UPGRADE,
@@ -204,18 +206,13 @@ class TestWebhookClientSending(AioHTTPTestCase):
                     "new_version": "d",
                 },
                 "temporary_failure_data": None,
+                "info_data": None,
             },
         }
 
     @unittest_run_loop
     async def test_send_delay_notification(self):
-        client = WebhookClient()
-        client.configure(
-            f"{self.server.scheme}://{self.server.host}:{self.server.port}/some/path/",
-            "itsme",
-            "secr3t password",
-        )
-        response = await client.send_notification(
+        response = await self.webhook_client.send_notification(
             "my-namespace",
             "my-cluster",
             WebhookEvent.DELAY,
@@ -235,9 +232,37 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "cluster": "my-cluster",
                 "scale_data": None,
                 "upgrade_data": None,
+                "info_data": None,
                 "temporary_failure_data": {
                     "reason": "A snapshot is in progress",
                 },
+            },
+        }
+
+    @unittest_run_loop
+    async def test_send_info_changed_notification(self):
+        response = await self.webhook_client.send_notification(
+            "my-namespace",
+            "my-cluster",
+            WebhookEvent.INFO_CHANGED,
+            WebhookInfoChangedPayload(external_ip="192.168.1.10"),
+            WebhookStatus.SUCCESS,
+            logging.getLogger(__name__),
+        )
+        assert response.status == 200
+        data = await response.json()
+        assert data == {
+            "username": "itsme",
+            "password": "secr3t password",
+            "payload": {
+                "event": "info_changed",
+                "status": "success",
+                "namespace": "my-namespace",
+                "cluster": "my-cluster",
+                "scale_data": None,
+                "upgrade_data": None,
+                "info_data": {"external_ip": "192.168.1.10"},
+                "temporary_failure_data": None,
             },
         }
 
