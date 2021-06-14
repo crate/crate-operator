@@ -71,6 +71,7 @@ async def start_cluster(
     coapi: CustomObjectsApi,
     hot_nodes: int = 0,
     crate_version: str = CRATE_VERSION,
+    wait_for_healthy: bool = True,
 ) -> Tuple[str, str]:
     # Clean up persistent volume after the test
     cleanup_handler.append(
@@ -121,14 +122,15 @@ async def start_cluster(
     )
     password = await get_system_user_password(core, namespace.metadata.name, name)
 
-    await assert_wait_for(
-        True,
-        is_cluster_healthy,
-        connection_factory(host, password),
-        hot_nodes,
-        err_msg="Cluster wasn't healthy after 5 minutes.",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
+    if wait_for_healthy:
+        await assert_wait_for(
+            True,
+            is_cluster_healthy,
+            connection_factory(host, password),
+            hot_nodes,
+            err_msg="Cluster wasn't healthy after 5 minutes.",
+            timeout=DEFAULT_TIMEOUT * 5,
+        )
 
     return host, password
 
