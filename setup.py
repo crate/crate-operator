@@ -53,7 +53,7 @@ setup(
         "kubernetes-asyncio==12.1.0",
     ],
     extras_require={
-        "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],
+        "docs": ["sphinx>=3.0,<4.1", "sphinx-autodoc-typehints"],
         "testing": [
             "faker==8.8.1",
             "pytest==6.2.4",
