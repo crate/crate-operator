@@ -25,4 +25,4 @@ repos:
   rev: "v1.25.0"
   hooks:
   - id: yamllint
-    exclude: "^(\\.pre-commit-config\\.yaml|\\.github/workflows/.*)$"
+    exclude: "^(\\.pre-commit-config\\.yaml|\\.github/workflows/.*|\\.github/dependabot\\.yml)$"
