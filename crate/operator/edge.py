@@ -38,4 +38,5 @@ async def notify_service_ip(
         payload,
         WebhookStatus.SUCCESS,
         logger,
+        unsafe=True,
     )

@@ -139,6 +139,7 @@ class WebhookClient:
         upgrade_data: Optional[WebhookUpgradePayload] = None,
         temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         info_data: Optional[WebhookInfoChangedPayload] = None,
+        unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
@@ -153,15 +154,16 @@ class WebhookClient:
         :param upgrade_data: Details about the upgrading operation that took
             place or was attempted.
         :param temporary_failure_data: Details about the temporary failure
+        :param info_data: Information details payload
+        :param logger: The logger to use
+        :param unsafe: Whether to re-throw exceptions if any are caught.
         """
         if not self.configured:
             # When the webhook is fired but not configured, we're short-circuiting here
             # and return directly.
             logger.info(
-                "Webhooks not configured. Not POSTing because of %s on cluster %s/%s",
+                "Webhooks not configured. Not processing event %s.",
                 event,
-                namespace,
-                name,
             )
             return None
 
@@ -177,11 +179,9 @@ class WebhookClient:
         )
 
         logger.info(
-            "POSTing to %s because of %s on cluster %s/%s",
-            self._url,
+            "Sending webhook for %s (%s).",
             event,
-            namespace,
-            name,
+            status,
         )
         try:
             response = await self._session.post(self._url, json=payload)
@@ -190,36 +190,21 @@ class WebhookClient:
                 response.raise_for_status()
         except aiohttp.ClientResponseError:
             logger.exception(
-                "Failed POSTing to %s because of %s on cluster %s/%s. "
-                "Status: %d, Reason: %s, Body: %r",
-                self._url,
+                "Webhook for %s failed (%d %s). Response: %r",
                 event,
-                namespace,
-                name,
                 response.status,
                 response.reason,
                 response_text,
             )
+            if unsafe:
+                raise
             return response
         except aiohttp.ClientError:
-            logger.exception(
-                "Failed POSTing to %s because of %s on cluster %s/%s.",
-                self._url,
-                event,
-                namespace,
-                name,
-            )
+            logger.exception("Webhook for %s failed.", event)
+            if unsafe:
+                raise
         else:
-            logger.info(
-                "Successfully POSTed to %s because of %s on cluster %s/%s. "
-                "Status: %d, Body: %r",
-                self._url,
-                event,
-                namespace,
-                name,
-                response.status,
-                response_text,
-            )
+            logger.info("Webhook for %s succeeded.", event)
             return response
 
         return None
@@ -232,7 +217,27 @@ class WebhookClient:
         sub_payload: WebhookSubPayload,
         status: WebhookStatus,
         logger: logging.Logger,
+        *,
+        unsafe: Optional[bool] = False,
     ):
+        """
+        Send a webhook notification to the configured webhook URL.
+        Will do nothing if no webhooks are configured.
+
+        Webhooks are normally fire-and-forget FYI information that must not block kopf
+        from continuing with the handler chain. In some cases however, the webhook is
+        the whole point (i.e. IP address acquired), so we want to fail if an error
+        happens so that the operation could be retried.
+
+        :param name: Name of the cluster this notification is about
+        :param namespace: Namespaces where this event happened
+        :param event: The event type
+        :param sub_payload: The specific payload for the event type
+        :param status: The status of the event
+        :param logger: The logger to use
+        :param unsafe: Whether to throw exceptions if any happen. Defaults to False -
+                       exceptions will be logged but not propagated.
+        """
         if event == WebhookEvent.SCALE:
             kwargs = {"scale_data": sub_payload}
         elif event == WebhookEvent.UPGRADE:
@@ -245,7 +250,13 @@ class WebhookClient:
             raise ValueError(f"Unknown event '{event}'")
 
         return await self._send(
-            event, status, namespace, name, logger=logger, **kwargs  # type:ignore
+            event,
+            status,
+            namespace,
+            name,
+            logger=logger,
+            unsafe=unsafe,
+            **kwargs,  # type:ignore
         )
 
 
