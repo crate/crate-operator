@@ -50,6 +50,7 @@ async def test_get_external_ip(
         WebhookInfoChangedPayload(external_ip=external_ip),
         WebhookStatus.SUCCESS,
         mock.ANY,
+        unsafe=True,
     )
 
 
