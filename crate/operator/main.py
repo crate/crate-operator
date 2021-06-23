@@ -560,6 +560,7 @@ async def secret_update(
     "services",
     labels={LABEL_PART_OF: "cratedb", LABEL_MANAGED_BY: "crate-operator"},
     field="status.loadBalancer.ingress",
+    timeout=3600,
 )
 async def service_external_ip_update(
     namespace: str,
