@@ -5,11 +5,16 @@ Changelog
 Unreleased
 ----------
 
+2.2.0 (2021-06-23)
+------------------
+
 * Added a new kopf handler that watches for services getting external IPs
   (i.e. Load Balancers) and sending a webhook back with that info.
 
 * Fix tests that did not catch the async TimeoutError that aiopg started using
   following a dependabot-triggered update.
+
+* Added an ability to throw exceptions from webhooks, for handlers that require it.
 
 2.1.0 (2021-04-28)
 ------------------
