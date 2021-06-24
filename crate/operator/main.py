@@ -595,6 +595,12 @@ async def service_external_ip_update(
         logger.warning(f"No IP received for LoadBalancer {diff}")
         return
 
+    # Most k8s clusters give out IP addresses to LoadBalancer services, however some
+    # (i.e. EKS) give hostnames instead. As far as Crate is concerned, these are
+    # treated the same.
     # TODO: Multiple IPs?
-    ip = op.new[0]["ip"]
+    ip = op.new[0].get("ip") or op.new[0].get("hostname")
+    if not ip:
+        logger.warning(f"Load balancer got neither IP nor hostname {op}")
+        return
     await notify_service_ip(namespace, cluster_id, ip, logger)
