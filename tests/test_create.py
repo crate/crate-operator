@@ -48,6 +48,7 @@ from crate.operator.create import (
     get_statefulset_init_containers,
     get_statefulset_pvc,
     get_statefulset_volumes,
+    get_topology_spread,
 )
 from crate.operator.utils.formatting import b64decode
 
@@ -158,11 +159,10 @@ class TestStatefulSetAffinity:
             with mock.patch(
                 "crate.operator.create.config.CLOUD_PROVIDER", provider.value
             ):
-                affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
+                topospread = get_topology_spread(name, logging.getLogger(__name__))
 
-        apa = affinity.pod_anti_affinity
-        terms = apa.preferred_during_scheduling_ignored_during_execution[0]
-        expressions = terms.pod_affinity_term.label_selector.match_expressions
+        terms = topospread[0]
+        expressions = terms.label_selector.match_expressions
         assert [e.to_dict() for e in expressions] == [
             {
                 "key": "app.kubernetes.io/component",
@@ -171,10 +171,7 @@ class TestStatefulSetAffinity:
             },
             {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
         ]
-        assert (
-            terms.pod_affinity_term.topology_key
-            == "failure-domain.beta.kubernetes.io/zone"
-        )
+        assert terms.topology_key == "topology.kubernetes.io/zone"
 
 
 class TestStatefulSetContainers:
