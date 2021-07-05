@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Replace AntiAffinity Rule with topologySpreadConstraints
+
 * Fixed a problem with reporting the load balancer ip (hostname) for AWS EKS.
   EKS gives load balancers hostnames and not IPs. We treat these as one and the same.
 

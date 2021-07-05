@@ -65,9 +65,9 @@ from kubernetes_asyncio.client import (
     V1StatefulSet,
     V1StatefulSetSpec,
     V1StatefulSetUpdateStrategy,
+    V1TopologySpreadConstraint,
     V1Volume,
     V1VolumeMount,
-    V1WeightedPodAffinityTerm,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
@@ -225,31 +225,6 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
         logger.warning("Deploying cluster %s without any pod anti-affinity!", name)
         return None
 
-    zone_affinity = None
-    if config.CLOUD_PROVIDER in {CloudProvider.AWS, CloudProvider.AZURE}:
-        zone_affinity = [
-            V1WeightedPodAffinityTerm(
-                pod_affinity_term=V1PodAffinityTerm(
-                    label_selector=V1LabelSelector(
-                        match_expressions=[
-                            V1LabelSelectorRequirement(
-                                key=LABEL_COMPONENT, operator="In", values=["cratedb"]
-                            ),
-                            V1LabelSelectorRequirement(
-                                key=LABEL_NAME, operator="In", values=[name]
-                            ),
-                        ],
-                    ),
-                    # `failure-domain.beta.kubernetes.io/zone` is deprecated
-                    # and should be replaced by the compatible term for future
-                    # Kubernetes versions. See also:
-                    # https://kubernetes.io/docs/reference/kubernetes-api/labels-annotations-taints/#failure-domainbetakubernetesiozone
-                    topology_key="failure-domain.beta.kubernetes.io/zone",
-                ),
-                weight=100,
-            )
-        ]
-
     return V1Affinity(
         pod_anti_affinity=V1PodAntiAffinity(
             required_during_scheduling_ignored_during_execution=[
@@ -267,9 +242,37 @@ def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Af
                     topology_key="kubernetes.io/hostname",
                 ),
             ],
-            preferred_during_scheduling_ignored_during_execution=zone_affinity,
         ),
     )
+
+
+def get_topology_spread(
+    name: str, logger: logging.Logger
+) -> Optional[List[V1TopologySpreadConstraint]]:
+    if config.TESTING:
+        logger.warning("Deploying cluster %s without any pod topology spread!", name)
+        return None
+
+    topology_spread = None
+    if config.CLOUD_PROVIDER in {CloudProvider.AWS, CloudProvider.AZURE}:
+        topology_spread = [
+            V1TopologySpreadConstraint(
+                max_skew=1,
+                topology_key="topology.kubernetes.io/zone",
+                when_unsatisfiable="DoNotSchedule",
+                label_selector=V1LabelSelector(
+                    match_expressions=[
+                        V1LabelSelectorRequirement(
+                            key=LABEL_COMPONENT, operator="In", values=["cratedb"]
+                        ),
+                        V1LabelSelectorRequirement(
+                            key=LABEL_NAME, operator="In", values=[name]
+                        ),
+                    ],
+                ),
+            )
+        ]
+    return topology_spread
 
 
 def get_statefulset_containers(
@@ -703,6 +706,7 @@ def get_statefulset(
                 ),
                 spec=V1PodSpec(
                     affinity=get_statefulset_affinity(name, logger),
+                    topology_spread_constraints=get_topology_spread(name, logger),
                     containers=containers,
                     image_pull_secrets=image_pull_secrets,
                     init_containers=get_statefulset_init_containers(crate_image),
