@@ -16,7 +16,7 @@
 
 import functools
 import logging
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import aiopg
 from aiopg import Cursor
@@ -196,3 +196,75 @@ async def are_snapshots_in_progress(
             except ProgrammingError as e:
                 logger.warning("Failed to run snapshot query", exc_info=e)
                 return False, None
+
+
+async def set_cluster_setting(
+    conn_factory,
+    logger: logging.Logger,
+    *,
+    setting: str,
+    value: str,
+    mode: str = "TRANSIENT",
+) -> None:
+    """
+    Change a global cluster setting, see `Cluster-wide settings
+    <https://crate.io/docs/crate/reference/en/latest/config/cluster.html#conf-cluster-settings>`_,
+    to a different value.
+
+    :param conn_factory: The connection factory to connect to CrateDB.
+    :param logger: The logger on which we're logging.
+    :param setting: The name of the setting that should be changed.
+    :param value: The new value of the setting.
+    :param mode: The level of persistence. Settings that are set using the
+        "TRANSIENT" mode will be discarded if the cluster is stopped or
+        restarted. Using "PERSISTENT" mode will preserve the value of the
+        setting if the cluster restarts, defaults to "TRANSIENT".
+    """
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            logger.info(
+                f"Trying to set setting {setting} to value {value} with mode {mode}"
+            )
+            try:
+                await cursor.execute(f"SET GLOBAL {mode} {setting} = %s", (value,))
+            except ProgrammingError as e:
+                logger.warning("Failed to run set setting query", exc_info=e)
+
+
+async def reset_cluster_setting(
+    conn_factory,
+    logger: logging.Logger,
+    *,
+    setting: str,
+) -> None:
+    """
+    Reset the value of a cluster setting to its default value or to the
+    value defined in the configuration file, if it was set on a node start-up.
+
+    :param conn_factory: The connection factory to connect to CrateDB.
+    :param logger: The logger on which we're logging.
+    :param setting: The name of the setting that should be reset.
+    """
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            logger.info(f"Trying to reset setting {setting}")
+            try:
+                await cursor.execute(f"RESET GLOBAL {setting}")
+            except ProgrammingError as e:
+                logger.warning("Failed to run reset setting query", exc_info=e)
+
+
+async def get_cluster_settings(cursor: Cursor) -> Dict:
+    """
+    Return information about the currently applied cluster settings
+    from ``sys.cluster.settings``.
+
+    :param cursor: A database cursor to a current and open database connection.
+    :return: A Dict with all currently applied cluster settings
+    """
+    ret_val = {}
+    await cursor.execute("SELECT sys.cluster.settings FROM sys.cluster")
+    row = await cursor.fetchone()
+    if row:
+        ret_val = row[0]
+    return ret_val

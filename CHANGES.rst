@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Added update of ``cluster.routing.allocation.enable`` setting to ``new_primaries``
+  before performing scaling/upgrades/restarts in order to disable shard allocations
+  during that time. Once the update is finished the setting is reset.
+
 * Replace AntiAffinity Rule with topologySpreadConstraints
 
 * Fixed a problem with reporting the load balancer ip (hostname) for AWS EKS.

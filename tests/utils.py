@@ -32,6 +32,7 @@ from crate.operator.config import config
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import (
     connection_factory,
+    get_cluster_settings,
     get_healthiness,
     get_number_of_nodes,
 )
@@ -275,3 +276,22 @@ async def create_fake_cronjob(api_client, name, namespace):
 async def delete_fake_snapshot_job(api_client, name, namespace):
     batch = BatchV1Api(api_client)
     await batch.delete_namespaced_job(f"cluster-backup-{name}", namespace)
+
+
+async def cluster_routing_allocation_enable_equals(
+    conn_factory: Callable[[], Connection], expected_value: str
+) -> bool:
+    try:
+        async with conn_factory() as conn:
+            async with conn.cursor() as cursor:
+                cluster_settings = await get_cluster_settings(cursor)
+
+                value = (
+                    cluster_settings.get("cluster", {})
+                    .get("routing", {})
+                    .get("allocation", {})
+                    .get("enable", "")
+                )
+                return value == expected_value
+    except (psycopg2.DatabaseError, asyncio.exceptions.TimeoutError):
+        return False

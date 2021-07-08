@@ -30,11 +30,7 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
-from crate.operator.backup import (
-    EnsureCronjobReenabled,
-    EnsureNoBackupsSubHandler,
-    create_backups,
-)
+from crate.operator.backup import create_backups
 from crate.operator.bootstrap import bootstrap_cluster
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -56,7 +52,12 @@ from crate.operator.create import (
 )
 from crate.operator.edge import notify_service_ip
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
-from crate.operator.operations import RestartSubHandler, get_total_nodes_count
+from crate.operator.operations import (
+    AfterClusterUpdateSubHandler,
+    BeforeClusterUpdateSubHandler,
+    RestartSubHandler,
+    get_total_nodes_count,
+)
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.update_user_password import update_user_password
 from crate.operator.upgrade import UpgradeSubHandler
@@ -392,10 +393,10 @@ async def cluster_update(
         status:
           cluster_update:
             ref: 24b527bf0eada363bf548f19b98dd9cb
-          cluster_update/ensure_enabled_cronjob:
+          cluster_update/after_cluster_update:
             ref: 24b527bf0eada363bf548f19b98dd9cb
             success: true
-          cluster_update/ensure_no_backups:
+          cluster_update/before_cluster_update:
             ref: 24b527bf0eada363bf548f19b98dd9cb
             success: true
           cluster_update/scale:
@@ -430,13 +431,12 @@ async def cluster_update(
         elif field_path == ("spec", "nodes", "data"):
             do_scale = True
 
-    depends_on = [f"{CLUSTER_UPDATE_ID}/ensure_no_backups"]
+    depends_on = [f"{CLUSTER_UPDATE_ID}/before_cluster_update"]
     kopf.register(
-        fn=EnsureNoBackupsSubHandler(namespace, name, hash, context)(),
-        id="ensure_no_backups",
+        fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
+        id="before_cluster_update",
         timeout=config.SCALING_TIMEOUT,
     )
-
     if do_upgrade:
         kopf.register(
             fn=UpgradeSubHandler(
@@ -445,7 +445,6 @@ async def cluster_update(
             id="upgrade",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
-
     if do_restart:
         kopf.register(
             fn=RestartSubHandler(
@@ -465,9 +464,8 @@ async def cluster_update(
             timeout=config.SCALING_TIMEOUT,
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
-
     kopf.register(
-        fn=EnsureCronjobReenabled(
+        fn=AfterClusterUpdateSubHandler(
             namespace,
             name,
             hash,
@@ -475,7 +473,7 @@ async def cluster_update(
             depends_on=depends_on.copy(),
             run_on_dep_failures=True,
         )(),
-        id="ensure_enabled_cronjob",
+        id="after_cluster_update",
     )
 
     patch.status[CLUSTER_UPDATE_ID] = context
