@@ -263,10 +263,10 @@ async def _is_blocked_on_running_snapshot(
         name=name,
     )
 
-    ensure_no_backups = cratedb["metadata"]["annotations"].get(
-        f"{KOPF_STATE_STORE_PREFIX}/cluster_update.ensure_no_backups", None
+    before_cluster_update = cratedb["metadata"]["annotations"].get(
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update.before_cluster_update", None
     )
-    if not ensure_no_backups:
+    if not before_cluster_update:
         return False
 
     for v in cratedb["metadata"]["annotations"].values():

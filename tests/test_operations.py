@@ -25,6 +25,7 @@ from crate.operator.cratedb import connection_factory
 from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
+    cluster_routing_allocation_enable_equals,
     create_test_sys_jobs_table,
     is_cluster_healthy,
     is_kopf_handler_finished,
@@ -84,7 +85,6 @@ async def test_upgrade_cluster(
 
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
     original_pods = {p.metadata.uid for p in pods.items}
-
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -98,6 +98,15 @@ async def test_upgrade_cluster(
                 "value": version_to,
             },
         ],
+    )
+
+    await assert_wait_for(
+        True,
+        cluster_routing_allocation_enable_equals,
+        connection_factory(host, password),
+        "new_primaries",
+        err_msg="Cluster routing allocation setting has not been updated",
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     await assert_wait_for(
@@ -138,4 +147,13 @@ async def test_upgrade_cluster(
         3,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        cluster_routing_allocation_enable_equals,
+        connection_factory(host, password),
+        "all",
+        err_msg="Cluster routing allocation setting has not been updated",
+        timeout=DEFAULT_TIMEOUT * 5,
     )

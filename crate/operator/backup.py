@@ -17,14 +17,10 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-import kopf
 from kubernetes_asyncio.client import (
     AppsV1Api,
-    BatchV1Api,
     BatchV1beta1Api,
-    CoreV1Api,
     V1beta1CronJob,
-    V1beta1CronJobList,
     V1beta1CronJobSpec,
     V1beta1JobTemplateSpec,
     V1Container,
@@ -33,9 +29,7 @@ from kubernetes_asyncio.client import (
     V1DeploymentSpec,
     V1EnvVar,
     V1EnvVarSource,
-    V1JobList,
     V1JobSpec,
-    V1JobStatus,
     V1LabelSelector,
     V1LocalObjectReference,
     V1ObjectFieldSelector,
@@ -49,19 +43,8 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAME
-from crate.operator.cratedb import are_snapshots_in_progress, connection_factory
-from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
-from crate.operator.utils.kubeapi import (
-    call_kubeapi,
-    get_host,
-    get_system_user_password,
-)
+from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.typing import LabelType
-from crate.operator.webhooks import (
-    WebhookEvent,
-    WebhookStatus,
-    WebhookTemporaryFailurePayload,
-)
 
 
 def get_backup_env(
@@ -306,172 +289,3 @@ async def create_backups(
                     has_ssl,
                 ),
             )
-
-
-DISABLE_CRONJOB_HANDLER_ID = "disable_cronjob"
-IGNORE_CRONJOB = "ignore_cronjob"
-CRONJOB_SUSPENDED = "cronjob_suspended"
-CRONJOB_NAME = "cronjob_name"
-
-
-class EnsureNoBackupsSubHandler(StateBasedSubHandler):
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        body: kopf.Body,
-        old: kopf.Body,
-        logger: logging.Logger,
-        **kwargs: Any,
-    ):
-        kopf.register(
-            fn=subhandler_partial(
-                self._ensure_cronjob_suspended, namespace, name, logger
-            ),
-            id=DISABLE_CRONJOB_HANDLER_ID,
-        )
-        kopf.register(
-            fn=subhandler_partial(
-                self._ensure_no_snapshots_in_progress, namespace, name, logger
-            ),
-            id="ensure_no_snapshots_in_progress",
-        )
-        kopf.register(
-            fn=subhandler_partial(
-                self._ensure_no_backup_cronjobs_running, namespace, name, logger
-            ),
-            id="ensure_no_cronjobs_running",
-        )
-
-    @staticmethod
-    async def _ensure_cronjob_suspended(
-        namespace: str, name: str, logger: logging.Logger
-    ) -> Optional[Dict]:
-        async with ApiClient() as api_client:
-            batch = BatchV1beta1Api(api_client)
-
-            jobs: V1beta1CronJobList = await batch.list_namespaced_cron_job(namespace)
-
-            for job in jobs.items:
-                job_name = job.metadata.name
-                labels = job.metadata.labels
-                if (
-                    labels.get("app.kubernetes.io/component") == "backup"
-                    and labels.get("app.kubernetes.io/name") == name
-                ):
-                    current_suspend_status = job.spec.suspend
-                    if current_suspend_status:
-                        logger.warn(
-                            f"Found job {job_name} that is already suspended, ignoring"
-                        )
-                        return {
-                            CRONJOB_NAME: job_name,
-                            CRONJOB_SUSPENDED: True,
-                            IGNORE_CRONJOB: True,
-                        }
-
-                    logger.info(
-                        f"Temporarily suspending CronJob {job_name} "
-                        f"while cluster update in progress"
-                    )
-                    update = {"spec": {"suspend": True}}
-                    await batch.patch_namespaced_cron_job(job_name, namespace, update)
-                    return {CRONJOB_NAME: job_name, CRONJOB_SUSPENDED: True}
-
-        return None
-
-    async def _ensure_no_snapshots_in_progress(self, namespace, name, logger):
-        async with ApiClient() as api_client:
-            core = CoreV1Api(api_client)
-
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
-
-            snapshots_in_progress, statement = await are_snapshots_in_progress(
-                conn_factory, logger
-            )
-            if snapshots_in_progress:
-                raise kopf.TemporaryError(
-                    "A snapshot is currently in progress, "
-                    f"waiting for it to finish: {statement}",
-                    delay=30,
-                )
-
-    async def _ensure_no_backup_cronjobs_running(
-        self, namespace: str, name: str, logger: logging.Logger
-    ):
-        async with ApiClient() as api_client:
-            batch = BatchV1Api(api_client)
-
-            jobs: V1JobList = await call_kubeapi(
-                batch.list_namespaced_job, logger, namespace=namespace
-            )
-            for job in jobs.items:
-                job_name = job.metadata.name
-                labels = job.metadata.labels
-                job_status: V1JobStatus = job.status
-                if (
-                    labels.get("app.kubernetes.io/component") == "backup"
-                    and labels.get("app.kubernetes.io/name") == name
-                    and job_status.active is not None
-                ):
-                    await kopf.execute(
-                        fns={
-                            "notify_backup_running": subhandler_partial(
-                                self._notify_backup_running, logger
-                            )
-                        }
-                    )
-                    raise kopf.TemporaryError(
-                        "A snapshot k8s job is currently running, "
-                        f"waiting for it to finish: {job_name}",
-                        delay=30,
-                    )
-
-    async def _notify_backup_running(self, logger):
-        self.schedule_notification(
-            WebhookEvent.DELAY,
-            WebhookTemporaryFailurePayload(reason="A snapshot is in progress"),
-            WebhookStatus.TEMPORARY_FAILURE,
-        )
-        await self.send_notifications(logger)
-
-
-class EnsureCronjobReenabled(StateBasedSubHandler):
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        body: kopf.Body,
-        old: kopf.Body,
-        logger: logging.Logger,
-        status: kopf.Status,
-        **kwargs: Any,
-    ):
-        disabler_job_status = None
-        for key in status.keys():
-            if key.endswith(DISABLE_CRONJOB_HANDLER_ID):
-                disabler_job_status = status.get(key)
-                break
-
-        if disabler_job_status is None:
-            logger.info("No cronjob was disabled, so can't re-enable anything.")
-            return
-
-        if disabler_job_status.get(IGNORE_CRONJOB, False):
-            logger.warning("Will not attempt to re-enable any CronJobs")
-            return
-
-        async with ApiClient() as api_client:
-            job_name = disabler_job_status[CRONJOB_NAME]
-
-            batch = BatchV1beta1Api(api_client)
-
-            jobs: V1beta1CronJobList = await batch.list_namespaced_cron_job(namespace)
-
-            for job in jobs.items:
-                if job.metadata.name == job_name:
-                    update = {"spec": {"suspend": False}}
-                    await batch.patch_namespaced_cron_job(job_name, namespace, update)
-                    logger.info(f"Re-enabled cronjob {job_name}")
