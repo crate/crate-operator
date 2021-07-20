@@ -50,7 +50,7 @@ setup(
         # kopf depends on an undefined click version, and the latest (8.0.0) has broken
         # backwards-compatibility. Fixing the version here instead.
         "click==7.1.2",
-        "kubernetes-asyncio==12.1.0",
+        "kubernetes-asyncio==12.1.1",
     ],
     extras_require={
         "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],
