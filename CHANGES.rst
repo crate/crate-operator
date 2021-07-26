@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.3.0 (2021-07-26)
+------------------
+
 * Added update of ``cluster.routing.allocation.enable`` setting to ``new_primaries``
   before performing scaling/upgrades/restarts in order to disable shard allocations
   during that time. Once the update is finished the setting is reset.
