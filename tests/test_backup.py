@@ -17,7 +17,7 @@
 import logging
 
 import pytest
-from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api
+from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api, V1beta1CronJob
 
 from crate.operator.backup import create_backups
 from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME
@@ -33,6 +33,13 @@ class TestBackup:
     ) -> bool:
         cjs = await batchv1_beta1.list_namespaced_cron_job(namespace=namespace)
         return name in (cj.metadata.name for cj in cjs.items)
+
+    async def get_cronjob(
+        selfself, batchv1_beta1: BatchV1beta1Api, namespace: str, name: str
+    ) -> V1beta1CronJob:
+        return await batchv1_beta1.read_namespaced_cron_job(
+            namespace=namespace, name=name
+        )
 
     async def does_deployment_exist(
         self, apps: AppsV1Api, namespace: str, name: str
@@ -75,6 +82,7 @@ class TestBackup:
                 },
             },
         }
+
         await create_backups(
             None,
             namespace.metadata.name,
@@ -101,6 +109,78 @@ class TestBackup:
             namespace.metadata.name,
             f"backup-metrics-{name}",
         )
+
+    async def test_create_with_custom_backup_location(
+        self, faker, namespace, api_client
+    ):
+        batchv1_beta1 = BatchV1beta1Api(api_client)
+        name = faker.domain_word()
+
+        backups_spec = {
+            "aws": {
+                "accessKeyId": {
+                    "secretKeyRef": {
+                        "key": faker.domain_word(),
+                        "name": faker.domain_word(),
+                    },
+                },
+                "basePath": faker.uri_path() + "/",
+                "cron": "1 2 3 4 5",
+                "region": {
+                    "secretKeyRef": {
+                        "key": faker.domain_word(),
+                        "name": faker.domain_word(),
+                    },
+                },
+                "bucket": {
+                    "secretKeyRef": {
+                        "key": faker.domain_word(),
+                        "name": faker.domain_word(),
+                    },
+                },
+                "secretAccessKey": {
+                    "secretKeyRef": {
+                        "key": faker.domain_word(),
+                        "name": faker.domain_word(),
+                    },
+                },
+                "endpointUrl": {
+                    "secretKeyRef": {
+                        "key": faker.domain_word(),
+                        "name": faker.domain_word(),
+                        "optional": True,
+                    },
+                },
+            },
+        }
+
+        await create_backups(
+            None,
+            namespace.metadata.name,
+            name,
+            {LABEL_COMPONENT: "backup", LABEL_NAME: name},
+            12345,
+            23456,
+            backups_spec,
+            None,
+            True,
+            logging.getLogger(__name__),
+        )
+        await assert_wait_for(
+            True,
+            self.does_cronjob_exist,
+            batchv1_beta1,
+            namespace.metadata.name,
+            f"create-snapshot-{name}",
+        )
+        job = await self.get_cronjob(
+            batchv1_beta1, namespace.metadata.name, f"create-snapshot-{name}"
+        )
+        env_vars = [
+            env.name
+            for env in job.spec.job_template.spec.template.spec.containers[0].env
+        ]
+        assert "S3_ENDPOINT_URL" in env_vars
 
     async def test_not_enabled(self, faker, namespace, api_client):
         name = faker.domain_word()

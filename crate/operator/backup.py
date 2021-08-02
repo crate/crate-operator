@@ -146,6 +146,21 @@ def get_backup_cronjob(
         + get_backup_env(name, http_port, backup_aws, has_ssl)
         + get_webhook_env()
     )
+
+    if "endpointUrl" in backup_aws:
+        env.append(
+            V1EnvVar(
+                name="S3_ENDPOINT_URL",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_aws["endpointUrl"]["secretKeyRef"]["key"],
+                        name=backup_aws["endpointUrl"]["secretKeyRef"]["name"],
+                        optional=True,
+                    ),
+                ),
+            )
+        )
+
     return V1beta1CronJob(
         metadata=V1ObjectMeta(
             name=f"create-snapshot-{name}",
