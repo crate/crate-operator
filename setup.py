@@ -44,7 +44,7 @@ setup(
     package_data={"crate.operator": ["data/*"]},
     setup_requires=["setuptools_scm"],
     install_requires=[
-        "aiopg==1.2.1",
+        "aiopg==1.3.1",
         "bitmath==1.3.3.1",
         "kopf==0.28.3",
         # kopf depends on an undefined click version, and the latest (8.0.0) has broken
