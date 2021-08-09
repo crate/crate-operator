@@ -78,6 +78,23 @@ spec:
                       description: A crontab formatted string indicating when and how often to perform backups.
                       pattern: ^(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*) ){4}(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*))$
                       type: string
+                    endpointUrl:
+                      properties:
+                        secretKeyRef:
+                          properties:
+                            key:
+                              description: The key within the Kubernetes Secret that holds the S3 endpoint.
+                              type: string
+                            name:
+                              description: Name of a Kubernetes Secret that contains the S3 endpoint-url to be used for backups.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - secretKeyRef
+                      type: object
                     region:
                       properties:
                         secretKeyRef:
