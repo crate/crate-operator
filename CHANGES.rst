@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.4.0 (2021-08-26)
+------------------
+
 * Add additional environment variable to use a custom S3 backup ``endpointUrl``.
 
 2.3.0 (2021-07-26)
