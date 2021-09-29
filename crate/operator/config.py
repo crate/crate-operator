@@ -95,6 +95,11 @@ class Config:
     #: Which table are the running jobs stored in. This is only changed in tests.
     JOBS_TABLE: str = "sys.jobs"
 
+    #: From which version onwards CrateDB gateway settings `expected_data_nodes`
+    #: and `recover_after_data_nodes` must be used instead of `expected_nodes`
+    #: and `recover_after_nodes`
+    GATEWAY_SETTINGS_DATA_NODES_VERSION: str = "4.7.0"
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 

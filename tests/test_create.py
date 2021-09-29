@@ -210,6 +210,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="data-node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -218,6 +219,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         assert ["/docker-entrypoint.sh", "crate"] == cmd[0:2]
 
@@ -228,6 +230,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="data-node-",
             cluster_name=cluster_name,
             node_name="node",
@@ -236,6 +239,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         assert f"-Ccluster.name={cluster_name}" in cmd
 
@@ -247,6 +251,7 @@ class TestStatefulSetCrateCommand:
             name=random_string(),
             master_nodes=["data-node-0", "data-node-1", "data-node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix=crate_node_name_prefix,
             cluster_name="my-cluster",
             node_name=node_name,
@@ -255,6 +260,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         assert (
             f"-Cnode.name={crate_node_name_prefix}$(hostname | rev | cut -d- -f1 | rev)"
@@ -263,14 +269,17 @@ class TestStatefulSetCrateCommand:
         assert f"-Cnode.attr.node_name={node_name}" in cmd
 
     @pytest.mark.parametrize(
-        "total, quorum", [(1, 1), (2, 2), (3, 2), (4, 3), (5, 3), (123, 62)]
+        "total, data_nodes, quorum",
+        [(2, 1, 1), (3, 2, 2), (4, 3, 2), (5, 4, 3), (123, 122, 62)],
     )
-    def test_node_counts(self, total, quorum):
+    def test_node_counts(self, total, data_nodes, quorum):
+        master_nodes = ["node-0"]
         cmd = get_statefulset_crate_command(
             namespace="some-namespace",
             name="cluster1",
-            master_nodes=["node-0", "node-1", "node-2"],
+            master_nodes=master_nodes,
             total_nodes_count=total,
+            data_nodes_count=data_nodes,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -279,6 +288,30 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.7.0",
+        )
+        assert f"-Cgateway.recover_after_data_nodes={quorum}" in cmd
+        assert f"-Cgateway.expected_data_nodes={data_nodes}" in cmd
+
+    @pytest.mark.parametrize(
+        "total, quorum", [(1, 1), (2, 2), (3, 2), (4, 3), (5, 3), (123, 62)]
+    )
+    def test_node_counts_deprecated_settings(self, total, quorum):
+        cmd = get_statefulset_crate_command(
+            namespace="some-namespace",
+            name="cluster1",
+            master_nodes=["node-0", "node-1", "node-2"],
+            total_nodes_count=total,
+            data_nodes_count=total,
+            crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
+            node_name="node",
+            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            cluster_settings=None,
+            has_ssl=False,
+            is_master=True,
+            is_data=True,
+            crate_version="4.6.3",
         )
         assert f"-Cgateway.recover_after_nodes={quorum}" in cmd
         assert f"-Cgateway.expected_nodes={total}" in cmd
@@ -290,6 +323,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -298,6 +332,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         arg = "-Cpath.data=" + ",".join(f"/data/data{i}" for i in range(count))
         assert arg in cmd
@@ -309,6 +344,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -317,6 +353,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         assert f"-Cprocessors={ceiled}" in cmd
 
@@ -328,6 +365,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -336,6 +374,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=master,
             is_data=data,
+            crate_version="4.6.3",
         )
         assert f"-Cnode.master={str(master).lower()}" in cmd
         assert f"-Cnode.data={str(data).lower()}" in cmd
@@ -347,6 +386,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -355,6 +395,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=ssl,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         if ssl:
             assert "-Cssl.http.enabled=true" in cmd
@@ -369,6 +410,7 @@ class TestStatefulSetCrateCommand:
             name="cluster1",
             master_nodes=["node-0", "node-1", "node-2"],
             total_nodes_count=3,
+            data_nodes_count=3,
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
@@ -388,6 +430,7 @@ class TestStatefulSetCrateCommand:
             has_ssl=False,
             is_master=True,
             is_data=True,
+            crate_version="4.6.3",
         )
         assert "-Cauth.host_based.enabled=node-override" in cmd
         assert "-Cnode.attr.node_setting=node-override" in cmd
@@ -415,6 +458,7 @@ class TestStatefulSetCrateCommand:
                 name="cluster1",
                 master_nodes=["node-0", "node-1", "node-2"],
                 total_nodes_count=3,
+                data_nodes_count=3,
                 crate_node_name_prefix="node-",
                 cluster_name="my-cluster",
                 node_name="node",
@@ -423,6 +467,7 @@ class TestStatefulSetCrateCommand:
                 has_ssl=False,
                 is_master=True,
                 is_data=True,
+                crate_version="4.6.3",
             )
         additional_args = ""
         if provider == CloudProvider.AZURE:
@@ -445,6 +490,7 @@ class TestStatefulSetCrateCommand:
                 name="cluster1",
                 master_nodes=["node-0", "node-1", "node-2"],
                 total_nodes_count=3,
+                data_nodes_count=3,
                 crate_node_name_prefix="node-",
                 cluster_name="my-cluster",
                 node_name="node",
@@ -456,6 +502,7 @@ class TestStatefulSetCrateCommand:
                 has_ssl=False,
                 is_master=True,
                 is_data=True,
+                crate_version="4.6.3",
             )
         assert "-Cnode.attr.zone=test" in cmd
 
@@ -645,6 +692,7 @@ class TestStatefulSet:
                 },
             },
             ["master-1", "master-2", "master-3"],
+            3,
             3,
             10000,
             20000,

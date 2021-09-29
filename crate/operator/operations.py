@@ -57,7 +57,7 @@ from crate.operator.webhooks import (
 )
 
 
-def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
+def get_total_nodes_count(nodes: Dict[str, Any], type: str = "all") -> int:
     """
     Calculate the total number nodes a CrateDB cluster should have on startup.
 
@@ -66,13 +66,18 @@ def get_total_nodes_count(nodes: Dict[str, Any]) -> int:
     resource and sums up all desired replicas for all nodes defined therein.
 
     :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
+    :param type: Optionally get only the number of ``data`` or ``master`` nodes.
     """
-    total = 0
+    total = {
+        "master": 0,
+        "data": 0,
+    }
     if "master" in nodes:
-        total += nodes["master"]["replicas"]
+        total["master"] += nodes["master"]["replicas"]
     for node in nodes["data"]:
-        total += node["replicas"]
-    return total
+        total["data"] += node["replicas"]
+    total["all"] = total["master"] + total["data"]
+    return total.get(type, 0)
 
 
 async def get_pods_in_cluster(
@@ -188,7 +193,7 @@ async def restart_cluster(
             delay=15,
         )
     elif next_pod_name in all_pod_names:
-        total_nodes = get_total_nodes_count(old["spec"]["nodes"])
+        total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
         password, host = await asyncio.gather(
             get_system_user_password(core, namespace, name),

@@ -16,6 +16,10 @@ Unreleased
 
 * Added loadBalancerSourceIPRanges for crate service to allow IP Whitelisting.
 
+* Use settings names ``gateway.recover_after_data_nodes`` and
+  ``gateway.expected_data_nodes`` instead of ``gateway.recover_after_nodes`` and
+  ``gateway.expected_nodes`` from CrateDB version 4.7 onwards.
+
 2.4.0 (2021-08-26)
 ------------------
 
