@@ -20,6 +20,22 @@ kind: CustomResourceDefinition
 metadata:
   name: cratedbs.cloud.crate.io
 spec:
+  additionalPrinterColumns:
+  - JSONPath: .spec.cluster.name
+    description: The CrateDB Cluster name
+    name: ClusterName
+    type: string
+  - JSONPath: .spec.cluster.version
+    description: The CrateDB Cluster version
+    name: Version
+    type: string
+  - JSONPath: .spec.nodes.data[?(@.name == "hot")].replicas
+    description: Number of data nodes in this cluster
+    name: Nodes
+    type: number
+  - JSONPath: .metadata.creationTimestamp
+    name: Age
+    type: date
   group: cloud.crate.io
   names:
     kind: CrateDB
