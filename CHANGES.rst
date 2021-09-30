@@ -8,6 +8,8 @@ Unreleased
 * Changed the operator CRD to print additional information about the running CrateDBs:
   the cluster name, version and number of data nodes.
 
+
+
 2.4.0 (2021-08-26)
 ------------------
 
