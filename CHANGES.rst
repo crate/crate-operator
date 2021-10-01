@@ -8,6 +8,10 @@ Unreleased
 * Changed the operator CRD to print additional information about the running CrateDBs:
   the cluster name, version and number of data nodes.
 
+* Added an annotation for AWS ELB load balancers running on EKS to up the idle
+  connection timeout to 1 hour. Without this, connections with long-running queries
+  were being killed by the ELB.
+
 2.4.0 (2021-08-26)
 ------------------
 
