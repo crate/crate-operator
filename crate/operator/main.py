@@ -436,6 +436,9 @@ async def cluster_update(
         elif field_path == ("spec", "nodes", "data"):
             do_scale = True
 
+    if not do_upgrade and not do_restart and not do_scale:
+        return
+
     depends_on = [f"{CLUSTER_UPDATE_ID}/before_cluster_update"]
     kopf.register(
         fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
@@ -555,6 +558,26 @@ async def secret_update(
                             id=f"update-{crate_custom_object['metadata']['name']}-{user_spec['name']}",  # noqa
                             timeout=config.BOOTSTRAP_TIMEOUT,
                         )
+
+
+@kopf.on.field(API_GROUP, "v1", RESOURCE_CRATEDB, field="spec.cluster.allowedCIDRs")
+async def service_cidr_changes(
+    namespace: str,
+    name: str,
+    diff: kopf.Diff,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    op: DiffItem = diff[0]
+    logger.info(f"Updating load balancer source ranges to {op.new}")
+
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        await core.patch_namespaced_service(
+            name=f"crate-{name}",
+            namespace=namespace,
+            body={"spec": {"loadBalancerSourceRanges": op.new}},
+        )
 
 
 @kopf.on.field(
