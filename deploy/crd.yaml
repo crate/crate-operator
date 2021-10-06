@@ -155,6 +155,11 @@ spec:
               type: object
             cluster:
               properties:
+                allowedCIDRs:
+                  description: Whitelisted CIDRs
+                  items:
+                    type: string
+                  type: array
                 externalDNS:
                   description: The external DNS name record that should point to the CrateDB cluster.
                   type: string
