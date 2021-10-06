@@ -201,6 +201,7 @@ async def cluster_create(
     # nor implicit master nodes.
     treat_as_master = True
     cluster_name = spec["cluster"]["name"]
+    source_ranges = spec["cluster"].get("allowedCIDRs", None)
 
     kopf.register(
         fn=subhandler_partial(
@@ -250,6 +251,7 @@ async def cluster_create(
             transport_port,
             spec.get("cluster", {}).get("externalDNS"),
             logger,
+            source_ranges,
         ),
         id="services",
     )

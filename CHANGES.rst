@@ -12,8 +12,9 @@ Unreleased
   connection timeout to 1 hour. Without this, connections with long-running queries
   were being killed by the ELB.
 
-* Changed the operator CRD to be able add allowed IPs (CIDR notation) to the
-  CrateDB clusters.
+* Changed the operator CRD to be able add allowed IPs (CIDR notation) to the CrateDB clusters.
+
+* Added loadBalancerSourceIPRanges for crate service to allow IP Whitelisting.
 
 2.4.0 (2021-08-26)
 ------------------
