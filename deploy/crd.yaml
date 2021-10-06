@@ -156,7 +156,7 @@ spec:
             cluster:
               properties:
                 allowedCIDRs:
-                  description: Whitelisted IPs
+                  description: Whitelisted CIDRs
                   items:
                     type: string
                   type: array
