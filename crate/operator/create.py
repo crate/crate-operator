@@ -813,6 +813,7 @@ def get_data_service(
     http_port: int,
     postgres_port: int,
     dns_record: Optional[str],
+    source_ranges: Optional[List[str]] = None,
 ) -> V1Service:
     annotations = {}
     if config.CLOUD_PROVIDER == CloudProvider.AWS:
@@ -853,6 +854,7 @@ def get_data_service(
             selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
             type="LoadBalancer",
             external_traffic_policy="Local",
+            load_balancer_source_ranges=source_ranges if source_ranges else None,
         ),
     )
 
@@ -886,6 +888,7 @@ async def create_services(
     transport_port: int,
     dns_record: Optional[str],
     logger: logging.Logger,
+    source_ranges: Optional[List[str]] = None,
 ) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -895,7 +898,13 @@ async def create_services(
             continue_on_conflict=True,
             namespace=namespace,
             body=get_data_service(
-                owner_references, name, labels, http_port, postgres_port, dns_record
+                owner_references,
+                name,
+                labels,
+                http_port,
+                postgres_port,
+                dns_record,
+                source_ranges,
             ),
         )
         await call_kubeapi(

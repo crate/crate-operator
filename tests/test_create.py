@@ -753,6 +753,41 @@ class TestServices:
             namespace.metadata.name,
             {f"crate-{name}", f"crate-discovery-{name}"},
         )
+        service = await core.read_namespaced_service(
+            f"crate-{name}", namespace.metadata.name
+        )
+        assert service.spec.load_balancer_source_ranges is None
+
+    async def test_create_with_source_ranges(self, faker, namespace, api_client):
+        core = CoreV1Api(api_client)
+        name = faker.domain_word()
+        await create_services(
+            None,
+            namespace.metadata.name,
+            name,
+            {},
+            1,
+            2,
+            3,
+            faker.domain_name(),
+            logging.getLogger(__name__),
+            source_ranges=["192.168.1.1/32", "10.0.0.0/8"],
+        )
+
+        await assert_wait_for(
+            True,
+            self.do_services_exist,
+            core,
+            namespace.metadata.name,
+            {f"crate-{name}", f"crate-discovery-{name}"},
+        )
+        service = await core.read_namespaced_service(
+            f"crate-{name}", namespace.metadata.name
+        )
+        assert service.spec.load_balancer_source_ranges == [
+            "192.168.1.1/32",
+            "10.0.0.0/8",
+        ]
 
 
 @pytest.mark.k8s
