@@ -83,6 +83,7 @@ from crate.operator.utils.formatting import b64encode, format_bitmath
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
+from crate.operator.utils.version import CrateVersion
 
 
 def get_debug_persistent_volume(
@@ -353,6 +354,7 @@ def get_statefulset_crate_command(
     name: str,
     master_nodes: List[str],
     total_nodes_count: int,
+    data_nodes_count: int,
     crate_node_name_prefix: str,
     cluster_name: str,
     node_name: str,
@@ -361,7 +363,19 @@ def get_statefulset_crate_command(
     has_ssl: bool,
     is_master: bool,
     is_data: bool,
+    crate_version: str,
 ) -> List[str]:
+
+    expected_nodes_setting_name = "gateway.expected_nodes"
+    recover_after_nodes_setting_name = "gateway.recover_after_nodes"
+    expected_nodes_setting_value = total_nodes_count
+    if CrateVersion(crate_version) >= CrateVersion(
+        config.GATEWAY_SETTINGS_DATA_NODES_VERSION
+    ):
+        expected_nodes_setting_name = "gateway.expected_data_nodes"
+        recover_after_nodes_setting_name = "gateway.recover_after_data_nodes"
+        expected_nodes_setting_value = data_nodes_count
+
     settings = {
         "-Cstats.enabled": "true",
         "-Ccluster.name": cluster_name,
@@ -385,8 +399,10 @@ def get_statefulset_crate_command(
         "-Ccluster.initial_master_nodes": ",".join(master_nodes),
         "-Cdiscovery.seed_providers": "srv",
         "-Cdiscovery.srv.query": f"_cluster._tcp.crate-discovery-{name}.{namespace}.svc.cluster.local",  # noqa
-        "-Cgateway.recover_after_nodes": str(quorum(total_nodes_count)),
-        "-Cgateway.expected_nodes": str(total_nodes_count),
+        f"-C{recover_after_nodes_setting_name}": str(
+            quorum(expected_nodes_setting_value)
+        ),
+        f"-C{expected_nodes_setting_name}": str(expected_nodes_setting_value),
         "-Cauth.host_based.enabled": "true",
         "-Cauth.host_based.config.0.user": "crate",
         "-Cauth.host_based.config.0.address": "_local_",
@@ -634,6 +650,7 @@ def get_statefulset(
     node_spec: Dict[str, Any],
     master_nodes: List[str],
     total_nodes_count: int,
+    data_nodes_count: int,
     http_port: int,
     jmx_port: int,
     postgres_port: int,
@@ -654,6 +671,7 @@ def get_statefulset(
     # This is to identify pods of the same cluster but with a different node type
     node_labels[LABEL_NODE_NAME] = node_name
     full_pod_name_prefix = f"crate-{node_name_prefix}{name}"
+    image_registry, version = crate_image.rsplit(":", 1)
 
     containers = get_statefulset_containers(
         node_spec,
@@ -668,6 +686,7 @@ def get_statefulset(
             name=name,
             master_nodes=master_nodes,
             total_nodes_count=total_nodes_count,
+            data_nodes_count=data_nodes_count,
             crate_node_name_prefix=node_name_prefix,
             cluster_name=cluster_name,
             node_name=node_name,
@@ -676,6 +695,7 @@ def get_statefulset(
             has_ssl=bool(ssl),
             is_master=treat_as_master,
             is_data=treat_as_data,
+            crate_version=version,
         ),
         get_statefulset_crate_env(node_spec, jmx_port, prometheus_port, ssl),
         get_statefulset_crate_volume_mounts(node_spec, ssl),
@@ -732,6 +752,7 @@ async def create_statefulset(
     node_spec: Dict[str, Any],
     master_nodes: List[str],
     total_nodes_count: int,
+    data_nodes_count: int,
     http_port: int,
     jmx_port: int,
     postgres_port: int,
@@ -763,6 +784,7 @@ async def create_statefulset(
                 node_spec,
                 master_nodes,
                 total_nodes_count,
+                data_nodes_count,
                 http_port,
                 jmx_port,
                 postgres_port,

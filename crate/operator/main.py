@@ -189,7 +189,8 @@ async def cluster_create(
     transport_port = ports_spec.get("transport", Port.TRANSPORT.value)
 
     master_nodes = get_master_nodes_names(spec["nodes"])
-    total_nodes_count = get_total_nodes_count(spec["nodes"])
+    total_nodes_count = get_total_nodes_count(spec["nodes"], "all")
+    data_nodes_count = get_total_nodes_count(spec["nodes"], "data")
     crate_image = spec["cluster"]["imageRegistry"] + ":" + spec["cluster"]["version"]
     has_master_nodes = "master" in spec["nodes"]
     # The first StatefulSet we create references a set of master nodes. These
@@ -272,6 +273,7 @@ async def cluster_create(
                 spec["nodes"]["master"],
                 master_nodes,
                 total_nodes_count,
+                data_nodes_count,
                 http_port,
                 jmx_port,
                 postgres_port,
@@ -304,6 +306,7 @@ async def cluster_create(
                 node_spec,
                 master_nodes,
                 total_nodes_count,
+                data_nodes_count,
                 http_port,
                 jmx_port,
                 postgres_port,

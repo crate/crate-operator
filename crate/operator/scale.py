@@ -16,6 +16,7 @@
 
 import asyncio
 import logging
+import re
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -32,11 +33,13 @@ from kubernetes_asyncio.client import (
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
+from crate.operator.config import config
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
+from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import (
     WebhookEvent,
     WebhookScaleNodePayload,
@@ -85,10 +88,14 @@ def patch_command(old_command: List[str], total_nodes: int) -> List[str]:
     """
     new_command: List[str] = []
     for item in old_command:
-        if item.startswith("-Cgateway.recover_after_nodes="):
-            item = f"-Cgateway.recover_after_nodes={quorum(total_nodes)}"
-        elif item.startswith("-Cgateway.expected_nodes="):
-            item = f"-Cgateway.expected_nodes={total_nodes}"
+        if (
+            match := re.search("^(-Cgateway.recover_after(_data)?_nodes=)", item)
+        ) is not None:
+            item = f"{match.group(1)}{quorum(total_nodes)}"
+        elif (
+            match := re.search("^(-Cgateway.expected(_data)?_nodes=)", item)
+        ) is not None:
+            item = f"{match.group(1)}{total_nodes}"
         new_command.append(item)
     return new_command
 
@@ -410,7 +417,13 @@ async def scale_cluster(
         data node specifications.
     """
     spec = old["spec"]
-    total_number_of_nodes = get_total_nodes_count(spec["nodes"])
+    crate_version = spec["cluster"]["version"]
+    total_number_of_nodes = get_total_nodes_count(spec["nodes"], "all")
+    if CrateVersion(crate_version) >= CrateVersion(
+        config.GATEWAY_SETTINGS_DATA_NODES_VERSION
+    ):
+        # for scaling only the number of (data) nodes are updated
+        total_number_of_nodes = get_total_nodes_count(spec["nodes"], "data")
 
     host = await get_host(core, namespace, name)
     password = await get_system_user_password(core, namespace, name)
@@ -422,7 +435,12 @@ async def scale_cluster(
 
     if master_diff_item:
         _, _, old_replicas, new_replicas = master_diff_item
-        total_number_of_nodes = total_number_of_nodes + new_replicas - old_replicas
+        if (CrateVersion(crate_version)) < CrateVersion(
+            config.GATEWAY_SETTINGS_DATA_NODES_VERSION
+        ):
+            # only for deprecated settings the number of master nodes affects the
+            # settings' values
+            total_number_of_nodes = total_number_of_nodes + new_replicas - old_replicas
         num_master_nodes = new_replicas
         sts_name = f"crate-master-{name}"
         statefulset = await apps.read_namespaced_stateful_set(
@@ -454,6 +472,8 @@ async def scale_cluster(
         for _, field_path, old_replicas, new_replicas in data_diff_items:
             if old_replicas < new_replicas:
                 # scale up
+                # changes in number of data nodes are treated the same before
+                # and after 4.7
                 total_number_of_nodes = (
                     total_number_of_nodes + new_replicas - old_replicas
                 )
@@ -513,9 +533,15 @@ async def scale_cluster(
                         f"data-{node_name}-{i}"
                         for i in range(new_replicas, old_replicas)
                     ]
+                    new_num_data_nodes = total_number_of_nodes
+                    if CrateVersion(crate_version) < CrateVersion(
+                        config.GATEWAY_SETTINGS_DATA_NODES_VERSION
+                    ):
+                        new_num_data_nodes = total_number_of_nodes - num_master_nodes
+
                     await deallocate_nodes(
                         conn_factory,
-                        total_number_of_nodes - num_master_nodes,
+                        new_num_data_nodes,
                         excess_nodes,
                         logger,
                     )

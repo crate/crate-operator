@@ -113,7 +113,7 @@ below:
    decreasing the number of replicas in the Kubernetes StatefulSet.
 
 #. The last step for the operator is to reset all allocations and then
-   acknowledge the ``gateway.expected_nodes`` :ref:`node checks
+   acknowledge the ``gateway.expected_data_nodes`` :ref:`node checks
    <cratedb:sys-node-checks>` (ID 1).
 
 Whenever the process calls for "Wait for some time", a

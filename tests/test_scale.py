@@ -30,7 +30,8 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
-from crate.operator.scale import parse_replicas
+from crate.operator.create import get_statefulset_crate_command
+from crate.operator.scale import parse_replicas, patch_command
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -61,6 +62,58 @@ from .utils import (
 )
 def test_parse_replicas(input, expected):
     assert parse_replicas(input) == expected
+
+
+@pytest.mark.parametrize(
+    "total, quorum, new_total, new_quorum",
+    [(1, 1, 2, 2), (2, 2, 3, 2), (4, 3, 8, 5), (16, 9, 31, 16)],
+)
+def test_patch_sts_command(total, quorum, new_total, new_quorum):
+    cmd = get_statefulset_crate_command(
+        namespace="some-namespace",
+        name="cluster1",
+        master_nodes=["node-0", "node-1", "node-2"],
+        total_nodes_count=total,
+        data_nodes_count=total,
+        crate_node_name_prefix="node-",
+        cluster_name="my-cluster",
+        node_name="node",
+        node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+        cluster_settings=None,
+        has_ssl=False,
+        is_master=True,
+        is_data=True,
+        crate_version="4.7.0",
+    )
+    new_cmd = patch_command(cmd, new_total)
+    assert f"-Cgateway.recover_after_data_nodes={new_quorum}" in new_cmd
+    assert f"-Cgateway.expected_data_nodes={new_total}" in new_cmd
+
+
+@pytest.mark.parametrize(
+    "total, quorum, new_total, new_quorum",
+    [(1, 1, 2, 2), (2, 2, 3, 2), (4, 3, 8, 5), (16, 9, 31, 16)],
+)
+def test_patch_sts_command_deprecated(total, quorum, new_total, new_quorum):
+    cmd = get_statefulset_crate_command(
+        namespace="some-namespace",
+        name="cluster1",
+        master_nodes=["node-0", "node-1", "node-2"],
+        total_nodes_count=total,
+        data_nodes_count=total,
+        crate_node_name_prefix="node-",
+        cluster_name="my-cluster",
+        node_name="node",
+        node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+        cluster_settings=None,
+        has_ssl=False,
+        is_master=True,
+        is_data=True,
+        crate_version="4.6.3",
+    )
+    new_cmd = patch_command(cmd, new_total)
+    assert f"-Cgateway.recover_after_nodes={new_quorum}" in new_cmd
+    assert f"-Cgateway.expected_nodes={new_total}" in new_cmd
 
 
 @pytest.mark.k8s
