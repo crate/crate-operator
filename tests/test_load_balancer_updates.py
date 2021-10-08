@@ -3,6 +3,7 @@ from unittest import mock
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
+from crate.operator.utils.kubeapi import get_service_public_hostname
 from crate.operator.webhooks import (
     WebhookEvent,
     WebhookInfoChangedPayload,
@@ -31,9 +32,10 @@ async def test_get_external_ip(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    external_ip, _ = await start_cluster(
+    await start_cluster(
         name, namespace, cleanup_handler, core, coapi, 1, wait_for_healthy=False
     )
+    ip = await get_service_public_hostname(core, namespace.metadata.name, name)
 
     await assert_wait_for(
         True,
@@ -47,7 +49,7 @@ async def test_get_external_ip(
         namespace.metadata.name,
         name,
         WebhookEvent.INFO_CHANGED,
-        WebhookInfoChangedPayload(external_ip=external_ip),
+        WebhookInfoChangedPayload(external_ip=ip),
         WebhookStatus.SUCCESS,
         mock.ANY,
         unsafe=True,

@@ -77,6 +77,7 @@ from crate.operator.constants import (
     LABEL_NAME,
     LABEL_NODE_NAME,
     CloudProvider,
+    Port,
 )
 from crate.operator.utils import quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
@@ -836,6 +837,7 @@ def get_data_service(
     postgres_port: int,
     dns_record: Optional[str],
     source_ranges: Optional[List[str]] = None,
+    prefix: str = None,
 ) -> V1Service:
     annotations = {}
     if config.CLOUD_PROVIDER == CloudProvider.AWS:
@@ -861,17 +863,21 @@ def get_data_service(
     if dns_record:
         annotations.update({"external-dns.alpha.kubernetes.io/hostname": dns_record})
 
+    service_name = f"crate-{prefix}-{name}" if prefix else f"crate-{name}"
+
     return V1Service(
         metadata=V1ObjectMeta(
             annotations=annotations,
             labels=labels,
-            name=f"crate-{name}",
+            name=service_name,
             owner_references=owner_references,
         ),
         spec=V1ServiceSpec(
             ports=[
-                V1ServicePort(name="http", port=http_port, target_port=4200),
-                V1ServicePort(name="psql", port=postgres_port, target_port=5432),
+                V1ServicePort(name="http", port=http_port, target_port=Port.HTTP.value),
+                V1ServicePort(
+                    name="psql", port=postgres_port, target_port=Port.POSTGRES.value
+                ),
             ],
             selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
             type="LoadBalancer",
@@ -886,6 +892,8 @@ def get_discovery_service(
     name: str,
     labels: LabelType,
     transport_port: int,
+    http_port: int,
+    postgres_port: int,
 ) -> V1Service:
     return V1Service(
         metadata=V1ObjectMeta(
@@ -894,7 +902,13 @@ def get_discovery_service(
             owner_references=owner_references,
         ),
         spec=V1ServiceSpec(
-            ports=[V1ServicePort(name="cluster", port=transport_port)],
+            ports=[
+                V1ServicePort(name="cluster", port=transport_port),
+                V1ServicePort(name="http", port=http_port, target_port=Port.HTTP.value),
+                V1ServicePort(
+                    name="psql", port=postgres_port, target_port=Port.POSTGRES.value
+                ),
+            ],
             selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
         ),
     )
@@ -934,8 +948,32 @@ async def create_services(
             logger,
             continue_on_conflict=True,
             namespace=namespace,
-            body=get_discovery_service(owner_references, name, labels, transport_port),
+            body=get_discovery_service(
+                owner_references, name, labels, transport_port, http_port, postgres_port
+            ),
         )
+
+        """
+        If we're in testing mode, provision an additional load balancer w/o any IP
+        restrictions.
+        """
+        if config.TESTING:
+            await call_kubeapi(
+                core.create_namespaced_service,
+                logger,
+                continue_on_conflict=True,
+                namespace=namespace,
+                body=get_data_service(
+                    owner_references,
+                    name,
+                    labels,
+                    http_port,
+                    postgres_port,
+                    None,
+                    None,
+                    prefix="testing",
+                ),
+            )
 
 
 def get_system_user_secret(

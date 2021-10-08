@@ -24,7 +24,7 @@ from crate.operator.constants import (
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
-from crate.operator.utils.kubeapi import get_public_host
+from crate.operator.utils.kubeapi import get_public_host_for_testing
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -63,7 +63,7 @@ async def test_update_cidrs(
     )
 
     await asyncio.wait_for(
-        get_public_host(core, namespace.metadata.name, name),
+        get_public_host_for_testing(core, namespace.metadata.name, name),
         # It takes a while to retrieve an external IP on AKS.
         timeout=DEFAULT_TIMEOUT * 5,
     )

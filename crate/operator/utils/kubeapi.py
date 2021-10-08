@@ -134,10 +134,26 @@ async def get_system_user_password(core: CoreV1Api, namespace: str, name: str) -
     )
 
 
-async def get_public_host(core: CoreV1Api, namespace: str, name: str) -> str:
+async def get_public_host_for_testing(
+    core: CoreV1Api, namespace: str, name: str
+) -> str:
     """
     Query the Kubernetes service deployed alongside CrateDB for the public
-    CrateDB cluster IP or hostname.
+    CrateDB cluster IP or hostname. Note that this queries the *testing* service
+    that is only deployed in test mode.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The namespace where the CrateDB cluster is deployed.
+    :param name: The name of the CrateDB cluster.
+    """
+    return await get_service_public_hostname(core, namespace, f"testing-{name}")
+
+
+async def get_service_public_hostname(
+    core: CoreV1Api, namespace: str, name: str
+) -> str:
+    """
+    Query the given CrateDB Kubernetes Service fo it's public IP address / hostname.
 
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where the CrateDB cluster is deployed.
@@ -168,6 +184,8 @@ async def get_public_host(core: CoreV1Api, namespace: str, name: str) -> str:
 async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
     """
     Return the hostname to the CrateDB cluster within the Kubernetes cluster.
+    This uses the "discovery" service for internal access, since the public-facing
+    "crate" service can be IP-restricted.
 
     During testing, the function returns the public IP address, because the
     operator doesn't run inside Kubernetes during tests but outside. And the
@@ -182,19 +200,14 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
         # During testing we need to connect to the cluster via its public IP
         # address, because the operator isn't running inside the Kubernetes
         # cluster.
-        return await get_public_host(core, namespace, name)
+        return await get_public_host_for_testing(core, namespace, name)
 
-    return f"crate-{name}.{namespace}"
+    return f"crate-discovery-{name}.{namespace}"
 
 
 async def ensure_user_password_label(core: CoreV1Api, namespace: str, secret_name: str):
     """
     Add the LABEL_USER_PASSWORD label to a namespaced secret.
-
-    During testing, the function returns the public IP address, because the
-    operator doesn't run inside Kubernetes during tests but outside. And the
-    only way to connect to the CrateDB cluster is to go through the public
-    interface.
 
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The namespace where the Kubernetes Secret is deployed.
