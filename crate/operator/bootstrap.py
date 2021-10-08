@@ -95,19 +95,19 @@ async def bootstrap_license(
             # license key in the log messages which might be part of the string
             # representation of the exception.
             exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise TemporaryError()
+            raise _temporary_error()
         except WSServerHandshakeError as e:
             # We don't use `logger.exception()` to not accidentally include the
             # license key in the log messages which might be part of the string
             # representation of the exception.
             exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise TemporaryError()
+            raise _temporary_error()
         else:
             if "SET OK" in result:
                 logger.info("... success")
             else:
                 logger.info("... error. %s", result)
-                raise TemporaryError()
+                raise _temporary_error()
 
 
 async def bootstrap_system_user(
@@ -188,13 +188,13 @@ async def bootstrap_system_user(
             # password in the log messages which might be part of the string
             # representation of the exception.
             exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise TemporaryError()
+            raise _temporary_error()
         except WSServerHandshakeError as e:
             # We don't use `logger.exception()` to not accidentally include the
             # password in the log messages which might be part of the string
             # representation of the exception.
             exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise TemporaryError()
+            raise _temporary_error()
         else:
             if "CREATE OK" in result:
                 logger.info("... success")
@@ -203,7 +203,7 @@ async def bootstrap_system_user(
                 logger.info("... success. Already present")
             else:
                 logger.info("... error. %s", result)
-                raise TemporaryError()
+                raise _temporary_error()
 
         if needs_update:
             try:
@@ -225,7 +225,7 @@ async def bootstrap_system_user(
                 exception_logger(
                     "... failed. Status: %s Reason: %s", e.status, e.reason
                 )
-                raise TemporaryError()
+                raise _temporary_error()
             except WSServerHandshakeError as e:
                 # We don't use `logger.exception()` to not accidentally include the
                 # password in the log messages which might be part of the string
@@ -233,13 +233,13 @@ async def bootstrap_system_user(
                 exception_logger(
                     "... failed. Status: %s Message: %s", e.status, e.message
                 )
-                raise TemporaryError()
+                raise _temporary_error()
             else:
                 if "ALTER OK" in result:
                     logger.info("... success")
                 else:
                     logger.info("... error. %s", result)
-                    raise TemporaryError()
+                    raise _temporary_error()
 
         try:
             logger.info("Trying to grant system user all privileges ...")
@@ -255,13 +255,13 @@ async def bootstrap_system_user(
             )
         except (ApiException, WSServerHandshakeError):
             logger.exception("... failed")
-            raise TemporaryError()
+            raise _temporary_error()
         else:
             if "GRANT OK" in result:
                 logger.info("... success")
             else:
                 logger.info("... error. %s", result)
-                raise TemporaryError()
+                raise _temporary_error()
 
 
 async def bootstrap_users(
@@ -338,3 +338,7 @@ async def bootstrap_cluster(
         )
         if users:
             await bootstrap_users(core, namespace, name, users)
+
+
+def _temporary_error():
+    return TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)

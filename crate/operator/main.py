@@ -152,7 +152,7 @@ async def login(**kwargs):
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
 async def cluster_create(
-    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger, **kwargs
+    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger, **_kwargs
 ):
     name = meta["name"]
     base_labels = {
@@ -341,6 +341,7 @@ async def cluster_create(
         ),
         id="bootstrap",
         timeout=config.BOOTSTRAP_TIMEOUT,
+        backoff=config.BOOTSTRAP_RETRY_DELAY,
     )
 
     if "backups" in spec:
@@ -568,15 +569,25 @@ async def service_cidr_changes(
     logger: logging.Logger,
     **_kwargs,
 ):
-    op: DiffItem = diff[0]
-    logger.info(f"Updating load balancer source ranges to {op.new}")
+    change: DiffItem = diff[0]
+    logger.info(f"Updating load balancer source ranges to {change.new}")
 
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
+        # This also runs on creation events, so we want to double check that the service
+        # exists before attempting to do anything.
+        services = await core.list_namespaced_service(namespace=namespace)
+        service = next(
+            (svc for svc in services.items if svc.metadata.name == f"crate-{name}"),
+            None,
+        )
+        if not service:
+            return
+
         await core.patch_namespaced_service(
             name=f"crate-{name}",
             namespace=namespace,
-            body={"spec": {"loadBalancerSourceRanges": op.new}},
+            body={"spec": {"loadBalancerSourceRanges": change.new}},
         )
 
 

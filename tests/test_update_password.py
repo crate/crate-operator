@@ -93,8 +93,8 @@ async def test_update_cluster_password(
                             "name": "data",
                             "replicas": 1,
                             "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
+                                "cpus": 2,
+                                "memory": "4Gi",
                                 "heapRatio": 0.25,
                                 "disk": {
                                     "storageClass": "default",

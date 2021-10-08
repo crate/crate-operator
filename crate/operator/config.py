@@ -40,6 +40,16 @@ class Config:
     #: considered failed
     BOOTSTRAP_TIMEOUT: Optional[int] = 1800
 
+    #: Time in seconds between the retries when bootstrapping the cluster.
+    #: This can be safely lowered if the k8s environment is quick to act and
+    #: the pods are quick to start up.
+    BOOTSTRAP_RETRY_DELAY: Optional[int] = 60
+
+    #: Delay between health checks when waiting for a cluster to become ready.
+    #: This can be safely lowered if the k8s environment is quick to act and
+    #: the pods are quick to start up.
+    HEALTH_CHECK_RETRY_DELAY: Optional[int] = 30
+
     #: When set, enable special handling for the defind cloud provider, e.g. on
     #: AWS pass the availability zone as a CrateDB node attribute.
     CLOUD_PROVIDER: Optional[CloudProvider] = None
@@ -121,6 +131,28 @@ class Config:
             )
         if self.BOOTSTRAP_TIMEOUT == 0:
             self.BOOTSTRAP_TIMEOUT = None
+
+        bootstrap_delay = self.env(
+            "BOOTSTRAP_RETRY_DELAY", default=str(self.BOOTSTRAP_RETRY_DELAY)
+        )
+        try:
+            self.BOOTSTRAP_RETRY_DELAY = int(bootstrap_delay)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}BOOTSTRAP_RETRY_DELAY="
+                f"'{bootstrap_timeout}'. Needs to be a positive integer."
+            )
+
+        healthcheck_delay = self.env(
+            "HEALTH_CHECK_RETRY_DELAY", default=str(self.HEALTH_CHECK_RETRY_DELAY)
+        )
+        try:
+            self.HEALTH_CHECK_RETRY_DELAY = int(healthcheck_delay)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}HEALTH_CHECK_RETRY_DELAY="
+                f"'{bootstrap_timeout}'. Needs to be a positive integer."
+            )
 
         cloud_provider = self.env("CLOUD_PROVIDER", default=self.CLOUD_PROVIDER)
         if cloud_provider is not None:

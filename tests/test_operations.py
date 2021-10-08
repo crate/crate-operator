@@ -48,8 +48,8 @@ async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -
 async def test_upgrade_cluster(
     faker, namespace, cleanup_handler, kopf_runner, api_client
 ):
-    version_from = "4.4.1"
-    version_to = "4.4.2"
+    version_from = "4.6.1"
+    version_to = "4.6.4"
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
