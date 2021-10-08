@@ -16,7 +16,7 @@
 
 import asyncio
 import logging
-from typing import Callable, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 import psycopg2
 from aiopg import Connection
@@ -29,7 +29,11 @@ from kubernetes_asyncio.client import (
 )
 
 from crate.operator.config import config
-from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
+from crate.operator.constants import (
+    API_GROUP,
+    KOPF_STATE_STORE_PREFIX,
+    RESOURCE_CRATEDB,
+)
 from crate.operator.cratedb import (
     connection_factory,
     get_cluster_settings,
@@ -73,7 +77,9 @@ async def start_cluster(
     hot_nodes: int = 0,
     crate_version: str = CRATE_VERSION,
     wait_for_healthy: bool = True,
+    additional_cluster_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
+    additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     # Clean up persistent volume after the test
     cleanup_handler.append(
         core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
@@ -87,6 +93,7 @@ async def start_cluster(
                 "imageRegistry": "crate",
                 "name": "my-crate-cluster",
                 "version": crate_version,
+                **additional_cluster_spec,  # type: ignore
             },
             "nodes": {
                 "data": [
@@ -94,8 +101,8 @@ async def start_cluster(
                         "name": "hot",
                         "replicas": hot_nodes,
                         "resources": {
-                            "cpus": 0.5,
-                            "memory": "1Gi",
+                            "cpus": 2,
+                            "memory": "4Gi",
                             "heapRatio": 0.25,
                             "disk": {
                                 "storageClass": "default",
@@ -124,6 +131,19 @@ async def start_cluster(
     password = await get_system_user_password(core, namespace.metadata.name, name)
 
     if wait_for_healthy:
+        # The timeouts are pretty high here since in Azure it's sometimes
+        # non-deterministic how long provisioning a pod will actually take.
+        await assert_wait_for(
+            True,
+            is_kopf_handler_finished,
+            coapi,
+            name,
+            namespace.metadata.name,
+            f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+            err_msg="Cluster has not finished bootstrapping",
+            timeout=DEFAULT_TIMEOUT * 5,
+        )
+
         await assert_wait_for(
             True,
             is_cluster_healthy,
@@ -160,8 +180,8 @@ async def is_kopf_handler_finished(
         name=name,
     )
 
-    scale_status = cratedb["metadata"]["annotations"].get(handler_name, None)
-    return scale_status is None
+    handler_status = cratedb["metadata"].get("annotations", {}).get(handler_name, None)
+    return handler_status is None
 
 
 async def create_test_sys_jobs_table(conn_factory):

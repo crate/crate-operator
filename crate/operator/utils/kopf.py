@@ -14,6 +14,7 @@ from crate.operator.webhooks import (
     webhook_client,
 )
 
+from ..config import config
 from ..constants import KOPF_STATE_STORE_PREFIX
 
 
@@ -109,7 +110,11 @@ class StateBasedSubHandler(abc.ABC):
 
         if len(waiting_for) > 0:
             wt = ",".join(waiting_for)
-            raise kopf.TemporaryError(f"Waiting for '{wt}'.", delay=30)
+            # If running in testing mode (i.e. running ITs) we can reduce the delay
+            # significantly as things generally move fast.
+            raise kopf.TemporaryError(
+                f"Waiting for '{wt}'.", delay=5 if config.TESTING else 30
+            )
 
         res = await self.handle(**kwargs)
         return {"success": True, "ref": self.ref, "result": res}

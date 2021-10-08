@@ -27,10 +27,10 @@ from crate.operator.constants import (
 from crate.operator.utils.kubeapi import get_public_host
 
 from .utils import (
-    CRATE_VERSION,
     DEFAULT_TIMEOUT,
     assert_wait_for,
     is_kopf_handler_finished,
+    start_cluster,
 )
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
@@ -41,7 +41,7 @@ pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
     [
         (None, ["0.0.0.0/0", "192.168.1.1/32"]),
         (["0.0.0.0/0"], ["0.0.0.0/0", "192.168.1.1/32"]),
-        (["0.0.0.0/0"], None),
+        (["0.0.0.0/0"], []),
     ],
 )
 async def test_update_cidrs(
@@ -51,57 +51,15 @@ async def test_update_cidrs(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
-
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body={
-            "apiVersion": "cloud.crate.io/v1",
-            "kind": "CrateDB",
-            "metadata": {"name": name},
-            "spec": {
-                "cluster": {
-                    "allowedCIDRs": initial,
-                    "imageRegistry": "crate",
-                    "name": "my-crate-cluster",
-                    "version": CRATE_VERSION,
-                },
-                "nodes": {
-                    "data": [
-                        {
-                            "name": "data",
-                            "replicas": 1,
-                            "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        }
-                    ]
-                },
-                "users": [
-                    {
-                        "name": "defaultuser",
-                        "password": {
-                            "secretKeyRef": {
-                                "key": "password",
-                                "name": f"user-{name}",
-                            }
-                        },
-                    },
-                ],
-            },
-        },
+    await start_cluster(
+        name,
+        namespace,
+        cleanup_handler,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=True,
+        additional_cluster_spec={"allowedCIDRs": initial},
     )
 
     await asyncio.wait_for(
@@ -150,4 +108,5 @@ async def test_update_cidrs(
 
 async def _are_source_ranges_updated(core, name, namespace, cidr_list):
     service = await core.read_namespaced_service(f"crate-{name}", namespace)
-    return service.spec.load_balancer_source_ranges == cidr_list
+    actual = cidr_list if len(cidr_list) > 0 else None
+    return service.spec.load_balancer_source_ranges == actual

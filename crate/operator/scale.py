@@ -242,7 +242,7 @@ async def check_for_deallocation(
     if rows:
         allocations = ", ".join(f"{row[0]}={row[1]}" for row in rows) or "None"
         logger.info("Current pending allocation %s", allocations)
-        raise kopf.TemporaryError("Pending allocation")
+        raise kopf.TemporaryError("Pending allocation", delay=15)
 
 
 async def deallocate_nodes(
@@ -696,4 +696,6 @@ async def _ensure_cluster_healthy(
             expected_number_of_nodes += sts.spec.replicas
 
     if not await is_cluster_healthy(conn_factory, expected_number_of_nodes, logger):
-        raise kopf.TemporaryError("Waiting for cluster to be healthy.", delay=15)
+        raise kopf.TemporaryError(
+            "Waiting for cluster to be healthy.", delay=config.HEALTH_CHECK_RETRY_DELAY
+        )

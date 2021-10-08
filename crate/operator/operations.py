@@ -30,6 +30,7 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.config import config
 from crate.operator.constants import (
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
@@ -214,7 +215,9 @@ async def restart_cluster(
                 patch.status["pendingPods"] = None  # Remove attribute from `.status`
                 return
         else:
-            raise kopf.TemporaryError("Cluster is not healthy yet.", delay=30)
+            raise kopf.TemporaryError(
+                "Cluster is not healthy yet.", delay=config.HEALTH_CHECK_RETRY_DELAY
+            )
     else:
         raise kopf.TemporaryError(
             "Scheduling rerun because there are pods to be restarted", delay=15
@@ -298,7 +301,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                 ):
                     current_suspend_status = job.spec.suspend
                     if current_suspend_status:
-                        logger.warn(
+                        logger.warning(
                             f"Found job {job_name} that is already suspended, ignoring"
                         )
                         return {
@@ -332,7 +335,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                 raise kopf.TemporaryError(
                     "A snapshot is currently in progress, "
                     f"waiting for it to finish: {statement}",
-                    delay=30,
+                    delay=5 if config.TESTING else 30,
                 )
 
     async def _ensure_no_backup_cronjobs_running(
@@ -363,7 +366,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                     raise kopf.TemporaryError(
                         "A snapshot k8s job is currently running, "
                         f"waiting for it to finish: {job_name}",
-                        delay=30,
+                        delay=5 if config.TESTING else 30,
                     )
 
     async def _notify_backup_running(self, logger):

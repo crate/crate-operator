@@ -14,11 +14,16 @@ Unreleased
 
 * Changed the operator CRD to be able add allowed IPs (CIDR notation) to the CrateDB clusters.
 
-* Added loadBalancerSourceIPRanges for crate service to allow IP Whitelisting.
+* Added ``loadBalancerSourceIPRanges`` for crate service to allow IP Whitelisting.
 
 * Use settings names ``gateway.recover_after_data_nodes`` and
   ``gateway.expected_data_nodes`` instead of ``gateway.recover_after_nodes`` and
   ``gateway.expected_nodes`` from CrateDB version 4.7 onwards.
+
+* Implemented a handler allowing changing ``allowedCIDRs`` on CrateDB resources.
+
+* Added ``BOOTSTRAP_RETRY_DELAY`` and ``HEALTH_CHECK_RETRY_DELAY`` settings that allow
+  adjusting the respective delays in the bootstrap process.
 
 2.4.0 (2021-08-26)
 ------------------

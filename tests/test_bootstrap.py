@@ -37,7 +37,7 @@ from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
 
-from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
+from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for, start_cluster
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -93,42 +93,17 @@ async def test_bootstrap_license(
             type="Opaque",
         ),
     )
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body={
-            "apiVersion": "cloud.crate.io/v1",
-            "kind": "CrateDB",
-            "metadata": {"name": name},
-            "spec": {
-                "cluster": {
-                    "imageRegistry": "crate",
-                    "license": {
-                        "secretKeyRef": {"key": "license", "name": f"license-{name}"},
-                    },
-                    "name": "my-crate-cluster",
-                    "version": CRATE_VERSION,
-                },
-                "nodes": {
-                    "data": [
-                        {
-                            "name": "data",
-                            "replicas": 1,
-                            "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        }
-                    ]
-                },
+    await start_cluster(
+        name,
+        namespace,
+        cleanup_handler,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=False,
+        additional_cluster_spec={
+            "license": {
+                "secretKeyRef": {"key": "license", "name": f"license-{name}"},
             },
         },
     )
@@ -138,7 +113,7 @@ async def test_bootstrap_license(
         bootstrap_license_mock,
         mock.ANY,
         namespace.metadata.name,
-        f"crate-data-data-{name}-0",
+        f"crate-data-hot-{name}-0",
         False,
         {"secretKeyRef": {"key": "license", "name": f"license-{name}"}},
         timeout=DEFAULT_TIMEOUT * 3,
@@ -199,8 +174,8 @@ async def test_bootstrap_users(
                             "name": "data",
                             "replicas": 1,
                             "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
+                                "cpus": 2,
+                                "memory": "4Gi",
                                 "heapRatio": 0.25,
                                 "disk": {
                                     "storageClass": "default",

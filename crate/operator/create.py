@@ -326,8 +326,8 @@ def get_statefulset_containers(
             ],
             readiness_probe=V1Probe(
                 http_get=V1HTTPGetAction(path="/ready", port=prometheus_port),
-                initial_delay_seconds=30,
-                period_seconds=10,
+                initial_delay_seconds=10 if config.TESTING else 30,
+                period_seconds=5 if config.TESTING else 10,
             ),
             resources=V1ResourceRequirements(
                 limits={
