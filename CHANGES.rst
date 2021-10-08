@@ -28,6 +28,9 @@ Unreleased
 * Added ``BOOTSTRAP_RETRY_DELAY`` and ``HEALTH_CHECK_RETRY_DELAY`` settings that allow
   adjusting the respective delays in the bootstrap process.
 
+* Changed the operator to use the internal ``discovery`` service for all operations
+  on the cluster, because the public ``crate`` service might be IP-restricted.
+
 2.4.0 (2021-08-26)
 ------------------
 

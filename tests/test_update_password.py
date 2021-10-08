@@ -28,7 +28,7 @@ from psycopg2 import DatabaseError, OperationalError
 from crate.operator.constants import API_GROUP, LABEL_USER_PASSWORD, RESOURCE_CRATEDB
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
-from crate.operator.utils.kubeapi import get_public_host
+from crate.operator.utils.kubeapi import get_public_host_for_testing
 
 from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
 
@@ -121,7 +121,7 @@ async def test_update_cluster_password(
     )
 
     host = await asyncio.wait_for(
-        get_public_host(core, namespace.metadata.name, name),
+        get_public_host_for_testing(core, namespace.metadata.name, name),
         # It takes a while to retrieve an external IP on AKS.
         timeout=DEFAULT_TIMEOUT * 5,
     )

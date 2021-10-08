@@ -36,3 +36,11 @@ KOPF_STATE_STORE_PREFIX = f"operator.{API_GROUP}"
 class CloudProvider(str, enum.Enum):
     AWS = "aws"
     AZURE = "azure"
+
+
+class Port(enum.Enum):
+    HTTP = 4200
+    JMX = 6666
+    PROMETHEUS = 7071
+    POSTGRES = 5432
+    TRANSPORT = 4300

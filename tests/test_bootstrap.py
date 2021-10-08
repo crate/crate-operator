@@ -35,7 +35,10 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
-from crate.operator.utils.kubeapi import get_public_host, get_system_user_password
+from crate.operator.utils.kubeapi import (
+    get_public_host_for_testing,
+    get_system_user_password,
+)
 
 from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for, start_cluster
 
@@ -120,8 +123,9 @@ async def test_bootstrap_license(
     )
 
 
+@pytest.mark.parametrize("allowed_cidrs", [None, ["1.1.1.1/32"]])
 async def test_bootstrap_users(
-    faker, namespace, cleanup_handler, kopf_runner, api_client
+    allowed_cidrs, faker, namespace, cleanup_handler, kopf_runner, api_client
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -164,6 +168,7 @@ async def test_bootstrap_users(
             "metadata": {"name": name},
             "spec": {
                 "cluster": {
+                    "allowedCIDRs": allowed_cidrs,
                     "imageRegistry": "crate",
                     "name": "my-crate-cluster",
                     "version": CRATE_VERSION,
@@ -211,7 +216,7 @@ async def test_bootstrap_users(
     )
 
     host = await asyncio.wait_for(
-        get_public_host(core, namespace.metadata.name, name),
+        get_public_host_for_testing(core, namespace.metadata.name, name),
         # It takes a while to retrieve an external IP on AKS.
         timeout=DEFAULT_TIMEOUT * 5,
     )

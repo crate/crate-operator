@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import enum
 import hashlib
 import logging
 from typing import Any, Awaitable, Dict, List
@@ -42,6 +41,7 @@ from crate.operator.constants import (
     LABEL_PART_OF,
     LABEL_USER_PASSWORD,
     RESOURCE_CRATEDB,
+    Port,
 )
 from crate.operator.create import (
     create_debug_volume,
@@ -66,14 +66,6 @@ from crate.operator.utils.kubeapi import ensure_user_password_label, get_host
 from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
-
-
-class Port(enum.Enum):
-    HTTP = 4200
-    JMX = 6666
-    PROMETHEUS = 7071
-    POSTGRES = 5432
-    TRANSPORT = 4300
 
 
 def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
@@ -591,6 +583,59 @@ async def service_cidr_changes(
         )
 
 
+@kopf.on.resume(
+    "",
+    "v1",
+    "services",
+    labels={LABEL_PART_OF: "cratedb", LABEL_MANAGED_BY: "crate-operator"},
+)
+async def update_discovery_service_handler(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Detects any crate-discovery services that do not have an HTTP port and updates them.
+
+    The HTTP port is required for internal communications with CrateDB, since the
+    "crate" service might have IP restrictions that make it unreachable by the operator.
+
+    This handler here is for backwards-compatibility and will be removed in the next
+    major operator release.
+    """
+    if not name.startswith("crate-discovery-"):
+        return
+
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+
+        service = await core.read_namespaced_service(name, namespace)
+
+        http_port = next(
+            (port for port in service.spec.ports if port.name == "http"), None
+        )
+
+        if http_port:
+            return
+
+        logger.info("Found old discovery service w/o HTTP port, patching: %s", name)
+
+        await core.patch_namespaced_service(
+            name,
+            namespace,
+            body={
+                "spec": {
+                    "ports": [
+                        {"name": "cluster", "port": Port.TRANSPORT.value},
+                        {"name": "http", "port": Port.HTTP.value},
+                        {"name": "psql", "port": Port.POSTGRES.value},
+                    ]
+                }
+            },
+        )
+
+
 @kopf.on.field(
     "",
     "v1",
@@ -600,6 +645,7 @@ async def service_cidr_changes(
     timeout=3600,
 )
 async def service_external_ip_update(
+    name: str,
     namespace: str,
     diff: kopf.Diff,
     meta: dict,
@@ -612,6 +658,10 @@ async def service_external_ip_update(
     This gets posted to the backend for further handling as a webhook
     (if webhooks are enabled).
     """
+    # Ignore the testing service
+    if config.TESTING and name.startswith("crate-testing"):
+        return
+
     if len(diff) == 0:
         return
 
