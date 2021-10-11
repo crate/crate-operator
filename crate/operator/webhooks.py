@@ -28,6 +28,7 @@ class WebhookEvent(str, enum.Enum):
     SNAPSHOT = "snapshot"
     DELAY = "delay"
     INFO_CHANGED = "info_changed"
+    HEALTH = "health"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -67,6 +68,10 @@ class WebhookInfoChangedPayload(WebhookSubPayload):
     external_ip: str
 
 
+class WebhookClusterHealthPayload(WebhookSubPayload):
+    status: str
+
+
 class WebhookPayload(TypedDict):
     event: WebhookEvent
     status: WebhookStatus
@@ -76,6 +81,7 @@ class WebhookPayload(TypedDict):
     upgrade_data: Optional[WebhookUpgradePayload]
     temporary_failure_data: Optional[WebhookTemporaryFailurePayload]
     info_data: Optional[WebhookInfoChangedPayload]
+    health_data: Optional[WebhookClusterHealthPayload]
 
 
 class WebhookClient:
@@ -139,6 +145,7 @@ class WebhookClient:
         upgrade_data: Optional[WebhookUpgradePayload] = None,
         temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         info_data: Optional[WebhookInfoChangedPayload] = None,
+        health_data: Optional[WebhookClusterHealthPayload] = None,
         unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
@@ -176,6 +183,7 @@ class WebhookClient:
             upgrade_data=upgrade_data,
             temporary_failure_data=temporary_failure_data,
             info_data=info_data,
+            health_data=health_data,
         )
 
         logger.info(
@@ -246,6 +254,8 @@ class WebhookClient:
             kwargs = {"temporary_failure_data": sub_payload}
         elif event == WebhookEvent.INFO_CHANGED:
             kwargs = {"info_data": sub_payload}
+        elif event == WebhookEvent.HEALTH:
+            kwargs = {"health_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 

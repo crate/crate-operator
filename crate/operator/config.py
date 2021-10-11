@@ -110,6 +110,10 @@ class Config:
     #: and `recover_after_nodes`
     GATEWAY_SETTINGS_DATA_NODES_VERSION: str = "4.7.0"
 
+    #: Interval in seconds for which the operator will ping CrateDBs for their
+    #: current health.
+    CRATEDB_STATUS_CHECK_INTERVAL: Optional[int] = 60
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -254,6 +258,19 @@ class Config:
             "WEBHOOK_USERNAME", default=self.WEBHOOK_USERNAME
         )
         self.JOBS_TABLE = self.env("JOBS_TABLE", default=self.JOBS_TABLE)
+        cratedb_status_interval = int(
+            self.env(
+                "CRATEDB_STATUS_CHECK_INTERVAL",
+                default=self.CRATEDB_STATUS_CHECK_INTERVAL,
+            )
+        )
+        try:
+            self.CRATEDB_STATUS_CHECK_INTERVAL = cratedb_status_interval
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}CRATEDB_STATUS_CHECK_INTERVAL="
+                f"'{cratedb_status_interval}'. Needs to be a positive integer or 0."
+            )
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """

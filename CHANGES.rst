@@ -4,6 +4,8 @@ Changelog
 
 Unreleased
 ----------
+* Added a kopf timer function that retrieves the cluster health for all CrateDB clusters
+  the operator knows off and sends the corresponding notification.
 
 * Changed the operator to use the internal ``discovery`` service for all operations
   on the cluster, because the public ``crate`` service might be IP-restricted.

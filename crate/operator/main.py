@@ -38,6 +38,7 @@ from crate.operator.handlers.handle_migrate_user_password_label import (
 from crate.operator.handlers.handle_notify_external_ip_changed import (
     external_ip_changed,
 )
+from crate.operator.handlers.handle_ping_cratedb_status import ping_cratedb_status
 from crate.operator.handlers.handle_update_allowed_cidrs import (
     update_service_allowed_cidrs,
 )
@@ -203,3 +204,10 @@ async def service_external_ip_update(
     (if webhooks are enabled).
     """
     await external_ip_changed(name, namespace, diff, meta, logger)
+
+
+@kopf.timer(
+    API_GROUP, "v1", RESOURCE_CRATEDB, interval=config.CRATEDB_STATUS_CHECK_INTERVAL
+)
+async def ping_cratedb(namespace: str, name: str, logger: logging.Logger, **kwargs):
+    await ping_cratedb_status(namespace, name, logger)

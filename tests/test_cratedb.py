@@ -17,8 +17,17 @@
 from unittest import mock
 
 import pytest
+from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.cratedb import create_user, get_healthiness, get_number_of_nodes
+from crate.operator.webhooks import (
+    WebhookClusterHealthPayload,
+    WebhookEvent,
+    WebhookStatus,
+)
+from tests.test_load_balancer_updates import _notification_sent
+
+from .utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
 
 pytestmark = pytest.mark.asyncio
 
@@ -82,3 +91,48 @@ async def test_get_healthiness(healthiness):
     assert (await get_healthiness(cursor)) == healthiness
     cursor.execute.assert_awaited_once_with("SELECT MAX(severity) FROM sys.health")
     cursor.fetchone.assert_awaited_once()
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+async def test_cratedb_health_ping(
+    mock_send_notification: mock.AsyncMock,
+    faker,
+    namespace,
+    cleanup_handler,
+    kopf_runner,
+    api_client,
+):
+
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    await start_cluster(
+        name,
+        namespace,
+        cleanup_handler,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=True,
+    )
+
+    await assert_wait_for(
+        True,
+        _notification_sent,
+        mock_send_notification,
+        err_msg="Failed to ping cluster.",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    mock_send_notification.assert_called_with(
+        namespace.metadata.name,
+        name,
+        WebhookEvent.HEALTH,
+        WebhookClusterHealthPayload(status="GREEN"),
+        WebhookStatus.SUCCESS,
+        mock.ANY,
+        unsafe=False,
+    )
