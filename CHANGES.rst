@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.5.0 (2021-10-12)
+------------------
+
 * Changed the operator CRD to print additional information about the running CrateDBs:
   the cluster name, version and number of data nodes.
 
