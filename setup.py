@@ -51,6 +51,7 @@ setup(
         # backwards-compatibility. Fixing the version here instead.
         "click==7.1.2",
         "kubernetes-asyncio==18.20.0",
+        "PyYAML<7.0",
     ],
     extras_require={
         "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],

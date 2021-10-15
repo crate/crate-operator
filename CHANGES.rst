@@ -8,6 +8,9 @@ Unreleased
 * Changed the operator to use the internal ``discovery`` service for all operations
   on the cluster, because the public ``crate`` service might be IP-restricted.
 
+* Changed the usage of ``yaml.load()`` to specify the Loader parameter, which is now
+  required from PyYAML 6.0.
+
 2.5.0 (2021-10-12)
 ------------------
 
