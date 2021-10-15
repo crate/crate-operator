@@ -32,6 +32,8 @@ CONNECT_TIMEOUT = 10.0
 
 KOPF_STATE_STORE_PREFIX = f"operator.{API_GROUP}"
 
+CLUSTER_UPDATE_ID = "cluster_update"
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"
