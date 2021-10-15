@@ -81,6 +81,26 @@ def get_total_nodes_count(nodes: Dict[str, Any], type: str = "all") -> int:
     return total.get(type, 0)
 
 
+def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
+    """
+    Return the list of nodes service as master nodes in a CrateDB cluster.
+
+    The function takes the ``spec.nodes`` from a CrateDB custom resource
+    and checks if it defines explicit master nodes or not. Based on that, it
+    will return the list of node names.
+
+    :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
+    """
+    if "master" in nodes:
+        # We have dedicated master nodes. They are going to form the cluster
+        # state.
+        return [f"master-{i}" for i in range(nodes["master"]["replicas"])]
+    else:
+        node = nodes["data"][0]
+        node_name = node["name"]
+        return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
+
+
 async def get_pods_in_cluster(
     core: CoreV1Api, namespace: str, name: str
 ) -> Tuple[Tuple[str], Tuple[str]]:
