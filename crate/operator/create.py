@@ -165,7 +165,9 @@ def get_sql_exporter_config(
 
     if sql_exporter_config:
         # Parse the config yaml file to get the defined collectors and load them
-        parsed_sql_exporter_config = yaml.load(sql_exporter_config.decode())
+        parsed_sql_exporter_config = yaml.load(
+            sql_exporter_config.decode(), Loader=yaml.FullLoader
+        )
         collectors = parsed_sql_exporter_config["target"]["collectors"]
 
         result = V1ConfigMap(
