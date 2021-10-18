@@ -15,7 +15,6 @@ from crate.operator.constants import (
     Port,
 )
 from crate.operator.create import (
-    create_debug_volume,
     create_services,
     create_sql_exporter_config,
     create_statefulset,
@@ -88,18 +87,6 @@ async def create_cratedb(
             logger,
         ),
         id="sql_exporter_config",
-    )
-
-    kopf.register(
-        fn=subhandler_partial(
-            create_debug_volume,
-            owner_references,
-            namespace,
-            name,
-            cratedb_labels,
-            logger,
-        ),
-        id="debug_volume",
     )
 
     kopf.register(

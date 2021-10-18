@@ -85,9 +85,6 @@ async def test_bootstrap_license(
     name = faker.domain_word()
     license = base64.b64encode(faker.binary(64)).decode()
 
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}"),
-    )
     await core.create_namespaced_secret(
         namespace=namespace.metadata.name,
         body=V1Secret(
@@ -135,9 +132,6 @@ async def test_bootstrap_users(
     username1 = faker.user_name()
     username2 = faker.user_name()
 
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
     await asyncio.gather(
         core.create_namespaced_secret(
             namespace=namespace.metadata.name,

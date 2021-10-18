@@ -59,11 +59,11 @@ class Config:
 
     #: The volume size for the ``PersistentVolume`` that is used as a storage
     #: location for Java heap dumps.
-    DEBUG_VOLUME_SIZE: bitmath.Byte = bitmath.GiB(256)
+    DEBUG_VOLUME_SIZE: bitmath.Byte = bitmath.GiB(64)
 
     #: The Kubernetes storage class name for the ``PersistentVolume`` that is
     #: used as a storage location for Java heap dumps.
-    DEBUG_VOLUME_STORAGE_CLASS: str = "crate-local"
+    DEBUG_VOLUME_STORAGE_CLASS: str = "crate-standard"
 
     #: A list of image pull secrets. Separate names by ``,``.
     IMAGE_PULL_SECRETS: Optional[List[str]] = None

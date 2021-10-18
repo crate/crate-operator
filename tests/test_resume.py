@@ -39,10 +39,6 @@ async def test_resume_set_secret_labels(
     password1 = faker.password(length=40)
     password2 = faker.password(length=40)
 
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
-
     await asyncio.gather(
         core.create_namespaced_secret(
             namespace=namespace.metadata.name,

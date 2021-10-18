@@ -83,10 +83,6 @@ async def start_cluster(
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
-    # Clean up persistent volume after the test
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
     body = {
         "apiVersion": "cloud.crate.io/v1",
         "kind": "CrateDB",

@@ -56,9 +56,6 @@ async def test_update_cluster_password(
     new_password = faker.password(length=40)
     username = faker.user_name()
 
-    cleanup_handler.append(
-        core.delete_persistent_volume(name=f"temp-pv-{namespace.metadata.name}-{name}")
-    )
     await asyncio.gather(
         core.create_namespaced_secret(
             namespace=namespace.metadata.name,
