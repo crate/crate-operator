@@ -87,6 +87,22 @@ passed via the ``--kube-config`` and ``--kube-context`` arguments to pytest_.
 Furthermore, the context *must* start with either ``crate-`` or be called
 ``minikube``.
 
+Running with a local k8s cluster
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``microk8s``, ``kind`` and ``Minikube`` have all been proven to work, however there are
+some pre-requisites:
+
+- You **must** have enough CPU and memory to run the tests: Some of the upgrade tests
+  provision a 3-node cluster with a reservation of 2 CPU cores and 4GiB of RAM each.
+  ``kubectl get nodes`` and ``kubectl describe node [your node]`` to check.
+
+- You **must** have a k8s Load Balancer implementation that gives out IP addresses,
+  usually this is MetalLB.
+
+- You **must** have a StorageClass called ``default`` that actually works and provisions
+  volumes.
+
 Minikube
 ^^^^^^^^
 
