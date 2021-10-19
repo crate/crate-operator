@@ -61,7 +61,7 @@ setup(
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.15.1",
         ],
-        "develop": ["black==20.8b1", "flake8==3.8.4", "isort==5.6.4", "mypy==0.770"],
+        "develop": ["black==20.8b1", "flake8==4.0.1", "isort==5.6.4", "mypy==0.770"],
     },
     python_requires=">=3.8",
     classifiers=[
