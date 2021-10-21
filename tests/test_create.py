@@ -23,6 +23,7 @@ from unittest import mock
 import pytest
 from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, CustomObjectsApi
 
+from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     LABEL_COMPONENT,
@@ -33,7 +34,6 @@ from crate.operator.constants import (
     CloudProvider,
 )
 from crate.operator.create import (
-    create_debug_volume,
     create_services,
     create_sql_exporter_config,
     create_statefulset,
@@ -50,7 +50,7 @@ from crate.operator.create import (
     get_statefulset_volumes,
     get_topology_spread,
 )
-from crate.operator.utils.formatting import b64decode
+from crate.operator.utils.formatting import b64decode, format_bitmath
 
 from .utils import CRATE_VERSION, assert_wait_for
 
@@ -84,45 +84,6 @@ class TestConfigMaps:
             core,
             namespace.metadata.name,
             f"crate-sql-exporter-{name}",
-        )
-
-
-@pytest.mark.k8s
-@pytest.mark.asyncio
-class TestDebugVolume:
-    async def does_pv_exist(self, core: CoreV1Api, name: str) -> bool:
-        pvs = await core.list_persistent_volume()
-        return name in (pv.metadata.name for pv in pvs.items)
-
-    async def does_pvc_exist(self, core: CoreV1Api, namespace: str, name: str) -> bool:
-        pvcs = await core.list_persistent_volume_claim_for_all_namespaces()
-        return (namespace, name) in (
-            (pvc.metadata.namespace, pvc.metadata.name) for pvc in pvcs.items
-        )
-
-    async def test_create(self, faker, namespace, cleanup_handler, api_client):
-        core = CoreV1Api(api_client)
-        name = faker.domain_word()
-
-        # Clean up persistent volume after the test
-        cleanup_handler.append(
-            core.delete_persistent_volume(
-                name=f"temp-pv-{namespace.metadata.name}-{name}"
-            )
-        )
-
-        await create_debug_volume(
-            None, namespace.metadata.name, name, {}, logging.getLogger(__name__)
-        )
-        await assert_wait_for(
-            True, self.does_pv_exist, core, f"temp-pv-{namespace.metadata.name}-{name}"
-        )
-        await assert_wait_for(
-            True,
-            self.does_pvc_exist,
-            core,
-            namespace.metadata.name,
-            f"local-resource-{name}",
         )
 
 
@@ -565,7 +526,7 @@ class TestStatefulSetCrateVolumeMounts:
             node_spec, None
         )
         assert vm_jmxdir.name == "jmxdir"
-        assert vm_resource.name == "resource"
+        assert vm_resource.name == "debug"
         assert [(vm.mount_path, vm.name) for vm in vm_data] == [
             (f"/data/data{i}", f"data{i}") for i in range(disks)
         ]
@@ -577,7 +538,7 @@ class TestStatefulSetCrateVolumeMounts:
             node_spec, {}
         )
         assert vm_jmxdir.name == "jmxdir"
-        assert vm_resource.name == "resource"
+        assert vm_resource.name == "debug"
         assert [(vm.mount_path, vm.name) for vm in vm_data] == [
             (f"/data/data{i}", f"data{i}") for i in range(disks)
         ]
@@ -609,18 +570,26 @@ class TestStatefulSetPVC:
             }
         }
         pvcs = get_statefulset_pvc(None, node_spec)
-        assert [pvc.metadata.name for pvc in pvcs] == [f"data{i}" for i in range(count)]
-        assert [pvc.spec.resources.requests["storage"] for pvc in pvcs] == [s] * count
-        assert [pvc.spec.storage_class_name for pvc in pvcs] == [storage_class] * count
+        expected_pvcs = [f"data{i}" for i in range(count)]
+        expected_pvcs.append("debug")
+        expected_sizes = [s] * count
+        expected_sizes.append(format_bitmath(config.DEBUG_VOLUME_SIZE))
+        expected_storage_class_name = [storage_class] * count
+        expected_storage_class_name.append(config.DEBUG_VOLUME_STORAGE_CLASS)
+        assert [pvc.metadata.name for pvc in pvcs] == expected_pvcs
+        assert [
+            pvc.spec.resources.requests["storage"] for pvc in pvcs
+        ] == expected_sizes
+        assert [
+            pvc.spec.storage_class_name for pvc in pvcs
+        ] == expected_storage_class_name
 
 
 class TestStatefulSetVolumes:
     def test_without_ssl(self, faker):
         name = faker.domain_word()
-        v_sql_exporter, v_resource, v_jmx = get_statefulset_volumes(name, None)
+        v_sql_exporter, v_jmx = get_statefulset_volumes(name, None)
         assert v_sql_exporter.name == "crate-sql-exporter"
-        assert v_resource.name == "resource"
-        assert v_resource.persistent_volume_claim.claim_name == f"local-resource-{name}"
         assert v_jmx.name == "jmxdir"
 
     def test_with_ssl(self, faker):
@@ -630,12 +599,8 @@ class TestStatefulSetVolumes:
         ssl = {
             "keystore": {"secretKeyRef": {"key": keystore_key, "name": keystore_name}}
         }
-        v_sql_exporter, v_resource, v_jmx, v_keystore = get_statefulset_volumes(
-            name, ssl
-        )
+        v_sql_exporter, v_jmx, v_keystore = get_statefulset_volumes(name, ssl)
         assert v_sql_exporter.name == "crate-sql-exporter"
-        assert v_resource.name == "resource"
-        assert v_resource.persistent_volume_claim.claim_name == f"local-resource-{name}"
         assert v_jmx.name == "jmxdir"
         assert v_keystore.name == "keystore"
         assert v_keystore.secret.secret_name == keystore_name
@@ -892,12 +857,6 @@ class TestCreateCustomResource:
         core = CoreV1Api(api_client)
         name = faker.domain_word()
 
-        # Clean up persistent volume after the test
-        cleanup_handler.append(
-            core.delete_persistent_volume(
-                name=f"temp-pv-{namespace.metadata.name}-{name}"
-            )
-        )
         await coapi.create_namespaced_custom_object(
             group=API_GROUP,
             version="v1",

@@ -36,7 +36,6 @@ from kubernetes_asyncio.client import (
     V1EmptyDirVolumeSource,
     V1EnvVar,
     V1EnvVarSource,
-    V1HostPathVolumeSource,
     V1HTTPGetAction,
     V1KeyToPath,
     V1LabelSelector,
@@ -44,11 +43,8 @@ from kubernetes_asyncio.client import (
     V1LocalObjectReference,
     V1ObjectMeta,
     V1OwnerReference,
-    V1PersistentVolume,
     V1PersistentVolumeClaim,
     V1PersistentVolumeClaimSpec,
-    V1PersistentVolumeClaimVolumeSource,
-    V1PersistentVolumeSpec,
     V1PodAffinityTerm,
     V1PodAntiAffinity,
     V1PodSpec,
@@ -85,76 +81,6 @@ from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
 from crate.operator.utils.version import CrateVersion
-
-
-def get_debug_persistent_volume(
-    owner_references: Optional[List[V1OwnerReference]],
-    namespace: str,
-    name: str,
-    labels: LabelType,
-) -> V1PersistentVolume:
-    return V1PersistentVolume(
-        metadata=V1ObjectMeta(
-            name=f"temp-pv-{namespace}-{name}",
-            labels=labels,
-            owner_references=owner_references,
-        ),
-        spec=V1PersistentVolumeSpec(
-            access_modes=["ReadWriteOnce"],
-            capacity={"storage": format_bitmath(config.DEBUG_VOLUME_SIZE)},
-            host_path=V1HostPathVolumeSource(path=f"/mnt/resource/{namespace}-{name}"),
-            storage_class_name=config.DEBUG_VOLUME_STORAGE_CLASS,
-        ),
-    )
-
-
-def get_debug_persistent_volume_claim(
-    owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
-) -> V1PersistentVolumeClaim:
-    return V1PersistentVolumeClaim(
-        metadata=V1ObjectMeta(
-            name=f"local-resource-{name}",
-            labels=labels,
-            owner_references=owner_references,
-        ),
-        spec=V1PersistentVolumeClaimSpec(
-            access_modes=["ReadWriteOnce"],
-            resources=V1ResourceRequirements(
-                requests={"storage": format_bitmath(config.DEBUG_VOLUME_SIZE)}
-            ),
-            storage_class_name=config.DEBUG_VOLUME_STORAGE_CLASS,
-        ),
-    )
-
-
-async def create_debug_volume(
-    owner_references: Optional[List[V1OwnerReference]],
-    namespace: str,
-    name: str,
-    labels: LabelType,
-    logger: logging.Logger,
-) -> None:
-    """
-    Creates a ``PersistentVolume`` and ``PersistentVolumeClaim`` to be used for
-    exporting Java Heapdumps from CrateDB. The volume can be configured
-    with the :attr:`~crate.operator.config.Config.DEBUG_VOLUME_SIZE` and
-    :attr:`~crate.operator.config.Config.DEBUG_VOLUME_STORAGE_CLASS` settings.
-    """
-    async with ApiClient() as api_client:
-        core = CoreV1Api(api_client)
-        await call_kubeapi(
-            core.create_persistent_volume,
-            logger,
-            continue_on_conflict=True,
-            body=get_debug_persistent_volume(owner_references, namespace, name, labels),
-        )
-        await call_kubeapi(
-            core.create_namespaced_persistent_volume_claim,
-            logger,
-            continue_on_conflict=True,
-            namespace=namespace,
-            body=get_debug_persistent_volume_claim(owner_references, name, labels),
-        )
 
 
 def get_sql_exporter_config(
@@ -528,7 +454,7 @@ def get_statefulset_crate_volume_mounts(
             name="jmxdir",
             sub_path=f"crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar",
         ),
-        V1VolumeMount(mount_path="/resource", name="resource"),
+        V1VolumeMount(mount_path="/resource", name="debug"),
     ]
     volume_mounts.extend(
         [
@@ -581,7 +507,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             ],
             image=crate_image,
             name="mkdir-heapdump",
-            volume_mounts=[V1VolumeMount(name="resource", mount_path="/resource")],
+            volume_mounts=[V1VolumeMount(name="debug", mount_path="/resource")],
         ),
     ]
 
@@ -593,7 +519,8 @@ def get_statefulset_pvc(
         bitmath.parse_string_unsafe(node_spec["resources"]["disk"]["size"])
     )
     storage_class_name = node_spec["resources"]["disk"]["storageClass"]
-    return [
+
+    pvcs = [
         V1PersistentVolumeClaim(
             metadata=V1ObjectMeta(name=f"data{i}", owner_references=owner_references),
             spec=V1PersistentVolumeClaimSpec(
@@ -605,18 +532,27 @@ def get_statefulset_pvc(
         for i in range(node_spec["resources"]["disk"]["count"])
     ]
 
+    pvcs.append(
+        V1PersistentVolumeClaim(
+            metadata=V1ObjectMeta(name="debug", owner_references=owner_references),
+            spec=V1PersistentVolumeClaimSpec(
+                access_modes=["ReadWriteOnce"],
+                resources=V1ResourceRequirements(
+                    requests={"storage": format_bitmath(config.DEBUG_VOLUME_SIZE)}
+                ),
+                storage_class_name=config.DEBUG_VOLUME_STORAGE_CLASS,
+            ),
+        )
+    )
+
+    return pvcs
+
 
 def get_statefulset_volumes(name: str, ssl: Optional[Dict[str, Any]]) -> List[V1Volume]:
     volumes = [
         V1Volume(
             config_map=V1ConfigMapVolumeSource(name=f"crate-sql-exporter-{name}"),
             name="crate-sql-exporter",
-        ),
-        V1Volume(
-            name="resource",
-            persistent_volume_claim=V1PersistentVolumeClaimVolumeSource(
-                claim_name=f"local-resource-{name}",
-            ),
         ),
         V1Volume(name="jmxdir", empty_dir=V1EmptyDirVolumeSource()),
     ]

@@ -11,6 +11,9 @@ Unreleased
 * Changed the usage of ``yaml.load()`` to specify the Loader parameter, which is now
   required from PyYAML 6.0.
 
+* Changed the debug volume to be provisioned in the same way as the data volume is,
+   which ensures better compatibility with different k8s providers.
+
 2.5.0 (2021-10-12)
 ------------------
 
