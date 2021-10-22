@@ -58,7 +58,7 @@ setup(
             "faker==9.3.1",
             "pytest==6.2.5",
             "pytest-aiohttp==0.3.0",
-            "pytest-asyncio==0.15.1",
+            "pytest-asyncio==0.16.0",
         ],
         "develop": ["black==20.8b1", "flake8==3.8.4", "isort==5.6.4", "mypy==0.770"],
     },
