@@ -42,7 +42,6 @@ setup(
     packages=find_namespace_packages(include=["crate.*"]),
     include_package_data=True,
     package_data={"crate.operator": ["data/*"]},
-    setup_requires=["setuptools_scm"],
     install_requires=[
         "aiopg==1.3.2",
         "bitmath==1.3.3.1",
