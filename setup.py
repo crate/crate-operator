@@ -46,10 +46,7 @@ setup(
     install_requires=[
         "aiopg==1.3.3",
         "bitmath==1.3.3.1",
-        "kopf==0.28.3",
-        # kopf depends on an undefined click version, and the latest (8.0.0) has broken
-        # backwards-compatibility. Fixing the version here instead.
-        "click==7.1.2",
+        "kopf==1.35.1",
         "kubernetes-asyncio==18.20.0",
         "PyYAML<7.0",
         "prometheus_client==0.12.0",
