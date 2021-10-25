@@ -17,6 +17,7 @@
 import asyncio
 import logging
 from typing import Any, Callable, Mapping, Optional, Tuple
+from unittest import mock
 
 import psycopg2
 from aiopg import Connection
@@ -313,4 +314,17 @@ async def cluster_routing_allocation_enable_equals(
                 )
                 return value == expected_value
     except (psycopg2.DatabaseError, asyncio.exceptions.TimeoutError):
+        return False
+
+
+async def was_notification_sent(
+    mock_send_notification: mock.AsyncMock, call: mock.call
+):
+    if mock_send_notification.call_count == 0:
+        return False
+
+    try:
+        mock_send_notification.assert_has_calls([call], any_order=False)
+        return True
+    except AssertionError:
         return False

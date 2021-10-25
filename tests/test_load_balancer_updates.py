@@ -9,7 +9,12 @@ from crate.operator.webhooks import (
     WebhookInfoChangedPayload,
     WebhookStatus,
 )
-from tests.utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
+from tests.utils import (
+    DEFAULT_TIMEOUT,
+    assert_wait_for,
+    start_cluster,
+    was_notification_sent,
+)
 
 
 @pytest.mark.k8s
@@ -23,11 +28,6 @@ async def test_get_external_ip(
     kopf_runner,
     api_client,
 ):
-    """
-    Please note that this test requires having a Load Balancer implementation.
-
-    This will work fine on Azure, however needs MetalLB enabled if running on microk8s.
-    """
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
@@ -39,22 +39,17 @@ async def test_get_external_ip(
 
     await assert_wait_for(
         True,
-        _notification_sent,
+        was_notification_sent,
         mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.INFO_CHANGED,
+            WebhookInfoChangedPayload(external_ip=ip),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+            unsafe=True,
+        ),
         err_msg="Did not notify external IP being added to the service.",
         timeout=DEFAULT_TIMEOUT * 5,  # can take a while to obtain external IP
     )
-
-    mock_send_notification.assert_called_once_with(
-        namespace.metadata.name,
-        name,
-        WebhookEvent.INFO_CHANGED,
-        WebhookInfoChangedPayload(external_ip=ip),
-        WebhookStatus.SUCCESS,
-        mock.ANY,
-        unsafe=True,
-    )
-
-
-async def _notification_sent(mock_send_notification: mock.AsyncMock):
-    return mock_send_notification.call_count > 0

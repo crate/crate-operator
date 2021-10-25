@@ -25,9 +25,13 @@ from crate.operator.webhooks import (
     WebhookEvent,
     WebhookStatus,
 )
-from tests.test_load_balancer_updates import _notification_sent
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
+from .utils import (
+    DEFAULT_TIMEOUT,
+    assert_wait_for,
+    start_cluster,
+    was_notification_sent,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -121,18 +125,16 @@ async def test_cratedb_health_ping(
 
     await assert_wait_for(
         True,
-        _notification_sent,
+        was_notification_sent,
         mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.HEALTH,
+            WebhookClusterHealthPayload(status="GREEN"),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+        ),
         err_msg="Failed to ping cluster.",
         timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    mock_send_notification.assert_called_with(
-        namespace.metadata.name,
-        name,
-        WebhookEvent.HEALTH,
-        WebhookClusterHealthPayload(status="GREEN"),
-        WebhookStatus.SUCCESS,
-        mock.ANY,
-        unsafe=False,
     )

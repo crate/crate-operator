@@ -101,6 +101,7 @@ def load_config():
         "CRATEDB_OPERATOR_JOBS_TABLE": "test.test_sys_jobs",
         "CRATEDB_OPERATOR_BOOTSTRAP_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_HEALTH_CHECK_RETRY_DELAY": "5",
+        "CRATEDB_OPERATOR_CRATEDB_STATUS_CHECK_INTERVAL": "5",
     }
     with mock.patch.dict(os.environ, env):
         config.load()
