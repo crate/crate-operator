@@ -207,7 +207,11 @@ async def service_external_ip_update(
 
 
 @kopf.timer(
-    API_GROUP, "v1", RESOURCE_CRATEDB, interval=config.CRATEDB_STATUS_CHECK_INTERVAL
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    interval=config.CRATEDB_STATUS_CHECK_INTERVAL,  # check interval
+    idle=15,  # Initial delay, CrateDB very unlikely to be up in less than 15s
 )
 async def ping_cratedb(namespace: str, name: str, logger: logging.Logger, **kwargs):
     await ping_cratedb_status(namespace, name, logger)
