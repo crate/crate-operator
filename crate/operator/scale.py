@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import kopf
 from aiopg import Cursor
-from kopf.structs.diffs import diff as calc_diff
+from kopf._cogs.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
