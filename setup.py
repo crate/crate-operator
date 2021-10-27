@@ -53,7 +53,12 @@ setup(
         "PyYAML<7.0",
     ],
     extras_require={
-        "docs": ["sphinx>=3.0,<3.4", "sphinx-autodoc-typehints"],
+        "docs": [
+            "sphinx>=3.0,<3.4",
+            "sphinx-autodoc-typehints",
+            # Pinning this as 0.18 does not work
+            "docutils==0.17.1",
+        ],
         "testing": [
             "faker==9.6.0",
             "pytest==6.2.5",
