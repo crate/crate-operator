@@ -54,18 +54,7 @@ exclude_patterns: List[str] = []
 nitpick_ignore = [
     # undoc'd; https://docs.python.org/3/distutils/apiref.html#module-distutils.version
     ("py:class", "distutils.version.Version"),
-    # kopf has moved on - the intersphinx documentation is broken because we're using
-    # an older version of kopf that is no longer documented on readthedocs.
-    # FIXME: Remove these once we upgrade to a recent version of kopf.
-    ("py:class", "kopf.structs.bodies.Body"),
-    ("py:class", "kopf.structs.bodies.Status"),
-    ("py:class", "kopf.structs.bodies.Meta"),
-    ("py:class", "kopf.structs.bodies.Spec"),
-    ("py:class", "kopf.structs.diffs.Diff"),
-    ("py:class", "kopf.structs.diffs.DiffItem"),
-    ("py:class", "kopf.structs.patches.Patch"),
-    ("py:class", "kopf.structs.credentials.ConnectionInfo"),
-    ("py:class", "kopf.structs.configuration.OperatorSettings"),
+    # FIXME: fix kopf here
 ]
 
 
