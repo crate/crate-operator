@@ -4,6 +4,10 @@ Changelog
 
 Unreleased
 ----------
+
+2.6.0 (2021-10-27)
+------------------
+
 * Added a kopf timer function that retrieves the cluster health for all CrateDB clusters
   the operator knows off and sends the corresponding notification.
 
