@@ -9,7 +9,8 @@ RUN apt-get update && \
     apt-get install git -y
 
 COPY . /src
-RUN python setup.py clean bdist_wheel
+RUN python -m pip install -U setuptools==58.3.0 && \
+    python setup.py clean bdist_wheel
 
 
 # Run container
