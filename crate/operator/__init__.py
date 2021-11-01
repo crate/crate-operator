@@ -13,3 +13,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from pkg_resources import DistributionNotFound, get_distribution
+
+try:
+    __version__ = get_distribution("crate-operator").version
+except DistributionNotFound:
+    # package is not installed
+    pass

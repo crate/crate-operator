@@ -17,6 +17,7 @@
 import logging
 
 import kopf
+from prometheus_client import start_http_server
 
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -82,6 +83,10 @@ async def startup(settings: kopf.OperatorSettings, **_kwargs):
     settings.watching.connect_timeout = 30
     # Wait for that many seconds between watching events
     settings.watching.reconnect_backoff = 1
+
+    # Only start the prometheus server in non-testing mode.
+    if not config.TESTING:
+        start_http_server(config.PROMETHEUS_PORT)
 
 
 @kopf.on.login()
