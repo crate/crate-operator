@@ -114,6 +114,9 @@ class Config:
     #: current health.
     CRATEDB_STATUS_CHECK_INTERVAL: Optional[int] = 60
 
+    #: The port on which prometheus exposes metrics
+    PROMETHEUS_PORT: int = 8080
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -265,11 +268,25 @@ class Config:
             )
         )
         try:
-            self.CRATEDB_STATUS_CHECK_INTERVAL = cratedb_status_interval
+            self.CRATEDB_STATUS_CHECK_INTERVAL = int(cratedb_status_interval)
         except ValueError:
             raise ConfigurationError(
                 f"Invalid {self._prefix}CRATEDB_STATUS_CHECK_INTERVAL="
                 f"'{cratedb_status_interval}'. Needs to be a positive integer or 0."
+            )
+
+        prometheus_port = int(
+            self.env(
+                "PROMETHEUS_PORT",
+                default=self.PROMETHEUS_PORT,
+            )
+        )
+        try:
+            self.PROMETHEUS_PORT = int(prometheus_port)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}PROMETHEUS_PORT="
+                f"'{cratedb_status_interval}'. Needs to be a positive integer."
             )
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
