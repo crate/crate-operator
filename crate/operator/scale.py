@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional
 
 import kopf
 from aiopg import Cursor
-from kopf._cogs.structs.diffs import diff as calc_diff
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
@@ -614,28 +613,16 @@ class ScaleSubHandler(StateBasedSubHandler):
                 for node_spec_idx in range(len(old_value)):
                     old_spec = old_value[node_spec_idx]
                     new_spec = new_value[node_spec_idx]
-                    inner_diff = calc_diff(old_spec, new_spec)
-                    for (
-                        inner_operation,
-                        inner_field_path,
-                        inner_old_value,
-                        inner_new_value,
-                    ) in inner_diff:
-                        if inner_field_path == ("replicas",):
-                            scale_data_diff_items.append(
-                                kopf.DiffItem(
-                                    inner_operation,
-                                    (str(node_spec_idx),) + inner_field_path,
-                                    inner_old_value,
-                                    inner_new_value,
-                                )
+
+                    if old_spec.get("replicas") != new_spec.get("replicas"):
+                        scale_data_diff_items.append(
+                            kopf.DiffItem(
+                                kopf.DiffOperation.CHANGE,
+                                (str(node_spec_idx), "replicas"),
+                                old_spec["replicas"],
+                                new_spec["replicas"],
                             )
-                        else:
-                            logger.info(
-                                "Ignoring operation %s on field %s",
-                                operation,
-                                field_path + (str(node_spec_idx),) + inner_field_path,
-                            )
+                        )
             else:
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
