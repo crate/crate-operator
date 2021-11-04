@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ----------
 
+* Upgraded to the latest version of kopf (1.35.1)
+
+* Added a Prometheus endpoint, enabling some metrics in the operator to be scraped.
+  Namely, this exposes information from the ping handler, which checks if the running
+  clusters are reachable and healthy.
+
 2.6.0 (2021-10-27)
 ------------------
 
