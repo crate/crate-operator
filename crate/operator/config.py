@@ -76,8 +76,8 @@ class Config:
 
     #: The log level to use for all CrateDB operator related log messages.
     #: WARNING: Settings this to DEBUG or lower may print sensitive information
-    #: (i.e. Kubernetes secrets) into the logs and should not be turned on in
-    #: production environments.
+    #: (i.e. Kubernetes secrets) into the logs. DEBUG or below should not be used
+    #: in production environments.
     LOG_LEVEL: str = "INFO"
 
     #: Time in seconds for which the operator will continue and wait to perform
