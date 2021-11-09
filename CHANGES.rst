@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.7.0 (2021-11-09)
+------------------
+
 * Upgraded to the latest version of kopf (1.35.1)
 
 * Added a Prometheus endpoint, enabling some metrics in the operator to be scraped.
