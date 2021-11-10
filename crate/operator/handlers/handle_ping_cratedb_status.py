@@ -1,12 +1,26 @@
-import enum
+# CrateDB Kubernetes Operator
+# Copyright (C) 2021 Crate.IO GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
-import time
 
 from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.cratedb import connection_factory, get_healthiness
-from crate.operator.prometheus import cluster_last_seen_gauge, cluster_status_gauge
+from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.webhooks import (
     WebhookClusterHealthPayload,
@@ -15,18 +29,10 @@ from crate.operator.webhooks import (
     webhook_client,
 )
 
-
-class PrometheusStatus(enum.Enum):
-    GREEN = 0
-    YELLOW = 1
-    RED = 2
-    UNREACHABLE = 3
-
-
 HEALTHINESS_TO_STATUS = {
-    1: PrometheusStatus.GREEN,
-    2: PrometheusStatus.YELLOW,
-    3: PrometheusStatus.RED,
+    1: PrometheusClusterStatus.GREEN,
+    2: PrometheusClusterStatus.YELLOW,
+    3: PrometheusClusterStatus.RED,
 }
 
 
@@ -48,15 +54,13 @@ async def ping_cratedb_status(
                     # If there are no tables in the cluster, get_healthiness returns
                     # none: default to `Green`, as cluster is reachable
                     status = HEALTHINESS_TO_STATUS.get(
-                        healthiness, PrometheusStatus.GREEN
+                        healthiness, PrometheusClusterStatus.GREEN
                     )
         except Exception as e:
             logger.warning("Failed to ping cluster.", exc_info=e)
-            status = PrometheusStatus.UNREACHABLE
+            status = PrometheusClusterStatus.UNREACHABLE
 
-        cluster_status_gauge.labels(cluster_id=name).set(status.value)
-        if status != PrometheusStatus.UNREACHABLE:
-            cluster_last_seen_gauge.labels(cluster_id=name).set(int(time.time()))
+        report_cluster_status(name, status)
 
         await webhook_client.send_notification(
             namespace,
