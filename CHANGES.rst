@@ -5,6 +5,18 @@ Changelog
 Unreleased
 ----------
 
+* Replaced kopf timeout handling with a decorator ``@crate.timeout()`` to be
+  able to run code when a timeout happens.
+
+* Added a decorator ``@crate.on.error()`` which catches timeouts as well as
+  other permanent handler errors and performs actions passed in an error
+  handler, like sending a notification.
+
+* Fixed the issue that notifications of successful upgrades pile up in the
+  status of the CrateDB resource if an upgrade succeeds but the subsequent
+  restart fails or times out. These notifications were erroneously sent in the
+  next run of the handler.
+
 2.7.1 (2021-11-12)
 ------------------
 

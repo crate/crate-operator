@@ -35,7 +35,7 @@ from kubernetes_asyncio.stream import WsApiClient
 from crate.operator.config import config
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.operations import get_total_nodes_count
-from crate.operator.utils import quorum
+from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.utils.version import CrateVersion
@@ -585,6 +585,8 @@ async def scale_cluster(
 
 
 class ScaleSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=config.SCALING_TIMEOUT)
     async def handle(  # type: ignore
         self,
         namespace: str,

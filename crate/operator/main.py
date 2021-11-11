@@ -48,6 +48,7 @@ from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
+from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
@@ -105,6 +106,7 @@ async def cluster_create(
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)
+@crate.on.error(error_handler=crate.send_update_failed_notification)
 async def cluster_update(
     namespace: str,
     name: str,
