@@ -38,7 +38,7 @@ class Config:
     #: Time in seconds for which the operator will continue and wait to
     #: bootstrap a cluster. Once this threshold has passed, a bootstrapping is
     #: considered failed
-    BOOTSTRAP_TIMEOUT: Optional[int] = 1800
+    BOOTSTRAP_TIMEOUT: int = 1800
 
     #: Time in seconds between the retries when bootstrapping the cluster.
     #: This can be safely lowered if the k8s environment is quick to act and

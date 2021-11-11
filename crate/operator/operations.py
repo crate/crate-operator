@@ -45,6 +45,7 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
+from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
     call_kubeapi,
@@ -245,6 +246,8 @@ async def restart_cluster(
 
 
 class RestartSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.ROLLING_RESTART_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -269,6 +272,8 @@ CRONJOB_NAME = "cronjob_name"
 
 
 class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -417,6 +422,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
 
 class AfterClusterUpdateSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
         self,
         namespace: str,

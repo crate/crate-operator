@@ -18,7 +18,6 @@ import hashlib
 
 import kopf
 
-from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
@@ -26,7 +25,7 @@ from crate.operator.operations import (
     RestartSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
-from crate.operator.upgrade import UpgradeSubHandler
+from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
 
 
 async def update_cratedb(
@@ -97,7 +96,6 @@ async def update_cratedb(
     kopf.register(
         fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
         id="before_cluster_update",
-        timeout=config.SCALING_TIMEOUT,
     )
     if do_upgrade:
         kopf.register(
@@ -113,9 +111,16 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="restart",
-            timeout=config.ROLLING_RESTART_TIMEOUT,
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
+        if do_upgrade:
+            kopf.register(
+                fn=AfterUpgradeSubHandler(
+                    namespace, name, hash, context, depends_on=depends_on.copy()
+                )(),
+                id="after_upgrade",
+            )
+            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
 
     if do_scale:
         kopf.register(
@@ -123,7 +128,6 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="scale",
-            timeout=config.SCALING_TIMEOUT,
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
     kopf.register(

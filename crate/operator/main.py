@@ -48,6 +48,7 @@ from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
+from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
@@ -95,16 +96,24 @@ async def login(**kwargs):
 
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
+@crate.on.error(error_handler=crate.send_create_failed_notification)
 async def cluster_create(
-    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger, **_kwargs
+    namespace: str,
+    meta: kopf.Meta,
+    spec: kopf.Spec,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    logger: logging.Logger,
+    **_kwargs,
 ):
     """
     Handles creation of CrateDB Clusters.
     """
-    await create_cratedb(namespace, meta, spec, logger)
+    await create_cratedb(namespace, meta, spec, patch, status, logger)
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)
+@crate.on.error(error_handler=crate.send_update_failed_notification)
 async def cluster_update(
     namespace: str,
     name: str,
