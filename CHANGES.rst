@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.7.1 (2021-11-12)
+------------------
+
 * Changed how the metrics are reported so that they disappear if a cluster is deleted.
 
 2.7.0 (2021-11-09)
