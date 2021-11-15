@@ -27,20 +27,11 @@ from kubernetes_asyncio.client import (
 )
 from psycopg2 import DatabaseError, OperationalError
 
-from crate.operator.constants import (
-    API_GROUP,
-    LABEL_USER_PASSWORD,
-    RESOURCE_CRATEDB,
-    SYSTEM_USERNAME,
-)
+from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
-from crate.operator.utils.kubeapi import (
-    get_public_host_for_testing,
-    get_system_user_password,
-)
 
-from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for, start_cluster
+from .utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -72,11 +63,10 @@ async def was_license_set(
 @mock.patch("crate.operator.bootstrap.bootstrap_license")
 @mock.patch("crate.operator.bootstrap.bootstrap_system_user")
 async def test_bootstrap_license(
-    bootstrap_system_user: mock.AsyncMock,
+    _bootstrap_system_user: mock.AsyncMock,
     bootstrap_license_mock: mock.AsyncMock,
     faker,
     namespace,
-    cleanup_handler,
     kopf_runner,
     api_client,
 ):
@@ -96,7 +86,6 @@ async def test_bootstrap_license(
     await start_cluster(
         name,
         namespace,
-        cleanup_handler,
         core,
         coapi,
         1,
@@ -122,7 +111,7 @@ async def test_bootstrap_license(
 
 @pytest.mark.parametrize("allowed_cidrs", [None, ["1.1.1.1/32"]])
 async def test_bootstrap_users(
-    allowed_cidrs, faker, namespace, cleanup_handler, kopf_runner, api_client
+    allowed_cidrs, faker, namespace, kopf_runner, api_client
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -151,81 +140,28 @@ async def test_bootstrap_users(
         ),
     )
 
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body={
-            "apiVersion": "cloud.crate.io/v1",
-            "kind": "CrateDB",
-            "metadata": {"name": name},
-            "spec": {
-                "cluster": {
-                    "allowedCIDRs": allowed_cidrs,
-                    "imageRegistry": "crate",
-                    "name": "my-crate-cluster",
-                    "version": CRATE_VERSION,
-                },
-                "nodes": {
-                    "data": [
-                        {
-                            "name": "data",
-                            "replicas": 1,
-                            "resources": {
-                                "cpus": 2,
-                                "memory": "4Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        }
-                    ]
-                },
-                "users": [
-                    {
-                        "name": username1,
-                        "password": {
-                            "secretKeyRef": {
-                                "key": "password",
-                                "name": f"user-{name}-1",
-                            }
-                        },
-                    },
-                    {
-                        "name": username2,
-                        "password": {
-                            "secretKeyRef": {
-                                "key": "password",
-                                "name": f"user-{name}-2",
-                            }
-                        },
-                    },
-                ],
+    users = [
+        {
+            "name": username1,
+            "password": {
+                "secretKeyRef": {
+                    "key": "password",
+                    "name": f"user-{name}-1",
+                }
             },
         },
-    )
+        {
+            "name": username2,
+            "password": {
+                "secretKeyRef": {
+                    "key": "password",
+                    "name": f"user-{name}-2",
+                }
+            },
+        },
+    ]
 
-    host = await asyncio.wait_for(
-        get_public_host_for_testing(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    password_system = await get_system_user_password(
-        core, namespace.metadata.name, name
-    )
-    await assert_wait_for(
-        True,
-        does_user_exist,
-        host,
-        password_system,
-        SYSTEM_USERNAME,
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
+    host, password = await start_cluster(name, namespace, core, coapi, 1, users=users)
 
     await assert_wait_for(
         True, does_user_exist, host, password1, username1, timeout=DEFAULT_TIMEOUT * 3

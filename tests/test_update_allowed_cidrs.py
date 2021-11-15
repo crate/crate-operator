@@ -45,7 +45,7 @@ pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
     ],
 )
 async def test_update_cidrs(
-    initial, updated, faker, namespace, cleanup_handler, kopf_runner, api_client
+    initial, updated, faker, namespace, kopf_runner, api_client
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -54,7 +54,6 @@ async def test_update_cidrs(
     await start_cluster(
         name,
         namespace,
-        cleanup_handler,
         core,
         coapi,
         1,

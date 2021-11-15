@@ -130,7 +130,6 @@ async def test_scale_cluster(
     repl_hot_to,
     faker,
     namespace,
-    cleanup_handler,
     kopf_runner,
     api_client,
 ):
@@ -141,7 +140,6 @@ async def test_scale_cluster(
     host, password = await start_cluster(
         name,
         namespace,
-        cleanup_handler,
         core,
         coapi,
         repl_hot_from,
@@ -176,7 +174,7 @@ async def test_scale_cluster(
 @pytest.mark.k8s
 @pytest.mark.asyncio
 async def test_scale_cluster_while_create_snapshot_running(
-    faker, namespace, cleanup_handler, kopf_runner, api_client
+    faker, namespace, kopf_runner, api_client
 ):
     # Given
     coapi = CustomObjectsApi(api_client)
@@ -185,9 +183,7 @@ async def test_scale_cluster_while_create_snapshot_running(
 
     await create_fake_cronjob(api_client, name, namespace.metadata.name)
 
-    host, password = await start_cluster(
-        name, namespace, cleanup_handler, core, coapi, 1
-    )
+    host, password = await start_cluster(name, namespace, core, coapi, 1)
 
     conn_factory = connection_factory(host, password)
     await create_test_sys_jobs_table(conn_factory)
@@ -252,16 +248,14 @@ async def test_scale_cluster_while_create_snapshot_running(
 @pytest.mark.k8s
 @pytest.mark.asyncio
 async def test_scale_cluster_while_k8s_snapshot_job_running(
-    faker, namespace, cleanup_handler, kopf_runner, api_client
+    faker, namespace, kopf_runner, api_client
 ):
     # Given
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    host, password = await start_cluster(
-        name, namespace, cleanup_handler, core, coapi, 1
-    )
+    host, password = await start_cluster(name, namespace, core, coapi, 1)
 
     conn_factory = connection_factory(host, password)
     await create_test_sys_jobs_table(conn_factory)
