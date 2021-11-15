@@ -24,7 +24,6 @@ async def test_get_external_ip(
     mock_send_notification: mock.AsyncMock,
     faker,
     namespace,
-    cleanup_handler,
     kopf_runner,
     api_client,
 ):
@@ -32,9 +31,7 @@ async def test_get_external_ip(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    await start_cluster(
-        name, namespace, cleanup_handler, core, coapi, 1, wait_for_healthy=False
-    )
+    await start_cluster(name, namespace, core, coapi, 1, wait_for_healthy=False)
     ip = await get_service_public_hostname(core, namespace.metadata.name, name)
 
     await assert_wait_for(

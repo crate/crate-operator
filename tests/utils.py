@@ -16,7 +16,7 @@
 
 import asyncio
 import logging
-from typing import Any, Callable, Mapping, Optional, Tuple
+from typing import Any, Callable, List, Mapping, Optional, Tuple
 from unittest import mock
 
 import psycopg2
@@ -75,16 +75,16 @@ async def does_namespace_exist(core, namespace: str) -> bool:
 async def start_cluster(
     name: str,
     namespace: V1Namespace,
-    cleanup_handler,
     core: CoreV1Api,
     coapi: CustomObjectsApi,
     hot_nodes: int = 0,
     crate_version: str = CRATE_VERSION,
     wait_for_healthy: bool = True,
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
+    users: Optional[List[Mapping[str, Any]]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
-    body = {
+    body: dict = {
         "apiVersion": "cloud.crate.io/v1",
         "kind": "CrateDB",
         "metadata": {"name": name},
@@ -115,6 +115,9 @@ async def start_cluster(
             },
         },
     }
+    if users:
+        body["spec"]["users"] = users
+
     await coapi.create_namespaced_custom_object(
         group=API_GROUP,
         version="v1",

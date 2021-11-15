@@ -104,7 +104,6 @@ async def test_cratedb_health_ping(
     mock_send_notification: mock.AsyncMock,
     faker,
     namespace,
-    cleanup_handler,
     kopf_runner,
     api_client,
 ):
@@ -116,7 +115,6 @@ async def test_cratedb_health_ping(
     await start_cluster(
         name,
         namespace,
-        cleanup_handler,
         core,
         coapi,
         1,

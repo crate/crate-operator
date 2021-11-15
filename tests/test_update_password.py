@@ -25,12 +25,11 @@ from kubernetes_asyncio.client import (
 )
 from psycopg2 import DatabaseError, OperationalError
 
-from crate.operator.constants import API_GROUP, LABEL_USER_PASSWORD, RESOURCE_CRATEDB
+from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
-from crate.operator.utils.kubeapi import get_public_host_for_testing
 
-from .utils import CRATE_VERSION, DEFAULT_TIMEOUT, assert_wait_for
+from .utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -46,9 +45,7 @@ async def is_password_set(host: str, system_password: str, user: str) -> bool:
         return False
 
 
-async def test_update_cluster_password(
-    faker, namespace, cleanup_handler, kopf_runner, api_client
-):
+async def test_update_cluster_password(faker, namespace, kopf_runner, api_client):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
@@ -69,59 +66,19 @@ async def test_update_cluster_password(
         ),
     )
 
-    await coapi.create_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace.metadata.name,
-        body={
-            "apiVersion": "cloud.crate.io/v1",
-            "kind": "CrateDB",
-            "metadata": {"name": name},
-            "spec": {
-                "cluster": {
-                    "imageRegistry": "crate",
-                    "name": "my-crate-cluster",
-                    "version": CRATE_VERSION,
-                },
-                "nodes": {
-                    "data": [
-                        {
-                            "name": "data",
-                            "replicas": 1,
-                            "resources": {
-                                "cpus": 2,
-                                "memory": "4Gi",
-                                "heapRatio": 0.25,
-                                "disk": {
-                                    "storageClass": "default",
-                                    "size": "16GiB",
-                                    "count": 1,
-                                },
-                            },
-                        }
-                    ]
-                },
-                "users": [
-                    {
-                        "name": username,
-                        "password": {
-                            "secretKeyRef": {
-                                "key": "password",
-                                "name": f"user-{name}",
-                            }
-                        },
-                    },
-                ],
+    users = [
+        {
+            "name": username,
+            "password": {
+                "secretKeyRef": {
+                    "key": "password",
+                    "name": f"user-{name}",
+                }
             },
         },
-    )
+    ]
 
-    host = await asyncio.wait_for(
-        get_public_host_for_testing(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
+    host, password = await start_cluster(name, namespace, core, coapi, 1, users=users)
 
     await core.patch_namespaced_secret(
         namespace=namespace.metadata.name,
