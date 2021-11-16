@@ -103,6 +103,10 @@ def load_config():
         "CRATEDB_OPERATOR_HEALTH_CHECK_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_CRATEDB_STATUS_CHECK_INTERVAL": "5",
     }
+    # If the environment already has any of these keys defined, leave them be
+    for k in env.keys():
+        if k in os.environ:
+            env[k] = os.environ[k]
     with mock.patch.dict(os.environ, env):
         config.load()
         yield
