@@ -105,7 +105,7 @@ async def start_cluster(
                             "memory": "4Gi",
                             "heapRatio": 0.25,
                             "disk": {
-                                "storageClass": "default",
+                                "storageClass": config.DEBUG_VOLUME_STORAGE_CLASS,
                                 "size": "16GiB",
                                 "count": 1,
                             },
