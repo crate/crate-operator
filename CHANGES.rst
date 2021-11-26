@@ -17,6 +17,9 @@ Unreleased
   restart fails or times out. These notifications were erroneously sent in the
   next run of the handler.
 
+* Changed the registration of all kopf subhandlers in the creation process
+  to use StateBasedSubhandler.
+
 2.7.1 (2021-11-12)
 ------------------
 

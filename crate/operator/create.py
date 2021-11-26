@@ -75,8 +75,9 @@ from crate.operator.constants import (
     CloudProvider,
     Port,
 )
-from crate.operator.utils import quorum
+from crate.operator.utils import crate, quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
@@ -948,4 +949,123 @@ async def create_system_user(
             continue_on_conflict=True,
             namespace=namespace,
             body=get_system_user_secret(owner_references, name, labels),
+        )
+
+
+class CreateSqlExporterConfigSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        await create_sql_exporter_config(
+            owner_references, namespace, name, cratedb_labels, logger
+        )
+
+
+class CreateSystemUserSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        await create_system_user(
+            owner_references, namespace, name, cratedb_labels, logger
+        )
+
+
+class CreateServicesSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        http_port: int,
+        postgres_port: int,
+        transport_port: int,
+        dns_record: Optional[str],
+        logger: logging.Logger,
+        source_ranges: Optional[List[str]] = None,
+        **kwargs: Any,
+    ):
+        await create_services(
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            http_port,
+            postgres_port,
+            transport_port,
+            dns_record,
+            logger,
+            source_ranges,
+        )
+
+
+class CreateStatefulsetSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        treat_as_master: bool,
+        treat_as_data: bool,
+        cluster_name: str,
+        node_name: str,
+        node_name_prefix: str,
+        node_spec: Dict[str, Any],
+        master_nodes: List[str],
+        total_nodes_count: int,
+        data_nodes_count: int,
+        http_port: int,
+        jmx_port: int,
+        postgres_port: int,
+        prometheus_port: int,
+        transport_port: int,
+        crate_image: str,
+        ssl: Optional[Dict[str, Any]],
+        cluster_settings: Optional[Dict[str, str]],
+        image_pull_secrets: Optional[List[V1LocalObjectReference]],
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+
+        await create_statefulset(
+            owner_references,
+            namespace,
+            name,
+            cratedb_labels,
+            treat_as_master,
+            treat_as_data,
+            cluster_name,
+            node_name,
+            node_name_prefix,
+            node_spec,
+            master_nodes,
+            total_nodes_count,
+            data_nodes_count,
+            http_port,
+            jmx_port,
+            postgres_port,
+            prometheus_port,
+            transport_port,
+            crate_image,
+            ssl,
+            cluster_settings,
+            image_pull_secrets,
+            logger,
         )

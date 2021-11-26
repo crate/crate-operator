@@ -26,6 +26,8 @@ from psycopg2.extensions import QuotedString
 from crate.operator.config import config
 from crate.operator.constants import CONNECT_TIMEOUT, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
+from crate.operator.utils import crate
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import (
     ensure_user_password_label,
     get_host,
@@ -297,6 +299,7 @@ async def bootstrap_users(
 
 
 async def bootstrap_cluster(
+    core: CoreV1Api,
     namespace: str,
     name: str,
     master_node_pod: str,
@@ -309,6 +312,7 @@ async def bootstrap_cluster(
     Bootstrap an entire cluster, including license, system user, and additional
     users.
 
+    :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The name for the ``CrateDB`` custom resource. Used to lookup
         the password for the system user created during deployment.
@@ -327,18 +331,36 @@ async def bootstrap_cluster(
     """
     # We first need to set the license, in case the CrateDB cluster
     # contains more nodes than available in the free license.
-    async with ApiClient() as api_client:
-        core = CoreV1Api(api_client)
-        if license:
-            await bootstrap_license(
-                core, namespace, master_node_pod, has_ssl, license, logger
-            )
-        await bootstrap_system_user(
-            core, namespace, name, master_node_pod, has_ssl, logger
+
+    if license:
+        await bootstrap_license(
+            core, namespace, master_node_pod, has_ssl, license, logger
         )
-        if users:
-            await bootstrap_users(core, namespace, name, users)
+    await bootstrap_system_user(core, namespace, name, master_node_pod, has_ssl, logger)
+    if users:
+        await bootstrap_users(core, namespace, name, users)
 
 
 def _temporary_error():
     return TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
+
+class BootstrapClusterSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    @crate.timeout(timeout=config.BOOTSTRAP_TIMEOUT)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        master_node_pod: str,
+        license: Optional[SecretKeyRefContainer],
+        has_ssl: bool,
+        users: Optional[List[Dict[str, Any]]],
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        async with ApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            await bootstrap_cluster(
+                core, namespace, name, master_node_pod, license, has_ssl, users, logger
+            )

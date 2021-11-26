@@ -96,13 +96,20 @@ async def login(**kwargs):
 
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
+@crate.on.error(error_handler=crate.send_create_failed_notification)
 async def cluster_create(
-    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger, **_kwargs
+    namespace: str,
+    meta: kopf.Meta,
+    spec: kopf.Spec,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    logger: logging.Logger,
+    **_kwargs,
 ):
     """
     Handles creation of CrateDB Clusters.
     """
-    await create_cratedb(namespace, meta, spec, logger)
+    await create_cratedb(namespace, meta, spec, patch, status, logger)
 
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)

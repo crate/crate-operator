@@ -43,6 +43,8 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAME
+from crate.operator.utils import crate
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.typing import LabelType
 
@@ -304,3 +306,34 @@ async def create_backups(
                     has_ssl,
                 ),
             )
+
+
+class CreateBackupsSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        backup_metrics_labels: LabelType,
+        http_port: int,
+        prometheus_port: int,
+        backups: Dict[str, Any],
+        image_pull_secrets: Optional[List[V1LocalObjectReference]],
+        has_ssl: bool,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+
+        await create_backups(
+            owner_references,
+            namespace,
+            name,
+            backup_metrics_labels,
+            http_port,
+            prometheus_port,
+            backups,
+            image_pull_secrets,
+            has_ssl,
+            logger,
+        )

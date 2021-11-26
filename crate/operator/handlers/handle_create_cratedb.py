@@ -14,16 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import hashlib
 import logging
 
 import kopf
 from kubernetes_asyncio.client import V1LocalObjectReference, V1OwnerReference
 
-from crate.operator.backup import create_backups
-from crate.operator.bootstrap import bootstrap_cluster
+from crate.operator.backup import CreateBackupsSubHandler
+from crate.operator.bootstrap import BootstrapClusterSubHandler
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    CLUSTER_CREATE_ID,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -31,18 +33,24 @@ from crate.operator.constants import (
     Port,
 )
 from crate.operator.create import (
-    create_services,
-    create_sql_exporter_config,
-    create_statefulset,
-    create_system_user,
+    CreateServicesSubHandler,
+    CreateSqlExporterConfigSubHandler,
+    CreateStatefulsetSubHandler,
+    CreateSystemUserSubHandler,
 )
 from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
-from crate.operator.utils.kopf import subhandler_partial
 
 
 async def create_cratedb(
-    namespace: str, meta: kopf.Meta, spec: kopf.Spec, logger: logging.Logger
+    namespace: str,
+    meta: kopf.Meta,
+    spec: kopf.Spec,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    logger: logging.Logger,
 ):
+    context = status.get(CLUSTER_CREATE_ID)
+    hash = hashlib.md5(str(spec).encode("utf-8")).hexdigest()
     name = meta["name"]
     base_labels = {
         LABEL_MANAGED_BY: "crate-operator",
@@ -92,75 +100,56 @@ async def create_cratedb(
     treat_as_master = True
     cluster_name = spec["cluster"]["name"]
     source_ranges = spec["cluster"].get("allowedCIDRs", None)
-
     kopf.register(
-        fn=subhandler_partial(
-            create_sql_exporter_config,
-            owner_references,
-            namespace,
-            name,
-            cratedb_labels,
-            logger,
+        fn=CreateSqlExporterConfigSubHandler(namespace, name, hash, context)(
+            owner_references=owner_references, cratedb_labels=cratedb_labels
         ),
         id="sql_exporter_config",
     )
 
     kopf.register(
-        fn=subhandler_partial(
-            create_system_user,
-            owner_references,
-            namespace,
-            name,
-            cratedb_labels,
-            logger,
+        fn=CreateSystemUserSubHandler(namespace, name, hash, context)(
+            cratedb_labels=cratedb_labels, owner_references=owner_references
         ),
         id="system_user",
     )
 
     kopf.register(
-        fn=subhandler_partial(
-            create_services,
-            owner_references,
-            namespace,
-            name,
-            cratedb_labels,
-            http_port,
-            postgres_port,
-            transport_port,
-            spec.get("cluster", {}).get("externalDNS"),
-            logger,
-            source_ranges,
+        fn=CreateServicesSubHandler(namespace, name, hash, context)(
+            owner_references=owner_references,
+            cratedb_labels=cratedb_labels,
+            http_port=http_port,
+            postgres_port=postgres_port,
+            transport_port=transport_port,
+            dns_record=spec.get("cluster", {}).get("externalDNS"),
+            source_ranges=source_ranges,
         ),
         id="services",
     )
 
     if has_master_nodes:
         kopf.register(
-            fn=subhandler_partial(
-                create_statefulset,
-                owner_references,
-                namespace,
-                name,
-                cratedb_labels,
-                treat_as_master,
-                False,
-                cluster_name,
-                "master",
-                "master-",
-                spec["nodes"]["master"],
-                master_nodes,
-                total_nodes_count,
-                data_nodes_count,
-                http_port,
-                jmx_port,
-                postgres_port,
-                prometheus_port,
-                transport_port,
-                crate_image,
-                spec["cluster"].get("ssl"),
-                spec["cluster"].get("settings"),
-                image_pull_secrets,
-                logger,
+            fn=CreateStatefulsetSubHandler(namespace, name, hash, context)(
+                owner_references=owner_references,
+                cratedb_labels=cratedb_labels,
+                treat_as_master=treat_as_master,
+                treat_as_data=False,
+                cluster_name=cluster_name,
+                node_name="master",
+                node_name_prefix="master-",
+                node_spec=spec["nodes"]["master"],
+                master_nodes=master_nodes,
+                total_nodes_count=total_nodes_count,
+                data_nodes_count=data_nodes_count,
+                http_port=http_port,
+                jmx_port=jmx_port,
+                postgres_port=postgres_port,
+                prometheus_port=prometheus_port,
+                transport_port=transport_port,
+                crate_image=crate_image,
+                ssl=spec["cluster"].get("ssl"),
+                cluster_settings=spec["cluster"].get("settings"),
+                image_pull_secrets=image_pull_secrets,
             ),
             id="statefulset_master",
         )
@@ -169,31 +158,27 @@ async def create_cratedb(
     for node_spec in spec["nodes"]["data"]:
         node_name = node_spec["name"]
         kopf.register(
-            fn=subhandler_partial(
-                create_statefulset,
-                owner_references,
-                namespace,
-                name,
-                cratedb_labels,
-                treat_as_master,
-                True,
-                cluster_name,
-                node_name,
-                f"data-{node_name}-",
-                node_spec,
-                master_nodes,
-                total_nodes_count,
-                data_nodes_count,
-                http_port,
-                jmx_port,
-                postgres_port,
-                prometheus_port,
-                transport_port,
-                crate_image,
-                spec["cluster"].get("ssl"),
-                spec["cluster"].get("settings"),
-                image_pull_secrets,
-                logger,
+            fn=CreateStatefulsetSubHandler(namespace, name, hash, context)(
+                owner_references=owner_references,
+                cratedb_labels=cratedb_labels,
+                treat_as_master=treat_as_master,
+                treat_as_data=True,
+                cluster_name=cluster_name,
+                node_name=node_name,
+                node_name_prefix=f"data-{node_name}-",
+                node_spec=node_spec,
+                master_nodes=master_nodes,
+                total_nodes_count=total_nodes_count,
+                data_nodes_count=data_nodes_count,
+                http_port=http_port,
+                jmx_port=jmx_port,
+                postgres_port=postgres_port,
+                prometheus_port=prometheus_port,
+                transport_port=transport_port,
+                crate_image=crate_image,
+                ssl=spec["cluster"].get("ssl"),
+                cluster_settings=spec["cluster"].get("settings"),
+                image_pull_secrets=image_pull_secrets,
             ),
             id=f"statefulset_data_{node_name}",
         )
@@ -206,18 +191,13 @@ async def create_cratedb(
         master_node_pod = f"crate-data-{node_name}-{name}-0"
 
     kopf.register(
-        fn=subhandler_partial(
-            bootstrap_cluster,
-            namespace,
-            name,
-            master_node_pod,
-            spec["cluster"].get("license"),
-            "ssl" in spec["cluster"],
-            spec.get("users"),
-            logger,
+        fn=BootstrapClusterSubHandler(namespace, name, hash, context)(
+            master_node_pod=master_node_pod,
+            license=spec["cluster"].get("license"),
+            has_ssl="ssl" in spec["cluster"],
+            users=spec.get("users"),
         ),
         id="bootstrap",
-        timeout=config.BOOTSTRAP_TIMEOUT,
         backoff=config.BOOTSTRAP_RETRY_DELAY,
     )
 
@@ -231,18 +211,15 @@ async def create_cratedb(
             backup_metrics_labels[LABEL_COMPONENT] = "backup"
             backup_metrics_labels.update(meta.get("labels", {}))
             kopf.register(
-                fn=subhandler_partial(
-                    create_backups,
-                    owner_references,
-                    namespace,
-                    name,
-                    backup_metrics_labels,
-                    http_port,
-                    prometheus_port,
-                    spec["backups"],
-                    image_pull_secrets,
-                    "ssl" in spec["cluster"],
-                    logger,
+                fn=CreateBackupsSubHandler(namespace, name, hash, context)(
+                    owner_references=owner_references,
+                    backup_metrics_labels=backup_metrics_labels,
+                    http_port=http_port,
+                    prometheus_port=prometheus_port,
+                    backups=spec["backups"],
+                    image_pull_secrets=image_pull_secrets,
+                    has_ssl="ssl" in spec["cluster"],
                 ),
                 id="backup",
             )
+    patch.status[CLUSTER_CREATE_ID] = context
