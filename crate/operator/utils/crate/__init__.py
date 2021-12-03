@@ -1,5 +1,5 @@
 # CrateDB Kubernetes Operator
-# Copyright (C) 2020 Crate.IO GmbH
+# Copyright (C) 2021 Crate.IO GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,16 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from kopf import PermanentError
+from crate.operator.utils.crate import on
+from crate.operator.utils.crate.on import (
+    send_create_failed_notification,
+    send_update_failed_notification,
+    timeout,
+)
 
-
-class ConfigurationError(ValueError):
-    """
-    Exception raised when there are configuration issues with the operator.
-    """
-
-    pass
-
-
-class SubHandlerFailedDependencyError(PermanentError):
-    """An error for the subhandler's failed ependencies."""
+__all__ = [
+    "on",
+    "send_create_failed_notification",
+    "send_update_failed_notification",
+    "timeout",
+]

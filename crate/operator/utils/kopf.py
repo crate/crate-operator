@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional, TypedDict
 
 import kopf
 
+from crate.operator.exceptions import SubHandlerFailedDependencyError
 from crate.operator.webhooks import (
     WebhookEvent,
     WebhookStatus,
@@ -192,7 +193,7 @@ class StateBasedSubHandler(abc.ABC):
                 )
                 return True
             else:
-                raise kopf.PermanentError(
+                raise SubHandlerFailedDependencyError(
                     f"A dependency ({handler_name}) has failed. Giving up."
                 )
 

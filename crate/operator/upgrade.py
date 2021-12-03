@@ -25,7 +25,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 from crate.operator.config import config
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.scale import get_container
-from crate.operator.utils import quorum
+from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
@@ -164,6 +164,7 @@ async def upgrade_cluster(
 
 
 class UpgradeSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -185,5 +186,35 @@ class UpgradeSubHandler(StateBasedSubHandler):
                 old_version=old["spec"]["cluster"]["version"],
                 new_version=body.spec["cluster"]["version"],
             ),
+            WebhookStatus.IN_PROGRESS,
+        )
+        await self.send_notifications(logger)
+
+
+class AfterUpgradeSubHandler(StateBasedSubHandler):
+    """
+    A handler which depends on ``upgrade`` and ``restart`` having finished
+    successfully and sends a success notification of the upgrade process.
+    """
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        self.schedule_notification(
+            WebhookEvent.UPGRADE,
+            WebhookUpgradePayload(
+                old_registry=old["spec"]["cluster"]["imageRegistry"],
+                new_registry=body.spec["cluster"]["imageRegistry"],
+                old_version=old["spec"]["cluster"]["version"],
+                new_version=body.spec["cluster"]["version"],
+            ),
             WebhookStatus.SUCCESS,
         )
+        await self.send_notifications(logger)
