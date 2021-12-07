@@ -29,7 +29,7 @@ class WebhookEvent(str, enum.Enum):
     DELAY = "delay"
     INFO_CHANGED = "info_changed"
     HEALTH = "health"
-    ERROR = "error"
+    FEEDBACK = "feedback"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -79,8 +79,8 @@ class WebhookClusterHealthPayload(WebhookSubPayload):
     status: str
 
 
-class WebhookPermanentErrorPayload(WebhookSubPayload):
-    reason: str
+class WebhookFeedbackPayload(WebhookSubPayload):
+    message: str
     operation: WebhookOperation
 
 
@@ -94,7 +94,7 @@ class WebhookPayload(TypedDict):
     temporary_failure_data: Optional[WebhookTemporaryFailurePayload]
     info_data: Optional[WebhookInfoChangedPayload]
     health_data: Optional[WebhookClusterHealthPayload]
-    error_data: Optional[WebhookPermanentErrorPayload]
+    feedback_data: Optional[WebhookFeedbackPayload]
 
 
 class WebhookClient:
@@ -159,7 +159,7 @@ class WebhookClient:
         temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         info_data: Optional[WebhookInfoChangedPayload] = None,
         health_data: Optional[WebhookClusterHealthPayload] = None,
-        error_data: Optional[WebhookPermanentErrorPayload] = None,
+        feedback_data: Optional[WebhookFeedbackPayload] = None,
         unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
@@ -198,7 +198,7 @@ class WebhookClient:
             temporary_failure_data=temporary_failure_data,
             info_data=info_data,
             health_data=health_data,
-            error_data=error_data,
+            feedback_data=feedback_data,
         )
 
         logger.info(
@@ -271,8 +271,8 @@ class WebhookClient:
             kwargs = {"info_data": sub_payload}
         elif event == WebhookEvent.HEALTH:
             kwargs = {"health_data": sub_payload}
-        elif event == WebhookEvent.ERROR:
-            kwargs = {"error_data": sub_payload}
+        elif event == WebhookEvent.FEEDBACK:
+            kwargs = {"feedback_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 

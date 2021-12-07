@@ -51,7 +51,7 @@ def test_payload_serialization_scale():
         temporary_failure_data=None,
         info_data=None,
         health_data=None,
-        error_data=None,
+        feedback_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "scale",
@@ -68,7 +68,7 @@ def test_payload_serialization_scale():
         "temporary_failure_data": None,
         "info_data": None,
         "health_data": None,
-        "error_data": None,
+        "feedback_data": None,
     }
 
 
@@ -85,7 +85,7 @@ def test_payload_serialization_upgrade():
         temporary_failure_data=None,
         info_data=None,
         health_data=None,
-        error_data=None,
+        feedback_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "upgrade",
@@ -102,7 +102,7 @@ def test_payload_serialization_upgrade():
         "temporary_failure_data": None,
         "info_data": None,
         "health_data": None,
-        "error_data": None,
+        "feedback_data": None,
     }
 
 
@@ -183,7 +183,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "temporary_failure_data": None,
                 "info_data": None,
                 "health_data": None,
-                "error_data": None,
+                "feedback_data": None,
             },
         }
 
@@ -219,7 +219,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "temporary_failure_data": None,
                 "info_data": None,
                 "health_data": None,
-                "error_data": None,
+                "feedback_data": None,
             },
         }
 
@@ -250,7 +250,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                     "reason": "A snapshot is in progress",
                 },
                 "health_data": None,
-                "error_data": None,
+                "feedback_data": None,
             },
         }
 
@@ -279,7 +279,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "info_data": {"external_ip": "192.168.1.10"},
                 "temporary_failure_data": None,
                 "health_data": None,
-                "error_data": None,
+                "feedback_data": None,
             },
         }
 
@@ -307,7 +307,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "upgrade_data": None,
                 "info_data": None,
                 "temporary_failure_data": None,
-                "error_data": None,
+                "feedback_data": None,
                 "health_data": {"status": "GREEN"},
             },
         }

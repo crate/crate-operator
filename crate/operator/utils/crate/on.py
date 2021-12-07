@@ -22,41 +22,52 @@ import wrapt
 
 from crate.operator.webhooks import (
     WebhookEvent,
+    WebhookFeedbackPayload,
     WebhookOperation,
-    WebhookPermanentErrorPayload,
     WebhookStatus,
     webhook_client,
 )
 
 
-async def _send_error_notification(
+async def send_feedback_notification(
     *,
     namespace: str,
     name: str,
-    reason: str,
+    message: str,
     operation: WebhookOperation,
+    status: WebhookStatus,
     logger: logging.Logger,
     **kwargs,
 ) -> None:
     await webhook_client.send_notification(
         namespace,
         name,
-        WebhookEvent.ERROR,
-        WebhookPermanentErrorPayload(reason=reason, operation=operation),
-        WebhookStatus.FAILURE,
+        WebhookEvent.FEEDBACK,
+        WebhookFeedbackPayload(message=message, operation=operation),
+        status,
         logger,
     )
 
 
 async def send_update_failed_notification(*args, **kwargs):
-    await _send_error_notification(
-        *args, **{**kwargs, "operation": WebhookOperation.UPDATE}
+    await send_feedback_notification(
+        *args,
+        **{
+            **kwargs,
+            "operation": WebhookOperation.UPDATE,
+            "status": WebhookStatus.FAILURE,
+        },
     )
 
 
 async def send_create_failed_notification(*args, **kwargs):
-    await _send_error_notification(
-        *args, **{**kwargs, "operation": WebhookOperation.CREATE}
+    await send_feedback_notification(
+        *args,
+        **{
+            **kwargs,
+            "operation": WebhookOperation.CREATE,
+            "status": WebhookStatus.FAILURE,
+        },
     )
 
 
@@ -118,7 +129,7 @@ def error(*, error_handler: Callable) -> Callable:
                         await error_handler(
                             namespace=_namespace,
                             name=_name,
-                            reason=str(e),
+                            message=str(e),
                             logger=kwargs["logger"],
                         )
                     except Exception:
