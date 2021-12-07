@@ -47,7 +47,7 @@ setup(
         "aiopg==1.3.3",
         "bitmath==1.3.3.1",
         "kopf==1.35.1",
-        "kubernetes-asyncio==18.20.0",
+        "kubernetes-asyncio==18.20.1",
         "PyYAML<7.0",
         "prometheus_client==0.12.0",
         # Versions 3.8+ incompatible with pytest-aiohttp.
