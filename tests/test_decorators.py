@@ -26,8 +26,8 @@ from crate.operator.operations import StateBasedSubHandler
 from crate.operator.utils import crate
 from crate.operator.webhooks import (
     WebhookEvent,
+    WebhookFeedbackPayload,
     WebhookOperation,
-    WebhookPermanentErrorPayload,
     WebhookStatus,
 )
 
@@ -80,9 +80,9 @@ async def test_upgrade_cluster_timeout(
             mock.call(
                 namespace,
                 name,
-                WebhookEvent.ERROR,
-                WebhookPermanentErrorPayload(
-                    reason=(
+                WebhookEvent.FEEDBACK,
+                WebhookFeedbackPayload(
+                    message=(
                         "ActionSubhandler.handle has timed out"
                         f" after {datetime.timedelta(seconds=runtime)}."
                     ),

@@ -17,6 +17,7 @@
 from crate.operator.utils.crate import on
 from crate.operator.utils.crate.on import (
     send_create_failed_notification,
+    send_feedback_notification,
     send_update_failed_notification,
     timeout,
 )
@@ -25,5 +26,6 @@ __all__ = [
     "on",
     "send_create_failed_notification",
     "send_update_failed_notification",
+    "send_feedback_notification",
     "timeout",
 ]

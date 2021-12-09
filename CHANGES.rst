@@ -20,6 +20,9 @@ Unreleased
 * Changed the registration of all kopf subhandlers in the creation process
   to use StateBasedSubhandler.
 
+* Renamed webhook event ``error`` to ``feedback`` and added more status updates
+  during a cluster upgrade.
+
 2.7.1 (2021-11-12)
 ------------------
 
