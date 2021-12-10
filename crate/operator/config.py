@@ -91,6 +91,12 @@ class Config:
     #: failed.
     SCALING_TIMEOUT = 3600
 
+    #: Time in seconds for which the operator will continue and wait to perform
+    #: an update of a cluster, either scaling a cluster up or down or upgrading
+    #: a cluster. Once this threshold has passed, an update is considered
+    #: failed.
+    CLUSTER_UPDATE_TIMEOUT = 7200
+
     #: Enable several testing behaviors, such as relaxed pod anti-affinity to
     #: allow for easier testing in smaller Kubernetes clusters.
     TESTING: bool = False
@@ -290,6 +296,22 @@ class Config:
             raise ConfigurationError(
                 f"Invalid {self._prefix}PROMETHEUS_PORT="
                 f"'{cratedb_status_interval}'. Needs to be a positive integer."
+            )
+
+        update_timeout = self.env(
+            "CLUSTER_UPDATE_TIMEOUT", default=str(self.CLUSTER_UPDATE_TIMEOUT)
+        )
+        try:
+            self.CLUSTER_UPDATE_TIMEOUT = int(update_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}CLUSTER_UPDATE_TIMEOUT="
+                f"'{update_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.CLUSTER_UPDATE_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}CLUSTER_UPDATE_TIMEOUT="
+                f"'{update_timeout}'. Needs to be a positive integer or 0."
             )
 
     def env(self, name: str, *, default=UNDEFINED) -> str:

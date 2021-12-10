@@ -97,6 +97,7 @@ async def login(**kwargs):
 
 @kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
 @crate.on.error(error_handler=crate.send_create_failed_notification)
+@crate.timeout(timeout=float(config.BOOTSTRAP_TIMEOUT))
 async def cluster_create(
     namespace: str,
     meta: kopf.Meta,
@@ -114,6 +115,7 @@ async def cluster_create(
 
 @kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)
 @crate.on.error(error_handler=crate.send_update_failed_notification)
+@crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
 async def cluster_update(
     namespace: str,
     name: str,
