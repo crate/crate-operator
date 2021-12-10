@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ----------
 
+2.7.2 (2021-12-10)
+------------------
+
+* Added mitigation for log4j vulnerability
+
 2.7.1 (2021-11-12)
 ------------------
 
