@@ -392,6 +392,7 @@ def get_statefulset_crate_env_java_opts(
         f"-javaagent:/var/lib/crate/crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar={prometheus_port}",  # noqa
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=/resource/heapdump",
+        "-Dlog4j2.formatMsgNoLookups=true",
     ]
 
 
