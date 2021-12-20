@@ -23,6 +23,8 @@ Unreleased
 * Renamed webhook event ``error`` to ``feedback`` and added more status updates
   during a cluster upgrade.
 
+* Added timeouts to ``create`` and ``update`` handlers.
+
 2.7.2 (2021-12-10)
 ------------------
 
