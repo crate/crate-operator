@@ -38,6 +38,7 @@ from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
+from crate.operator.utils.notifications import send_update_progress_notification
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import (
     WebhookEvent,
@@ -157,6 +158,8 @@ async def check_nodes_present_or_gone(
     old_replicas: int,
     new_replicas: int,
     node_prefix: str,
+    namespace: str,
+    name: str,
     logger: logging.Logger,
 ):
     """
@@ -194,6 +197,15 @@ async def check_nodes_present_or_gone(
                 # scale up. Wait for missing nodes
                 if not candidate_node_names.issubset(available_nodes):
                     missing_nodes = ", ".join(sorted(candidate_node_names))
+
+                    await send_update_progress_notification(
+                        namespace=namespace,
+                        name=name,
+                        message=f"Scaling up from {old_replicas} to {new_replicas} "
+                        "nodes. Waiting for new node(s) to be present.",
+                        logger=logger,
+                    )
+
                     raise kopf.TemporaryError(
                         f"Waiting for nodes {missing_nodes} to be present.", delay=15
                     )
@@ -201,6 +213,14 @@ async def check_nodes_present_or_gone(
                 # scale down
                 if candidate_node_names.issubset(available_nodes):
                     excess_nodes = ", ".join(sorted(candidate_node_names))
+
+                    await send_update_progress_notification(
+                        namespace=namespace,
+                        name=name,
+                        message=f"Scaling down from {old_replicas} to {new_replicas} "
+                        "nodes. Waiting for node(s) to be gone.",
+                        logger=logger,
+                    )
                     raise kopf.TemporaryError(
                         f"Waiting for nodes {excess_nodes} to be gone.", delay=15
                     )
@@ -464,6 +484,8 @@ async def scale_cluster(
             old_replicas,
             new_replicas,
             "master",
+            namespace,
+            name,
             logger,
         )
 
@@ -503,6 +525,8 @@ async def scale_cluster(
                     old_replicas,
                     new_replicas,
                     f"data-{node_name}",
+                    namespace,
+                    name,
                     logger,
                 )
 
@@ -562,6 +586,8 @@ async def scale_cluster(
                     old_replicas,
                     new_replicas,
                     f"data-{node_name}",
+                    namespace,
+                    name,
                     logger,
                 )
 

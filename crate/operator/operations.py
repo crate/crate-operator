@@ -52,9 +52,9 @@ from crate.operator.utils.kubeapi import (
     get_host,
     get_system_user_password,
 )
+from crate.operator.utils.notifications import send_update_progress_notification
 from crate.operator.webhooks import (
     WebhookEvent,
-    WebhookOperation,
     WebhookStatus,
     WebhookTemporaryFailurePayload,
 )
@@ -160,19 +160,6 @@ async def get_pods_in_statefulset(
     return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
 
 
-async def _send_update_progress_notification(
-    *, namespace: str, name: str, message: str, logger: logging.Logger
-):
-    await crate.send_feedback_notification(
-        namespace=namespace,
-        name=name,
-        message=message,
-        operation=WebhookOperation.UPDATE,
-        status=WebhookStatus.IN_PROGRESS,
-        logger=logger,
-    )
-
-
 async def restart_cluster(
     core: CoreV1Api,
     namespace: str,
@@ -220,7 +207,7 @@ async def restart_cluster(
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
-        await _send_update_progress_notification(
+        await send_update_progress_notification(
             namespace=namespace,
             name=name,
             message="Waiting for node "
@@ -239,7 +226,7 @@ async def restart_cluster(
     elif next_pod_name in all_pod_names:
         total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
-        await _send_update_progress_notification(
+        await send_update_progress_notification(
             namespace=namespace,
             name=name,
             message="Waiting for node "
