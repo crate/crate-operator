@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.8.0 (2021-12-29)
+------------------
+
 * Replaced kopf timeout handling with a decorator ``@crate.timeout()`` to be
   able to run code when a timeout happens.
 
