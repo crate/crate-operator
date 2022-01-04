@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added status update notifications during a cluster scaling operation.
+
 2.8.0 (2021-12-29)
 ------------------
 
