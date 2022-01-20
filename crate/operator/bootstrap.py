@@ -34,7 +34,9 @@ from crate.operator.utils.kubeapi import (
     get_system_user_password,
     resolve_secret_key_ref,
 )
+from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.utils.typing import SecretKeyRefContainer
+from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 
 async def bootstrap_license(
@@ -332,6 +334,15 @@ async def bootstrap_cluster(
     # We first need to set the license, in case the CrateDB cluster
     # contains more nodes than available in the free license.
 
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=name,
+        message="Cluster creation started. Waiting for the node(s) to be created "
+        "and creating other required resources.",
+        logger=logger,
+        status=WebhookStatus.IN_PROGRESS,
+        operation=WebhookOperation.CREATE,
+    )
     if license:
         await bootstrap_license(
             core, namespace, master_node_pod, has_ssl, license, logger
@@ -364,3 +375,11 @@ class BootstrapClusterSubHandler(StateBasedSubHandler):
             await bootstrap_cluster(
                 core, namespace, name, master_node_pod, license, has_ssl, users, logger
             )
+        await send_operation_progress_notification(
+            namespace=namespace,
+            name=name,
+            message="The cluster has been created successfully.",
+            logger=logger,
+            status=WebhookStatus.SUCCESS,
+            operation=WebhookOperation.CREATE,
+        )

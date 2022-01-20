@@ -52,9 +52,10 @@ from crate.operator.utils.kubeapi import (
     get_host,
     get_system_user_password,
 )
-from crate.operator.utils.notifications import send_update_progress_notification
+from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
     WebhookEvent,
+    WebhookOperation,
     WebhookStatus,
     WebhookTemporaryFailurePayload,
 )
@@ -207,13 +208,15 @@ async def restart_cluster(
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
-        await send_update_progress_notification(
+        await send_operation_progress_notification(
             namespace=namespace,
             name=name,
             message="Waiting for node "
             f"{int(next_pod_name[next_pod_name.rindex('-')+1:])+1}/{len(all_pod_uids)}"
             " to be terminated...",
             logger=logger,
+            status=WebhookStatus.IN_PROGRESS,
+            operation=WebhookOperation.UPDATE,
         )
         # Trigger deletion of Pod.
         # This may take a while as it tries to gracefully stop the containers
@@ -226,13 +229,15 @@ async def restart_cluster(
     elif next_pod_name in all_pod_names:
         total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
-        await send_update_progress_notification(
+        await send_operation_progress_notification(
             namespace=namespace,
             name=name,
             message="Waiting for node "
             f"{int(next_pod_name[next_pod_name.rindex('-')+1:])+1}/{len(all_pod_uids)}"
             " to be restarted...",
             logger=logger,
+            status=WebhookStatus.IN_PROGRESS,
+            operation=WebhookOperation.UPDATE,
         )
         password, host = await asyncio.gather(
             get_system_user_password(core, namespace, name),

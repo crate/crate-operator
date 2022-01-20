@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Added status update notifications for cluster creation and updates of the
+  allowed CIDRs and user password secrets.
+
 2.9.0 (2022-01-27)
 ------------------
 

@@ -21,6 +21,9 @@ from kopf import DiffItem
 from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.utils.notifications import send_operation_progress_notification
+from crate.operator.webhooks import WebhookOperation, WebhookStatus
+
 
 async def update_service_allowed_cidrs(
     namespace: str,
@@ -30,6 +33,15 @@ async def update_service_allowed_cidrs(
 ):
     change: DiffItem = diff[0]
     logger.info(f"Updating load balancer source ranges to {change.new}")
+
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=name,
+        message="Updating IP Network Whitelist.",
+        logger=logger,
+        status=WebhookStatus.IN_PROGRESS,
+        operation=WebhookOperation.UPDATE,
+    )
 
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -48,3 +60,12 @@ async def update_service_allowed_cidrs(
             namespace=namespace,
             body={"spec": {"loadBalancerSourceRanges": change.new}},
         )
+
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=name,
+        message="IP Network Whitelist updated successfully.",
+        logger=logger,
+        status=WebhookStatus.SUCCESS,
+        operation=WebhookOperation.UPDATE,
+    )

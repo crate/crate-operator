@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+from unittest import mock
 
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
@@ -25,12 +26,19 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.utils.kubeapi import get_public_host_for_testing
+from crate.operator.webhooks import (
+    WebhookEvent,
+    WebhookFeedbackPayload,
+    WebhookOperation,
+    WebhookStatus,
+)
 
 from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
     is_kopf_handler_finished,
     start_cluster,
+    was_notification_sent,
 )
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
@@ -44,8 +52,15 @@ pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
         (["0.0.0.0/0"], []),
     ],
 )
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
 async def test_update_cidrs(
-    initial, updated, faker, namespace, kopf_runner, api_client
+    mock_send_notification: mock.AsyncMock,
+    initial,
+    updated,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -67,6 +82,25 @@ async def test_update_cidrs(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="The cluster has been created successfully.",
+                operation=WebhookOperation.CREATE,
+            ),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify cluster creation status update.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -80,6 +114,25 @@ async def test_update_cidrs(
                 "value": updated,
             }
         ],
+    )
+
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="Updating IP Network Whitelist.",
+                operation=WebhookOperation.UPDATE,
+            ),
+            WebhookStatus.IN_PROGRESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify IP Network status update.",
+        timeout=DEFAULT_TIMEOUT,
     )
 
     await assert_wait_for(
@@ -101,6 +154,25 @@ async def test_update_cidrs(
         namespace.metadata.name,
         updated,
         err_msg="Source ranges have not been updated to the expected ones",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="IP Network Whitelist updated successfully.",
+                operation=WebhookOperation.UPDATE,
+            ),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify IP Network status update.",
         timeout=DEFAULT_TIMEOUT,
     )
 
