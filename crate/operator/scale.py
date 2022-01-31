@@ -38,10 +38,11 @@ from crate.operator.operations import get_total_nodes_count
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
-from crate.operator.utils.notifications import send_update_progress_notification
+from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import (
     WebhookEvent,
+    WebhookOperation,
     WebhookScaleNodePayload,
     WebhookScalePayload,
     WebhookStatus,
@@ -198,12 +199,14 @@ async def check_nodes_present_or_gone(
                 if not candidate_node_names.issubset(available_nodes):
                     missing_nodes = ", ".join(sorted(candidate_node_names))
 
-                    await send_update_progress_notification(
+                    await send_operation_progress_notification(
                         namespace=namespace,
                         name=name,
                         message=f"Scaling up from {old_replicas} to {new_replicas} "
                         "nodes. Waiting for new node(s) to be present.",
                         logger=logger,
+                        status=WebhookStatus.IN_PROGRESS,
+                        operation=WebhookOperation.UPDATE,
                     )
 
                     raise kopf.TemporaryError(
@@ -214,12 +217,14 @@ async def check_nodes_present_or_gone(
                 if candidate_node_names.issubset(available_nodes):
                     excess_nodes = ", ".join(sorted(candidate_node_names))
 
-                    await send_update_progress_notification(
+                    await send_operation_progress_notification(
                         namespace=namespace,
                         name=name,
                         message=f"Scaling down from {old_replicas} to {new_replicas} "
                         "nodes. Waiting for node(s) to be gone.",
                         logger=logger,
+                        status=WebhookStatus.IN_PROGRESS,
+                        operation=WebhookOperation.UPDATE,
                     )
                     raise kopf.TemporaryError(
                         f"Waiting for nodes {excess_nodes} to be gone.", delay=15

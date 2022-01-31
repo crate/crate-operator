@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+import re
 
 import kopf
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
@@ -25,6 +26,8 @@ from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.kubeapi import get_host
+from crate.operator.utils.notifications import send_operation_progress_notification
+from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 
 async def update_user_password_secret(
@@ -33,6 +36,18 @@ async def update_user_password_secret(
     diff: kopf.Diff,
     logger: logging.Logger,
 ):
+    # extract cluster_id from the secret name which has the
+    # format `user-password-<cluster_id>-<ordinal>`
+    cluster_id = re.sub(r"(^user-password-)|(\-\d+$)", "", name)
+
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=cluster_id,
+        message="Updating password.",
+        logger=logger,
+        status=WebhookStatus.IN_PROGRESS,
+        operation=WebhookOperation.UPDATE,
+    )
     async with ApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)
         core = CoreV1Api(api_client)
@@ -71,3 +86,11 @@ async def update_user_password_secret(
                             id=f"update-{crate_custom_object['metadata']['name']}-{user_spec['name']}",  # noqa
                             timeout=config.BOOTSTRAP_TIMEOUT,
                         )
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=cluster_id,
+        message="Password updated successfully.",
+        logger=logger,
+        status=WebhookStatus.SUCCESS,
+        operation=WebhookOperation.UPDATE,
+    )

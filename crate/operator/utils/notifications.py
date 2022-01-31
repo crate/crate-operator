@@ -21,14 +21,20 @@ from crate.operator.utils import crate
 from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 
-async def send_update_progress_notification(
-    *, namespace: str, name: str, message: str, logger: logging.Logger
+async def send_operation_progress_notification(
+    *,
+    namespace: str,
+    name: str,
+    message: str,
+    logger: logging.Logger,
+    status: WebhookStatus,
+    operation: WebhookOperation,
 ):
     await crate.send_feedback_notification(
         namespace=namespace,
         name=name,
         message=message,
-        operation=WebhookOperation.UPDATE,
-        status=WebhookStatus.IN_PROGRESS,
+        operation=operation,
+        status=status,
         logger=logger,
     )

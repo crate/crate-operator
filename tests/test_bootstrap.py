@@ -16,6 +16,7 @@
 
 import asyncio
 import base64
+from typing import Any, List, Mapping
 from unittest import mock
 
 import pytest
@@ -30,8 +31,19 @@ from psycopg2 import DatabaseError, OperationalError
 from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
+from crate.operator.webhooks import (
+    WebhookEvent,
+    WebhookFeedbackPayload,
+    WebhookOperation,
+    WebhookStatus,
+)
 
-from .utils import DEFAULT_TIMEOUT, assert_wait_for, start_cluster
+from .utils import (
+    DEFAULT_TIMEOUT,
+    assert_wait_for,
+    start_cluster,
+    was_notification_sent,
+)
 
 pytestmark = [pytest.mark.k8s, pytest.mark.asyncio]
 
@@ -60,11 +72,13 @@ async def was_license_set(
         return True
 
 
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
 @mock.patch("crate.operator.bootstrap.bootstrap_license")
 @mock.patch("crate.operator.bootstrap.bootstrap_system_user")
 async def test_bootstrap_license(
     _bootstrap_system_user: mock.AsyncMock,
     bootstrap_license_mock: mock.AsyncMock,
+    mock_send_notification: mock.AsyncMock,
     faker,
     namespace,
     kopf_runner,
@@ -107,11 +121,56 @@ async def test_bootstrap_license(
         {"secretKeyRef": {"key": "license", "name": f"license-{name}"}},
         timeout=DEFAULT_TIMEOUT * 3,
     )
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message=(
+                    "Cluster creation started. Waiting for the node(s) to be "
+                    "created and creating other required resources."
+                ),
+                operation=WebhookOperation.CREATE,
+            ),
+            WebhookStatus.IN_PROGRESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify cluster creation status update.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="The cluster has been created successfully.",
+                operation=WebhookOperation.CREATE,
+            ),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify cluster creation status update.",
+        timeout=DEFAULT_TIMEOUT,
+    )
 
 
 @pytest.mark.parametrize("allowed_cidrs", [None, ["1.1.1.1/32"]])
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
 async def test_bootstrap_users(
-    allowed_cidrs, faker, namespace, kopf_runner, api_client
+    mock_send_notification: mock.AsyncMock,
+    allowed_cidrs,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
@@ -140,7 +199,7 @@ async def test_bootstrap_users(
         ),
     )
 
-    users = [
+    users: List[Mapping[str, Any]] = [
         {
             "name": username1,
             "password": {
@@ -162,6 +221,46 @@ async def test_bootstrap_users(
     ]
 
     host, password = await start_cluster(name, namespace, core, coapi, 1, users=users)
+
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message=(
+                    "Cluster creation started. Waiting for the node(s) to be "
+                    "created and creating other required resources."
+                ),
+                operation=WebhookOperation.CREATE,
+            ),
+            WebhookStatus.IN_PROGRESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify cluster creation status update.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        mock.call(
+            namespace.metadata.name,
+            name,
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="The cluster has been created successfully.",
+                operation=WebhookOperation.CREATE,
+            ),
+            WebhookStatus.SUCCESS,
+            mock.ANY,
+        ),
+        err_msg="Did not notify cluster creation status update.",
+        timeout=DEFAULT_TIMEOUT,
+    )
 
     await assert_wait_for(
         True, does_user_exist, host, password1, username1, timeout=DEFAULT_TIMEOUT * 3
