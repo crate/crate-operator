@@ -487,6 +487,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             # thus doing it before.
             command=["sysctl", "-w", "vm.max_map_count=262144"],
             image="busybox",
+            image_pull_policy="IfNotPresent",
             name="init-sysctl",
             security_context=V1SecurityContext(privileged=True),
         ),
@@ -498,6 +499,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
                 f"https://repo1.maven.org/maven2/io/crate/crate-jmx-exporter/{config.JMX_EXPORTER_VERSION}/crate-jmx-exporter-{config.JMX_EXPORTER_VERSION}.jar",  # noqa
             ],
             image="busybox",
+            image_pull_policy="IfNotPresent",
             name="fetch-jmx-exporter",
             volume_mounts=[V1VolumeMount(name="jmxdir", mount_path="/jmxdir")],
         ),
@@ -508,6 +510,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
                 "mkdir -pv /resource/heapdump ; chown -R crate:crate /resource",
             ],
             image=crate_image,
+            image_pull_policy="IfNotPresent",
             name="mkdir-heapdump",
             volume_mounts=[V1VolumeMount(name="debug", mount_path="/resource")],
         ),
