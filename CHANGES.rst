@@ -8,6 +8,9 @@ Unreleased
 * Added status update notifications for cluster creation and updates of the
   allowed CIDRs and user password secrets.
 
+* Changed ``imagePullPolicy`` on container init scripts to not always pull busybox
+  and similar images. This is wasteful in light of the new docker hub limits.
+
 2.9.0 (2022-01-27)
 ------------------
 
