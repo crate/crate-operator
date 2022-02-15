@@ -63,7 +63,7 @@ setup(
         ],
         "testing": [
             "faker==12.1.0",
-            "pytest==7.0.0",
+            "pytest==7.0.1",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.18.0",
         ],
