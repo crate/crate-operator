@@ -845,6 +845,8 @@ def get_discovery_service(
             owner_references=owner_references,
         ),
         spec=V1ServiceSpec(
+            # Headless service
+            cluster_ip="None",
             ports=[
                 V1ServicePort(name="cluster", port=transport_port),
                 V1ServicePort(name="http", port=http_port, target_port=Port.HTTP.value),

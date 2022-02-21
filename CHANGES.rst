@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ----------
 
+* Removed two no-longer required migration handlers - these have been around for some
+  time.
+
+* Changed the ``crate-discovery`` internal service to be headless - there is no reason
+  at all for it to be load balanced by k8s.
+
 2.10.0 (2022-02-17)
 -------------------
 
