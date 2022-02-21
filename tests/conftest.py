@@ -22,6 +22,7 @@ import subprocess
 from unittest import mock
 
 import pytest
+import pytest_asyncio
 from kopf.testing import KopfRunner
 from kubernetes_asyncio.client import (
     CoreV1Api,
@@ -88,7 +89,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", autouse=True)
 def load_config():
     env = {
         "CRATEDB_OPERATOR_CLUSTER_BACKUP_IMAGE": "crate/does-not-exist-backup",
@@ -112,7 +113,7 @@ def load_config():
         yield
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def kube_config(request, load_config):
     config = request.config.getoption(KUBECONFIG_OPTION)
     context = request.config.getoption(KUBECONTEXT_OPTION)
@@ -120,7 +121,7 @@ async def kube_config(request, load_config):
         await load_kube_config(config_file=config, context=context)
 
 
-@pytest.fixture(name="api_client")
+@pytest_asyncio.fixture(name="api_client")
 async def k8s_asyncio_api_client(kube_config) -> ApiClient:
     async with ApiClient() as api_client:
         yield api_client
@@ -146,7 +147,7 @@ def cratedb_crd(request, load_config):
     yield
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def cleanup_handler(event_loop):
     handlers = []
     yield handlers
@@ -177,7 +178,7 @@ def faker_seed():
     return random.randint(1, 999999)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def namespace(faker, api_client) -> V1Namespace:
     core = CoreV1Api(api_client)
     name = faker.uuid4()
