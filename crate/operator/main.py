@@ -30,12 +30,6 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.handlers.handle_create_cratedb import create_cratedb
-from crate.operator.handlers.handle_migrate_discovery_service import (
-    migrate_discovery_service,
-)
-from crate.operator.handlers.handle_migrate_user_password_label import (
-    migrate_user_password_label,
-)
 from crate.operator.handlers.handle_notify_external_ip_changed import (
     external_ip_changed,
 )
@@ -130,21 +124,6 @@ async def cluster_update(
     await update_cratedb(namespace, name, patch, status, diff)
 
 
-@kopf.on.resume(API_GROUP, "v1", RESOURCE_CRATEDB)
-async def update_cratedb_resource(
-    namespace: str,
-    spec: kopf.Spec,
-    **_kwargs,
-):
-    """
-    Migrates CrateDB secrets that do not have the LABEL_USER_PASSWORD label on them.
-
-    This handler here is for backwards-compatibility and will be removed in the next
-    major operator release.
-    """
-    await migrate_user_password_label(namespace, spec)
-
-
 @kopf.on.update("", "v1", "secrets", labels={LABEL_USER_PASSWORD: "true"})
 async def secret_update(
     namespace: str,
@@ -171,30 +150,6 @@ async def service_cidr_changes(
     Handles updates to the list of allowed CIDRs, and updates the relevant k8s Service.
     """
     await update_service_allowed_cidrs(namespace, name, diff, logger)
-
-
-@kopf.on.resume(
-    "",
-    "v1",
-    "services",
-    labels={LABEL_PART_OF: "cratedb", LABEL_MANAGED_BY: "crate-operator"},
-)
-async def update_discovery_service_handler(
-    namespace: str,
-    name: str,
-    logger: logging.Logger,
-    **_kwargs,
-):
-    """
-    Detects any crate-discovery services that do not have an HTTP port and updates them.
-
-    The HTTP port is required for internal communications with CrateDB, since the
-    "crate" service might have IP restrictions that make it unreachable by the operator.
-
-    This handler here is for backwards-compatibility and will be removed in the next
-    major operator release.
-    """
-    await migrate_discovery_service(namespace, name, logger)
 
 
 @kopf.on.field(
