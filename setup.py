@@ -62,7 +62,7 @@ setup(
             "docutils==0.17.1",
         ],
         "testing": [
-            "faker==13.0.0",
+            "faker==13.3.0",
             "pytest==7.0.1",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.18.1",
