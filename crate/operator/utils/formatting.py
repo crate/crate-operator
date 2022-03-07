@@ -16,7 +16,7 @@
 
 import base64
 import functools
-from typing import Callable
+from typing import Callable, Union
 
 import bitmath
 
@@ -55,3 +55,14 @@ def format_bitmath(value: bitmath.Byte) -> str:
     # trailing "b" or "B", we're stripping that here.
     # https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#meaning-of-memory
     return value.best_prefix().format("{value}{unit}")[:-1]
+
+
+def convert_to_bytes(value: Union[str, int]) -> bitmath.Byte:
+    """
+    Converts disk size strings used in Kubernetes, e.g. ``"256Gi"`` or Bytes
+    to :class:`bitmath.Byte`.
+    """
+    if isinstance(value, str):
+        return bitmath.parse_string_unsafe(value).to_Byte()
+    if isinstance(value, int):
+        return bitmath.Byte(value)

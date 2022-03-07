@@ -20,15 +20,20 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
 from kubernetes_asyncio.client import (
+    AppsV1Api,
     BatchV1Api,
     BatchV1beta1Api,
     CoreV1Api,
     V1beta1CronJobList,
     V1JobList,
     V1JobStatus,
+    V1PersistentVolumeClaimList,
     V1PodList,
+    V1StatefulSet,
+    V1StatefulSetList,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
+from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -161,6 +166,157 @@ async def get_pods_in_statefulset(
     return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
 
 
+async def get_pvcs_in_namespace(
+    core: CoreV1Api, namespace: str, name: str, node_name: str
+) -> List[Dict[str, str]]:
+    labels = {
+        LABEL_COMPONENT: "cratedb",
+        LABEL_NAME: name,
+        LABEL_NODE_NAME: node_name,
+    }
+    label_selector = ",".join(f"{k}={v}" for k, v in labels.items())
+
+    all_pvcs: V1PersistentVolumeClaimList = (
+        await core.list_namespaced_persistent_volume_claim(
+            namespace=namespace, label_selector=label_selector
+        )
+    )
+    return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pvcs.items]
+
+
+async def check_all_data_nodes_gone(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    old: kopf.Body,
+):
+    """
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param old: The old resource body.
+    :raises: A :class:`kopf.TemporaryError` when nodes are still available
+    """
+    pending_pods = []
+    for node_spec in old["spec"]["nodes"]["data"]:
+        pending_pods.extend(
+            await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
+        )
+    if pending_pods:
+        raise kopf.TemporaryError(f"Wating for pods to be gone {pending_pods}")
+
+
+async def check_all_data_nodes_present(
+    connection_factory,
+    old_replicas: int,
+    new_replicas: int,
+    node_prefix: str,
+    logger: logging.Logger,
+):
+    """
+    :param connection_factory: A callable that allows the operator to connect
+        to the database. We regularly need to reconnect to ensure the
+        connection wasn't closed because it was opened to a CrateDB node that
+        was shut down since the connection was opened.
+    :param old_replicas: The number of replicas in a StatefulSet before
+        scaling.
+    :param new_replicas: The number of replicas in a StatefulSet after scaling.
+    :param node_prefix: The prefix of the node names in CrateDB.
+    :raises: A :class:`kopf.TemporaryError` when nodes are missing
+    """
+    full_node_list = [
+        f"{node_prefix}-{i}" for i in range(max(old_replicas, new_replicas))
+    ]
+    try:
+        async with connection_factory() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT name FROM sys.nodes WHERE name = ANY(%s)
+                    """,
+                    (full_node_list,),
+                )
+                rows = await cursor.fetchall()
+                available_nodes = {r[0] for r in rows} if rows else set()
+                candidate_node_names = {
+                    f"{node_prefix}-{i}"
+                    for i in range(
+                        min(old_replicas, new_replicas), max(old_replicas, new_replicas)
+                    )
+                }
+                if old_replicas < new_replicas:
+                    # scale up. Wait for missing nodes
+                    if not candidate_node_names.issubset(available_nodes):
+                        missing_nodes = ", ".join(sorted(candidate_node_names))
+
+                        raise kopf.TemporaryError(
+                            f"Waiting for nodes {missing_nodes} to be present.",
+                            delay=15,
+                        )
+                else:
+                    logger.info(
+                        "No need to wait for nodes with prefix '%s', since the "
+                        "number of replicas has not been increased.",
+                        node_prefix,
+                    )
+    except (DatabaseError, OperationalError):
+        raise kopf.TemporaryError("Waiting for database connection.", delay=15)
+
+
+async def check_cluster_healthy(
+    name: str, namespace: str, apps: AppsV1Api, conn_factory, logger
+):
+    """
+    This looks for all the StatefulSets for this cluster and makes sure that the
+    number of nodes in all the STS matches what CrateDB has in the sys.nodes table.
+
+    If we have specific master/hot/cold node types configured these would be
+    separate StatefulSets.
+    """
+    expected_number_of_nodes = 0
+    all_sts: V1StatefulSetList = await apps.list_namespaced_stateful_set(namespace)
+    for sts in all_sts.items:
+        if sts.metadata.labels["app.kubernetes.io/name"] == name:
+            expected_number_of_nodes += sts.spec.replicas
+
+    if expected_number_of_nodes == 0:
+        return
+
+    if not await is_cluster_healthy(conn_factory, expected_number_of_nodes, logger):
+        raise kopf.TemporaryError(
+            "Waiting for cluster to be healthy.", delay=config.HEALTH_CHECK_RETRY_DELAY
+        )
+
+
+async def update_statefulset_replicas(
+    apps: AppsV1Api,
+    namespace: Optional[str],
+    sts_name: Optional[str],
+    statefulset: Optional[V1StatefulSet],
+    replicas: Optional[int],
+):
+    """
+    Call the Kubernetes API and update the number of replicas.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param sts_name: The name for the Kubernetes StatefulSet to update.
+    :param replicas: The new number of replicas for the StatefulSet.
+    """
+    statefulset = statefulset or await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=sts_name
+    )
+
+    body: Dict[str, Any] = {
+        "spec": {},
+    }
+    if replicas is not None:
+        body["spec"]["replicas"] = replicas
+        await apps.patch_namespaced_stateful_set(
+            namespace=namespace, name=sts_name, body=body
+        )
+
+
 async def restart_cluster(
     core: CoreV1Api,
     namespace: str,
@@ -265,6 +421,103 @@ async def restart_cluster(
         raise kopf.TemporaryError(
             "Scheduling rerun because there are pods to be restarted", delay=15
         )
+
+
+async def suspend_or_start_cluster(
+    apps: AppsV1Api,
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    old: kopf.Body,
+    data_diff_items: kopf.Diff,
+    logger: logging.Logger,
+):
+    """
+    Suspend or scale a cluster ``name``  back up, according to the given
+    ``data_diff_items``.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param old: The old resource body.
+    :param data_diff_items: A list of changes made to the individual
+        data node specifications.
+    """
+    spec = old["spec"]
+
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(core, namespace, name)
+    conn_factory = connection_factory(host, password)
+
+    if data_diff_items:
+        for _, field_path, old_replicas, new_replicas in data_diff_items:
+            if old_replicas < new_replicas:
+                # scale the cluster back up
+                index_path, *_ = field_path
+                index = int(index_path)
+                node_spec = spec["nodes"]["data"][index]
+                node_name = node_spec["name"]
+                sts_name = f"crate-data-{node_name}-{name}"
+                statefulset = await apps.read_namespaced_stateful_set(
+                    namespace=namespace, name=sts_name
+                )
+                current_replicas = statefulset.spec.replicas
+                if current_replicas != new_replicas:
+                    logger.info(f"Scale cluster up to {new_replicas} replicas")
+                    await update_statefulset_replicas(
+                        apps,
+                        namespace,
+                        sts_name,
+                        statefulset,
+                        new_replicas,
+                    )
+                await send_operation_progress_notification(
+                    namespace=namespace,
+                    name=name,
+                    message=f"Starting cluster. Scaling back up to {new_replicas} "
+                    "nodes. Waiting for node(s) to be present.",
+                    logger=logger,
+                    status=WebhookStatus.IN_PROGRESS,
+                    operation=WebhookOperation.UPDATE,
+                )
+
+                await check_all_data_nodes_present(
+                    conn_factory,
+                    old_replicas,
+                    new_replicas,
+                    f"data-{node_name}",
+                    logger,
+                )
+            elif old_replicas > new_replicas:
+                # suspend the cluster -> scale down to 0 replicas
+                # First check if the cluster is healthy at all,
+                # and prevent scaling down if not.
+                await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
+                index_path, *_ = field_path
+                index = int(index_path)
+                node_spec = spec["nodes"]["data"][index]
+                node_name = node_spec["name"]
+                sts_name = f"crate-data-{node_name}-{name}"
+                statefulset = await apps.read_namespaced_stateful_set(
+                    namespace=namespace, name=sts_name
+                )
+                current_replicas = statefulset.spec.replicas
+                if current_replicas != new_replicas:
+                    await update_statefulset_replicas(
+                        apps, namespace, sts_name, statefulset, new_replicas
+                    )
+                await send_operation_progress_notification(
+                    namespace=namespace,
+                    name=name,
+                    message="Suspending cluster and waiting for Persistent "
+                    "Volume Claim(s) to be resized.",
+                    logger=logger,
+                    status=WebhookStatus.IN_PROGRESS,
+                    operation=WebhookOperation.UPDATE,
+                )
+
+                await check_all_data_nodes_gone(core, namespace, name, old)
 
 
 class RestartSubHandler(StateBasedSubHandler):
@@ -513,3 +766,102 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
                 logger,
                 setting="cluster.routing.allocation.enable",
             )
+
+
+class StartClusterSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        spec: kopf.Spec,
+        old: kopf.Body,
+        diff: kopf.Diff,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
+        for operation, field_path, old_value, new_value in diff:
+            if field_path == ("spec", "nodes", "data"):
+                scale_data_diff_items = []
+                for node_spec_idx in range(len(old_value)):
+                    new_spec = new_value[node_spec_idx]
+
+                    scale_data_diff_items.append(
+                        kopf.DiffItem(
+                            kopf.DiffOperation.CHANGE,
+                            (str(node_spec_idx), "replicas"),
+                            0,
+                            new_spec["replicas"],
+                        )
+                    )
+            else:
+                logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+        if scale_data_diff_items:
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+                core = CoreV1Api(api_client)
+
+                await suspend_or_start_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    kopf.Diff(scale_data_diff_items),
+                    logger,
+                )
+
+        await self.send_notifications(logger)
+
+
+class SuspendClusterSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        spec: kopf.Spec,
+        old: kopf.Body,
+        diff: kopf.Diff,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
+        for operation, field_path, old_value, new_value in diff:
+            if field_path == ("spec", "nodes", "data"):
+                scale_data_diff_items = []
+                for node_spec_idx in range(len(old_value)):
+                    old_spec = old_value[node_spec_idx]
+
+                    # scale all data nodes to 0 replicas
+                    scale_data_diff_items.append(
+                        kopf.DiffItem(
+                            kopf.DiffOperation.CHANGE,
+                            (str(node_spec_idx), "replicas"),
+                            old_spec["replicas"],
+                            0,
+                        )
+                    )
+            else:
+                logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+        if scale_data_diff_items:
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+                core = CoreV1Api(api_client)
+
+                await suspend_or_start_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    kopf.Diff(scale_data_diff_items),
+                    logger,
+                )

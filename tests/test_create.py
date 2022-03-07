@@ -26,6 +26,7 @@ from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, CustomObjectsApi
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    DATA_PVC_NAME_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -528,7 +529,7 @@ class TestStatefulSetCrateVolumeMounts:
         assert vm_jmxdir.name == "jmxdir"
         assert vm_resource.name == "debug"
         assert [(vm.mount_path, vm.name) for vm in vm_data] == [
-            (f"/data/data{i}", f"data{i}") for i in range(disks)
+            (f"/data/data{i}", f"{DATA_PVC_NAME_PREFIX}{i}") for i in range(disks)
         ]
 
     def test_with_ssl(self, faker):
@@ -540,7 +541,7 @@ class TestStatefulSetCrateVolumeMounts:
         assert vm_jmxdir.name == "jmxdir"
         assert vm_resource.name == "debug"
         assert [(vm.mount_path, vm.name) for vm in vm_data] == [
-            (f"/data/data{i}", f"data{i}") for i in range(disks)
+            (f"/data/data{i}", f"{DATA_PVC_NAME_PREFIX}{i}") for i in range(disks)
         ]
         assert vm_ssl.name == "keystore"
 
@@ -570,7 +571,7 @@ class TestStatefulSetPVC:
             }
         }
         pvcs = get_statefulset_pvc(None, node_spec)
-        expected_pvcs = [f"data{i}" for i in range(count)]
+        expected_pvcs = [f"{DATA_PVC_NAME_PREFIX}{i}" for i in range(count)]
         expected_pvcs.append("debug")
         expected_sizes = [s] * count
         expected_sizes.append(format_bitmath(config.DEBUG_VOLUME_SIZE))

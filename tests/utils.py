@@ -32,6 +32,7 @@ from kubernetes_asyncio.client import (
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    DATA_NODE_NAME,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
@@ -98,7 +99,7 @@ async def start_cluster(
             "nodes": {
                 "data": [
                     {
-                        "name": "hot",
+                        "name": DATA_NODE_NAME,
                         "replicas": hot_nodes,
                         "resources": {
                             "cpus": 2,
