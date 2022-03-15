@@ -52,7 +52,7 @@ setup(
         "prometheus_client==0.13.1",
         # Versions 3.8+ incompatible with pytest-aiohttp.
         "aiohttp<=3.7.4",
-        "wrapt==1.13.3",
+        "wrapt==1.14.0",
     ],
     extras_require={
         "docs": [
