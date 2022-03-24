@@ -11,6 +11,8 @@ Unreleased
 * Changed the ``crate-discovery`` internal service to be headless - there is no reason
   at all for it to be load balanced by k8s.
 
+* Added subhandlers allowing to expand volume size on existing CrateDB clusters.
+
 2.10.0 (2022-02-17)
 -------------------
 

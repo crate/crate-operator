@@ -35,6 +35,9 @@ KOPF_STATE_STORE_PREFIX = f"operator.{API_GROUP}"
 CLUSTER_UPDATE_ID = "cluster_update"
 CLUSTER_CREATE_ID = "cluster_create"
 
+DATA_NODE_NAME = "hot"
+DATA_PVC_NAME_PREFIX = "data"
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"

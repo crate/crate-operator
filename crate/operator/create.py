@@ -69,6 +69,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import (
+    DATA_PVC_NAME_PREFIX,
     LABEL_COMPONENT,
     LABEL_NAME,
     LABEL_NODE_NAME,
@@ -460,7 +461,9 @@ def get_statefulset_crate_volume_mounts(
     ]
     volume_mounts.extend(
         [
-            V1VolumeMount(mount_path=f"/data/data{i}", name=f"data{i}")
+            V1VolumeMount(
+                mount_path=f"/data/data{i}", name=f"{DATA_PVC_NAME_PREFIX}{i}"
+            )
             for i in range(node_spec["resources"]["disk"]["count"])
         ]
     )
@@ -527,7 +530,9 @@ def get_statefulset_pvc(
 
     pvcs = [
         V1PersistentVolumeClaim(
-            metadata=V1ObjectMeta(name=f"data{i}", owner_references=owner_references),
+            metadata=V1ObjectMeta(
+                name=f"{DATA_PVC_NAME_PREFIX}{i}", owner_references=owner_references
+            ),
             spec=V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=V1ResourceRequirements(requests={"storage": size}),

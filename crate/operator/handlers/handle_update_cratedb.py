@@ -19,10 +19,13 @@ import hashlib
 import kopf
 
 from crate.operator.constants import CLUSTER_UPDATE_ID
+from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
     RestartSubHandler,
+    StartClusterSubHandler,
+    SuspendClusterSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
@@ -77,7 +80,9 @@ async def update_cratedb(
     do_upgrade = False
     do_restart = False
     do_scale = False
-    for _, field_path, *_ in diff:
+    do_expand_volume = False
+
+    for _, field_path, old_spec, new_spec in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
             ("spec", "cluster", "version"),
@@ -87,9 +92,18 @@ async def update_cratedb(
         elif field_path == ("spec", "nodes", "master", "replicas"):
             do_scale = True
         elif field_path == ("spec", "nodes", "data"):
-            do_scale = True
+            for node_spec_idx in range(len(old_spec)):
+                old_spec = old_spec[node_spec_idx]
+                new_spec = new_spec[node_spec_idx]
 
-    if not do_upgrade and not do_restart and not do_scale:
+                if old_spec.get("replicas") != new_spec.get("replicas"):
+                    do_scale = True
+                elif old_spec.get("resources", {}).get("disk", {}).get(
+                    "size"
+                ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
+                    do_expand_volume = True
+
+    if not do_upgrade and not do_restart and not do_scale and not do_expand_volume:
         return
 
     depends_on = [f"{CLUSTER_UPDATE_ID}/before_cluster_update"]
@@ -130,6 +144,39 @@ async def update_cratedb(
             id="scale",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
+    if do_expand_volume:
+        # Volume expansion and cluster suspension can run in parallel. Scaling the
+        # cluster back up needs to wait until both operations are finished.
+        kopf.register(
+            fn=ExpandVolumeSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
+            id="expand_volume",
+        )
+        kopf.register(
+            fn=SuspendClusterSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
+            id="suspend_cluster",
+        )
+        depends_on.extend(
+            [
+                f"{CLUSTER_UPDATE_ID}/suspend_cluster",
+                f"{CLUSTER_UPDATE_ID}/expand_volume",
+            ]
+        )
+        kopf.register(
+            fn=StartClusterSubHandler(
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
+                run_on_dep_failures=True,
+            )(),
+            id="start_cluster",
+        )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/start_cluster")
     kopf.register(
         fn=AfterClusterUpdateSubHandler(
             namespace,
