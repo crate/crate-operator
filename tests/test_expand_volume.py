@@ -126,7 +126,7 @@ async def test_expand_cluster_storage(
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Volume Expansion handler has not finished.",
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
 
