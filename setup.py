@@ -68,7 +68,7 @@ setup(
             "faker==13.3.4",
             "pytest==7.1.1",
             "pytest-aiohttp==0.3.0",
-            "pytest-asyncio==0.18.2",
+            "pytest-asyncio==0.18.3",
         ],
         "develop": [
             "black==22.3.0",
