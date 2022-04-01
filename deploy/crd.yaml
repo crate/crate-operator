@@ -281,7 +281,7 @@ spec:
                       resources:
                         properties:
                           cpus:
-                            description: Requested and limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                            description: Deprecated - please use requests/limits.
                             type: number
                           disk:
                             properties:
@@ -303,14 +303,30 @@ spec:
                             description: Allocated heap size relative to memory
                             format: float
                             type: number
+                          limits:
+                            properties:
+                              cpu:
+                                description: Limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                                type: number
+                              memory:
+                                description: Limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                                type: string
+                            type: object
                           memory:
-                            description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                            description: Deprecated - please use requests/limits.
                             type: string
+                          requests:
+                            properties:
+                              cpu:
+                                description: Requested CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                                type: number
+                              memory:
+                                description: Requested memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                                type: string
+                            type: object
                         required:
-                        - cpus
                         - disk
                         - heapRatio
-                        - memory
                         type: object
                       settings:
                         description: Additional settings to apply to all nodes of that type in the cluster.
@@ -340,7 +356,7 @@ spec:
                     resources:
                       properties:
                         cpus:
-                          description: Requested and limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                          description: Deprecated - please use requests/limits.
                           type: number
                         disk:
                           properties:
@@ -362,14 +378,30 @@ spec:
                           description: Allocated heap size relative to memory
                           format: float
                           type: number
+                        limits:
+                          properties:
+                            cpu:
+                              description: Limited CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: number
+                            memory:
+                              description: Limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: string
+                          type: object
                         memory:
-                          description: Requested and limited memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                          description: Deprecated - please use requests/limits.
                           type: string
+                        requests:
+                          properties:
+                            cpu:
+                              description: Requested CPUs for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: number
+                            memory:
+                              description: Requested memory for each CrateDB container. Supports the syntax documented in https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/.
+                              type: string
+                          type: object
                       required:
-                      - cpus
                       - disk
                       - heapRatio
-                      - memory
                       type: object
                     settings:
                       description: Additional settings to apply to all master nodes in the cluster.

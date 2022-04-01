@@ -38,6 +38,12 @@ CLUSTER_CREATE_ID = "cluster_create"
 DATA_NODE_NAME = "hot"
 DATA_PVC_NAME_PREFIX = "data"
 
+SHARED_NODE_SELECTOR_KEY = "cratedb"
+SHARED_NODE_SELECTOR_VALUE = "shared"
+SHARED_NODE_TOLERATION_EFFECT = "NoSchedule"
+SHARED_NODE_TOLERATION_KEY = "cratedb"
+SHARED_NODE_TOLERATION_VALUE = "shared"
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"

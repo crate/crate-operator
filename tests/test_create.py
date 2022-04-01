@@ -39,6 +39,8 @@ from crate.operator.create import (
     create_sql_exporter_config,
     create_statefulset,
     create_system_user,
+    get_cluster_resource_limits,
+    get_cluster_resource_requests,
     get_data_service,
     get_sql_exporter_config,
     get_statefulset_affinity,
@@ -49,7 +51,9 @@ from crate.operator.create import (
     get_statefulset_init_containers,
     get_statefulset_pvc,
     get_statefulset_volumes,
+    get_tolerations,
     get_topology_spread,
+    is_shared_resources_cluster,
 )
 from crate.operator.utils.formatting import b64decode, format_bitmath
 
@@ -92,14 +96,14 @@ class TestStatefulSetAffinity:
     def test_testing_true(self, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", True):
-            affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
+            affinity = get_statefulset_affinity(name, logging.getLogger(__name__), {})
 
         assert affinity is None
 
     def test_testing_false(self, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):
-            affinity = get_statefulset_affinity(name, logging.getLogger(__name__))
+            affinity = get_statefulset_affinity(name, logging.getLogger(__name__), {})
 
         apa = affinity.pod_anti_affinity
         terms = apa.required_during_scheduling_ignored_during_execution[0]
@@ -113,6 +117,83 @@ class TestStatefulSetAffinity:
             {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
         ]
         assert terms.topology_key == "kubernetes.io/hostname"
+
+    @pytest.mark.parametrize(
+        "node_spec",
+        [
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {"cpus": 0.5, "memory": "8589934592"},
+            },
+        ],
+    )
+    def test_dedicated_resources_affinity(self, node_spec, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            affinity = get_statefulset_affinity(
+                name, logging.getLogger(__name__), node_spec
+            )
+
+        apa = affinity.pod_anti_affinity
+        terms = apa.required_during_scheduling_ignored_during_execution[0]
+        expressions = terms.label_selector.match_expressions
+        assert [e.to_dict() for e in expressions] == [
+            {
+                "key": "app.kubernetes.io/component",
+                "operator": "In",
+                "values": ["cratedb"],
+            },
+            {"key": "app.kubernetes.io/name", "operator": "In", "values": [name]},
+        ]
+        assert terms.topology_key == "kubernetes.io/hostname"
+
+    @pytest.mark.parametrize(
+        "node_spec",
+        [
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.25, "memory": "8589934592"},
+                },
+            },
+        ],
+    )
+    def test_shared_resources_affinity(self, node_spec, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            affinity = get_statefulset_affinity(
+                name, logging.getLogger(__name__), node_spec
+            )
+
+        na = affinity.node_affinity
+        selector = na.required_during_scheduling_ignored_during_execution
+        terms = selector.node_selector_terms[0]
+        expressions = terms.match_expressions
+        assert [e.to_dict() for e in expressions] == [
+            {
+                "key": "cratedb",
+                "operator": "In",
+                "values": ["shared"],
+            }
+        ]
 
     @pytest.mark.parametrize("provider", [CloudProvider.AWS, CloudProvider.AZURE])
     def test_cloud_provider(self, provider, faker):
@@ -136,11 +217,84 @@ class TestStatefulSetAffinity:
         assert terms.topology_key == "topology.kubernetes.io/zone"
 
 
+class TestTolerations:
+    def test_testing_true(self, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", True):
+            tolerations = get_tolerations(name, logging.getLogger(__name__), {})
+
+        assert tolerations is None
+
+    @pytest.mark.parametrize(
+        "node_spec",
+        [
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {"cpus": 0.5, "memory": "8589934592"},
+            },
+        ],
+    )
+    def test_dedicated_resources_tolerations(self, node_spec, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
+
+        assert tolerations is None
+
+    @pytest.mark.parametrize(
+        "node_spec",
+        [
+            {
+                "name": "hot",
+                "replicas": 1,
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.25, "memory": "8589934592"},
+                },
+            },
+        ],
+    )
+    def test_shared_resources_tolerations(self, node_spec, faker):
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
+
+        toleration = tolerations[0]
+        expected = {
+            "key": "cratedb",
+            "operator": "Equal",
+            "value": "shared",
+            "effect": "NoSchedule",
+        }
+        assert expected.items() <= toleration.to_dict().items()
+
+
 class TestStatefulSetContainers:
     def test(self, faker, random_string):
         cpus = faker.pyfloat(min_value=0)
         memory = faker.numerify("%!!") + ".0" + faker.lexify("?i", "KMG")
-        node_spec = {"resources": {"cpus": cpus, "memory": memory}}
+        node_spec = {
+            "resources": {
+                "requests": {"cpu": cpus, "memory": memory},
+                "limits": {"cpu": cpus, "memory": memory},
+            }
+        }
         c_sql_exporter, c_crate = get_statefulset_containers(
             node_spec,
             1,
@@ -176,7 +330,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="data-node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -196,7 +356,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="data-node-",
             cluster_name=cluster_name,
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -217,7 +383,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix=crate_node_name_prefix,
             cluster_name="my-cluster",
             node_name=node_name,
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -245,7 +417,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -268,7 +446,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -289,7 +473,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": count}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": count},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -310,7 +500,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": cpus, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": cpus},
+                    "limits": {"cpu": cpus},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=True,
@@ -331,7 +527,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=False,
             is_master=master,
@@ -352,7 +554,13 @@ class TestStatefulSetCrateCommand:
             crate_node_name_prefix="node-",
             cluster_name="my-cluster",
             node_name="node",
-            node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
             cluster_settings=None,
             has_ssl=ssl,
             is_master=True,
@@ -377,7 +585,11 @@ class TestStatefulSetCrateCommand:
             cluster_name="my-cluster",
             node_name="node",
             node_spec={
-                "resources": {"cpus": 1, "disk": {"count": 1}},
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                },
                 "settings": {
                     "auth.host_based.enabled": "node-override",
                     "node.attr.node_setting": "node-override",
@@ -424,7 +636,13 @@ class TestStatefulSetCrateCommand:
                 crate_node_name_prefix="node-",
                 cluster_name="my-cluster",
                 node_name="node",
-                node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+                node_spec={
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    }
+                },
                 cluster_settings=None,
                 has_ssl=False,
                 is_master=True,
@@ -457,7 +675,11 @@ class TestStatefulSetCrateCommand:
                 cluster_name="my-cluster",
                 node_name="node",
                 node_spec={
-                    "resources": {"cpus": 1, "disk": {"count": 1}},
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    },
                     "settings": node_settings,
                 },
                 cluster_settings=cluster_settings,
@@ -651,8 +873,14 @@ class TestStatefulSet:
             {
                 "replicas": 3,
                 "resources": {
-                    "cpus": 0.5,
-                    "memory": "1Gi",
+                    "requests": {
+                        "cpu": 0.5,
+                        "memory": "1Gi",
+                    },
+                    "limits": {
+                        "cpu": 0.5,
+                        "memory": "1Gi",
+                    },
                     "heapRatio": 0.4,
                     "disk": {"count": 1, "size": "16Gi", "storageClass": "default"},
                 },
@@ -879,8 +1107,14 @@ class TestCreateCustomResource:
                                 "name": "data",
                                 "replicas": 3,
                                 "resources": {
-                                    "cpus": 0.5,
-                                    "memory": "1Gi",
+                                    "requests": {
+                                        "cpu": 0.5,
+                                        "memory": "1Gi",
+                                    },
+                                    "limits": {
+                                        "cpu": 0.5,
+                                        "memory": "1Gi",
+                                    },
                                     "heapRatio": 0.25,
                                     "disk": {
                                         "storageClass": "default",
@@ -942,8 +1176,14 @@ class TestCreateCustomResource:
                                 "labels": {"s.n.d.0.l": "1"},
                                 "replicas": 1,
                                 "resources": {
-                                    "cpus": 0.5,
-                                    "memory": "1Gi",
+                                    "requests": {
+                                        "cpu": 0.5,
+                                        "memory": "1Gi",
+                                    },
+                                    "limits": {
+                                        "cpu": 0.5,
+                                        "memory": "1Gi",
+                                    },
                                     "heapRatio": 0.25,
                                     "disk": {
                                         "storageClass": "default",
@@ -959,8 +1199,14 @@ class TestCreateCustomResource:
                             "labels": {"s.n.m.l": "1"},
                             "replicas": 3,
                             "resources": {
-                                "cpus": 0.5,
-                                "memory": "1Gi",
+                                "requests": {
+                                    "cpu": 0.5,
+                                    "memory": "1Gi",
+                                },
+                                "limits": {
+                                    "cpu": 0.5,
+                                    "memory": "1Gi",
+                                },
                                 "heapRatio": 0.25,
                                 "disk": {
                                     "storageClass": "default",
@@ -1003,3 +1249,134 @@ def test_sql_exporter_config():
     for filename in filenames:
         assert filename in result.data.keys()
         assert result.data[filename] is not None
+
+
+@pytest.mark.parametrize(
+    ("node_spec", "is_shared"),
+    [
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            False,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            False,
+        ),
+        (
+            {
+                "resources": {"cpus": 0.5, "memory": "8589934592"},
+            },
+            False,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.25, "memory": "8589934592"},
+                },
+            },
+            True,
+        ),
+    ],
+)
+def test_is_shared_resources_cluster(node_spec, is_shared):
+    assert is_shared_resources_cluster(node_spec) == is_shared
+
+
+@pytest.mark.parametrize(
+    ("node_spec", "expected_requests_cpu"),
+    [
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {"cpus": 0.5, "memory": "8589934592"},
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.25, "memory": "8589934592"},
+                },
+            },
+            0.25,
+        ),
+    ],
+)
+def test_get_cluster_resource_requests(node_spec, expected_requests_cpu):
+    assert (
+        get_cluster_resource_requests(
+            node_spec, resource_type="cpu", fallback_key="cpus"
+        )
+        == expected_requests_cpu
+    )
+
+
+@pytest.mark.parametrize(
+    ("node_spec", "expected_limits_cpu"),
+    [
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                },
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {"cpus": 0.5, "memory": "8589934592"},
+            },
+            0.5,
+        ),
+        (
+            {
+                "resources": {
+                    "limits": {"cpu": 0.5, "memory": "8589934592"},
+                    "requests": {"cpu": 0.25, "memory": "8589934592"},
+                },
+            },
+            0.5,
+        ),
+    ],
+)
+def test_get_cluster_resource_limits(node_spec, expected_limits_cpu):
+    assert (
+        get_cluster_resource_limits(node_spec, resource_type="cpu", fallback_key="cpus")
+        == expected_limits_cpu
+    )

@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Changed the operator CRD to be able to specify resource requests and limits
+  separately.
+
 2.11.0 (2022-04-07)
 -------------------
 

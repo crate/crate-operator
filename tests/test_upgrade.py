@@ -171,7 +171,7 @@ def test_upgrade_sts_command(total_nodes, old_quorum, data_nodes, new_quorum):
         crate_node_name_prefix="node-",
         cluster_name="my-cluster",
         node_name="node",
-        node_spec={"resources": {"cpus": 1, "disk": {"count": 1}}},
+        node_spec={"resources": {"limits": {"cpu": 1}, "disk": {"count": 1}}},
         cluster_settings=None,
         has_ssl=False,
         is_master=True,
