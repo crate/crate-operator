@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.11.0 (2022-04-07)
+-------------------
+
 * Removed two no-longer required migration handlers - these have been around for some
   time.
 
