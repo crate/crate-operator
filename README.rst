@@ -55,13 +55,14 @@ A minimal custom resource for a 3 node CrateDB cluster may look like this:
        - name: default
          replicas: 3
          resources:
-           cpus: 4
+           limits:
+             cpu: 4
+             memory: 4Gi
            disk:
              count: 1
              size: 128GiB
              storageClass: default
            heapRatio: 0.5
-           memory: 4Gi
 
 .. code-block:: console
 

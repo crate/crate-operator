@@ -102,8 +102,10 @@ async def start_cluster(
                         "name": DATA_NODE_NAME,
                         "replicas": hot_nodes,
                         "resources": {
-                            "cpus": 2,
-                            "memory": "4Gi",
+                            "limits": {
+                                "cpu": 2,
+                                "memory": "4Gi",
+                            },
                             "heapRatio": 0.25,
                             "disk": {
                                 "storageClass": config.DEBUG_VOLUME_STORAGE_CLASS,

@@ -41,6 +41,10 @@ from kubernetes_asyncio.client import (
     V1LabelSelector,
     V1LabelSelectorRequirement,
     V1LocalObjectReference,
+    V1NodeAffinity,
+    V1NodeSelector,
+    V1NodeSelectorRequirement,
+    V1NodeSelectorTerm,
     V1ObjectMeta,
     V1OwnerReference,
     V1PersistentVolumeClaim,
@@ -61,6 +65,7 @@ from kubernetes_asyncio.client import (
     V1StatefulSet,
     V1StatefulSetSpec,
     V1StatefulSetUpdateStrategy,
+    V1Toleration,
     V1TopologySpreadConstraint,
     V1Volume,
     V1VolumeMount,
@@ -73,6 +78,11 @@ from crate.operator.constants import (
     LABEL_COMPONENT,
     LABEL_NAME,
     LABEL_NODE_NAME,
+    SHARED_NODE_SELECTOR_KEY,
+    SHARED_NODE_SELECTOR_VALUE,
+    SHARED_NODE_TOLERATION_EFFECT,
+    SHARED_NODE_TOLERATION_KEY,
+    SHARED_NODE_TOLERATION_VALUE,
     CloudProvider,
     Port,
 )
@@ -152,30 +162,73 @@ async def create_sql_exporter_config(
         )
 
 
-def get_statefulset_affinity(name: str, logger: logging.Logger) -> Optional[V1Affinity]:
+def get_statefulset_affinity(
+    name: str, logger: logging.Logger, node_spec: Dict[str, Any]
+) -> Optional[V1Affinity]:
     if config.TESTING:
         logger.warning("Deploying cluster %s without any pod anti-affinity!", name)
         return None
 
-    return V1Affinity(
-        pod_anti_affinity=V1PodAntiAffinity(
-            required_during_scheduling_ignored_during_execution=[
-                V1PodAffinityTerm(
-                    label_selector=V1LabelSelector(
-                        match_expressions=[
-                            V1LabelSelectorRequirement(
-                                key=LABEL_COMPONENT, operator="In", values=["cratedb"]
-                            ),
-                            V1LabelSelectorRequirement(
-                                key=LABEL_NAME, operator="In", values=[name]
-                            ),
-                        ],
+    if is_shared_resources_cluster(node_spec):
+        return V1Affinity(
+            node_affinity=V1NodeAffinity(
+                required_during_scheduling_ignored_during_execution=V1NodeSelector(
+                    node_selector_terms=[
+                        V1NodeSelectorTerm(
+                            match_expressions=[
+                                V1NodeSelectorRequirement(
+                                    key=SHARED_NODE_SELECTOR_KEY,
+                                    operator="In",
+                                    values=[SHARED_NODE_SELECTOR_VALUE],
+                                )
+                            ]
+                        )
+                    ]
+                )
+            )
+        )
+    else:
+        return V1Affinity(
+            pod_anti_affinity=V1PodAntiAffinity(
+                required_during_scheduling_ignored_during_execution=[
+                    V1PodAffinityTerm(
+                        label_selector=V1LabelSelector(
+                            match_expressions=[
+                                V1LabelSelectorRequirement(
+                                    key=LABEL_COMPONENT,
+                                    operator="In",
+                                    values=["cratedb"],
+                                ),
+                                V1LabelSelectorRequirement(
+                                    key=LABEL_NAME, operator="In", values=[name]
+                                ),
+                            ],
+                        ),
+                        topology_key="kubernetes.io/hostname",
                     ),
-                    topology_key="kubernetes.io/hostname",
-                ),
-            ],
-        ),
-    )
+                ],
+            ),
+        )
+
+
+def get_tolerations(
+    name: str, logger: logging.Logger, node_spec: Dict[str, Any]
+) -> Optional[List[V1Toleration]]:
+    if config.TESTING:
+        logger.warning("Deploying cluster %s without any tolerations!", name)
+        return None
+
+    if is_shared_resources_cluster(node_spec):
+        return [
+            V1Toleration(
+                effect=SHARED_NODE_TOLERATION_EFFECT,
+                key=SHARED_NODE_TOLERATION_KEY,
+                operator="Equal",
+                value=SHARED_NODE_TOLERATION_VALUE,
+            )
+        ]
+
+    return None
 
 
 def get_topology_spread(
@@ -262,15 +315,31 @@ def get_statefulset_containers(
             ),
             resources=V1ResourceRequirements(
                 limits={
-                    "cpu": str(node_spec["resources"]["cpus"]),
+                    "cpu": str(
+                        get_cluster_resource_limits(
+                            node_spec, resource_type="cpu", fallback_key="cpus"
+                        )
+                    ),
                     "memory": format_bitmath(
-                        bitmath.parse_string_unsafe(node_spec["resources"]["memory"])
+                        bitmath.parse_string_unsafe(
+                            get_cluster_resource_limits(
+                                node_spec, resource_type="memory"
+                            )
+                        )
                     ),
                 },
                 requests={
-                    "cpu": str(node_spec["resources"]["cpus"]),
+                    "cpu": str(
+                        get_cluster_resource_requests(
+                            node_spec, resource_type="cpu", fallback_key="cpus"
+                        )
+                    ),
                     "memory": format_bitmath(
-                        bitmath.parse_string_unsafe(node_spec["resources"]["memory"])
+                        bitmath.parse_string_unsafe(
+                            get_cluster_resource_requests(
+                                node_spec, resource_type="memory"
+                            )
+                        )
                     ),
                 },
             ),
@@ -342,7 +411,13 @@ def get_statefulset_crate_command(
         "-Cpath.data": ",".join(
             f"/data/data{i}" for i in range(node_spec["resources"]["disk"]["count"])
         ),
-        "-Cprocessors": str(math.ceil(node_spec["resources"]["cpus"])),
+        "-Cprocessors": str(
+            math.ceil(
+                get_cluster_resource_limits(
+                    node_spec, resource_type="cpu", fallback_key="cpus"
+                )
+            )
+        ),
         "-Cnode.master": "true" if is_master else "false",
         "-Cnode.data": "true" if is_data else "false",
         "-Cnode.attr.node_name": node_name,
@@ -408,7 +483,9 @@ def get_statefulset_crate_env(
             name="CRATE_HEAP_SIZE",
             value=str(
                 int(
-                    bitmath.parse_string_unsafe(node_spec["resources"]["memory"]).bytes
+                    bitmath.parse_string_unsafe(
+                        get_cluster_resource_limits(node_spec, resource_type="memory")
+                    ).bytes
                     * node_spec["resources"]["heapRatio"]
                 )
             ),
@@ -674,12 +751,13 @@ def get_statefulset(
                     labels=node_labels,
                 ),
                 spec=V1PodSpec(
-                    affinity=get_statefulset_affinity(name, logger),
+                    affinity=get_statefulset_affinity(name, logger, node_spec),
                     topology_spread_constraints=get_topology_spread(name, logger),
                     containers=containers,
                     image_pull_secrets=image_pull_secrets,
                     init_containers=get_statefulset_init_containers(crate_image),
                     volumes=get_statefulset_volumes(name, ssl),
+                    tolerations=get_tolerations(name, logger, node_spec),
                 ),
             ),
             update_strategy=V1StatefulSetUpdateStrategy(type="OnDelete"),
@@ -961,6 +1039,46 @@ async def create_system_user(
             namespace=namespace,
             body=get_system_user_secret(owner_references, name, labels),
         )
+
+
+def is_shared_resources_cluster(node_spec: Dict[str, Any]) -> bool:
+    try:
+        cpu_request = node_spec["resources"].get("requests", {}).get("cpu")
+        cpu_limit = node_spec["resources"].get("limits", {}).get("cpu")
+        memory_request = node_spec["resources"].get("requests", {}).get("memory")
+        memory_limit = node_spec["resources"].get("limits", {}).get("memory")
+        if not (cpu_request or memory_request):
+            return False
+        return cpu_request != cpu_limit or memory_request != memory_limit
+    except KeyError:
+        return False
+
+
+def get_cluster_resource_requests(
+    node_spec: Dict[str, Any], *, resource_type: str, fallback_key: Optional[str] = None
+):
+    fallback_key = fallback_key or resource_type
+    return (
+        node_spec["resources"]
+        .get("requests", {})
+        .get(
+            resource_type,
+            get_cluster_resource_limits(
+                node_spec, resource_type=resource_type, fallback_key=fallback_key
+            ),
+        )
+    )
+
+
+def get_cluster_resource_limits(
+    node_spec: Dict[str, Any], *, resource_type: str, fallback_key: Optional[str] = None
+):
+    fallback_key = fallback_key or resource_type
+    return (
+        node_spec["resources"]
+        .get("limits", {})
+        .get(resource_type, node_spec["resources"].get(fallback_key))
+    )
 
 
 class CreateSqlExporterConfigSubHandler(StateBasedSubHandler):
