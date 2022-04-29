@@ -8,6 +8,8 @@ Unreleased
 * Changed the operator CRD to be able to specify resource requests and limits
   separately.
 
+* Update cratedbs CRD for Kubernetes 1.22 API changes.
+
 2.11.0 (2022-04-07)
 -------------------
 
