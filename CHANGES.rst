@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Eliminated the minimum of 1 replica data nodes to allow suspending clusters.
+
 2.12.0 (2022-05-03)
 -------------------
 

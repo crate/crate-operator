@@ -300,7 +300,6 @@ spec:
                           type: string
                         replicas:
                           description: Number of CrateDB nodes of this type.
-                          minimum: 1
                           type: number
                         resources:
                           properties:
