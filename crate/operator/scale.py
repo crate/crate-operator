@@ -586,15 +586,15 @@ async def scale_cluster(
                         apps, namespace, name, spec, total_number_of_nodes
                     )
 
-                    await check_nodes_present_or_gone(
-                        conn_factory,
-                        old_replicas,
-                        new_replicas,
-                        f"data-{node_name}",
-                        namespace,
-                        name,
-                        logger,
-                    )
+                await check_nodes_present_or_gone(
+                    conn_factory,
+                    old_replicas,
+                    new_replicas,
+                    f"data-{node_name}",
+                    namespace,
+                    name,
+                    logger,
+                )
 
     # Reset the deallocation
     if "master" in spec["nodes"]:
