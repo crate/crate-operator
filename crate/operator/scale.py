@@ -669,7 +669,15 @@ class ScaleSubHandler(StateBasedSubHandler):
 
             # If old value is zero, resume the cluster (it was suspended)
             # If new value is zero, suspend the cluster
-            if scale_data_diff_items[0][2] == 0 or scale_data_diff_items[0][3] == 0:
+            if (
+                # Ensure the diff data exists to keep mypy happy
+                scale_data_diff_items
+                and len(scale_data_diff_items[0]) >= 4
+                # Check for suspend or resume
+                and (
+                    scale_data_diff_items[0][2] == 0 or scale_data_diff_items[0][3] == 0
+                )
+            ):
                 await suspend_or_start_cluster(
                     apps,
                     core,
