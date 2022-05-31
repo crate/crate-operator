@@ -23,7 +23,6 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
-from operations import get_pods_in_cluster
 
 from crate.operator.constants import (
     API_GROUP,
@@ -32,6 +31,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
+from crate.operator.operations import get_pods_in_cluster
 from crate.operator.scale import parse_replicas, patch_command
 
 from .utils import (
