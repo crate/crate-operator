@@ -23,6 +23,7 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
+from operations import get_pods_in_cluster
 
 from crate.operator.constants import (
     API_GROUP,
@@ -173,7 +174,7 @@ async def test_scale_cluster(
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
-async def test_suspend_cluster(
+async def test_suspend_resume_cluster(
     faker,
     namespace,
     kopf_runner,
@@ -209,14 +210,32 @@ async def test_suspend_cluster(
         timeout=DEFAULT_TIMEOUT,
     )
 
+    num_pods = await get_pods_in_cluster(core, namespace, name)
+    assert num_pods == 0
+
+    # Request the cluster to be resumed
+    await _scale_cluster(coapi, name, namespace, 1)
+
     await assert_wait_for(
-        False,
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
         is_cluster_healthy,
         connection_factory(host, password),
-        0,
+        1,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
+
 
 @pytest.mark.k8s
 @pytest.mark.asyncio

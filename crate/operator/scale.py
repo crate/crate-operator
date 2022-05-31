@@ -567,12 +567,14 @@ async def scale_cluster(
                     ):
                         new_num_data_nodes = total_number_of_nodes - num_master_nodes
 
-                    await deallocate_nodes(
-                        conn_factory,
-                        new_num_data_nodes,
-                        excess_nodes,
-                        logger,
-                    )
+                    # Only deallocate nodes if the cluster is not being suspended
+                    if new_num_data_nodes > 0:
+                        await deallocate_nodes(
+                            conn_factory,
+                            new_num_data_nodes,
+                            excess_nodes,
+                            logger,
+                        )
 
                     await update_statefulset(
                         apps,
@@ -586,15 +588,17 @@ async def scale_cluster(
                         apps, namespace, name, spec, total_number_of_nodes
                     )
 
-                await check_nodes_present_or_gone(
-                    conn_factory,
-                    old_replicas,
-                    new_replicas,
-                    f"data-{node_name}",
-                    namespace,
-                    name,
-                    logger,
-                )
+                # Only check nodes if the cluster is not being suspended
+                if new_num_data_nodes > 0:
+                    await check_nodes_present_or_gone(
+                        conn_factory,
+                        old_replicas,
+                        new_replicas,
+                        f"data-{node_name}",
+                        namespace,
+                        name,
+                        logger,
+                    )
 
     # Reset the deallocation
     if "master" in spec["nodes"]:
@@ -684,7 +688,11 @@ class ScaleSubHandler(StateBasedSubHandler):
                     name,
                     old,
                     scale_master_diff_item,
-                    (kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None),
+                    (
+                        kopf.Diff(scale_data_diff_items)
+                        if scale_data_diff_items
+                        else None
+                    ),
                     logger,
                 )
 

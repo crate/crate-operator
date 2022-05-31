@@ -65,6 +65,7 @@ from crate.operator.webhooks import (
     WebhookTemporaryFailurePayload,
 )
 
+
 async def get_desired_nodes_count(namespace: str, name: str) -> int:
     """
     Returns the amount of replicas specified by the StatefulSet

@@ -20,6 +20,7 @@ from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.cratedb import connection_factory, get_healthiness
+from crate.operator.operations import get_desired_nodes_count
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.webhooks import (
@@ -28,7 +29,6 @@ from crate.operator.webhooks import (
     WebhookStatus,
     webhook_client,
 )
-from crate.operator.operations import get_desired_nodes_count
 
 HEALTHINESS_TO_STATUS = {
     1: PrometheusClusterStatus.GREEN,
