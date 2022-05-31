@@ -77,6 +77,11 @@ async def update_cratedb(
     elif context.get("ref", "") != hash:
         context["ref"] = hash
 
+    # Determines whether the before_cluster_update and after_cluster_update handlers
+    # will be registered
+    do_before_update = True
+    do_after_update = True
+
     do_upgrade = False
     do_restart = False
     do_scale = False
@@ -98,6 +103,12 @@ async def update_cratedb(
 
                 if old_spec.get("replicas") != new_spec.get("replicas"):
                     do_scale = True
+                    # When resuming the cluster do not register before_update
+                    if old_spec.get("replicas") == 0:
+                        do_before_update = False
+                    # When suspending the cluster do not register after_update
+                    elif new_spec.get("replicas") == 0:
+                        do_after_update = False
                 elif old_spec.get("resources", {}).get("disk", {}).get(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
@@ -106,11 +117,15 @@ async def update_cratedb(
     if not do_upgrade and not do_restart and not do_scale and not do_expand_volume:
         return
 
-    depends_on = [f"{CLUSTER_UPDATE_ID}/before_cluster_update"]
-    kopf.register(
-        fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
-        id="before_cluster_update",
-    )
+    depends_on = []
+
+    if do_before_update:
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
+        kopf.register(
+            fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
+            id="before_cluster_update",
+        )
+
     if do_upgrade:
         kopf.register(
             fn=UpgradeSubHandler(
@@ -177,16 +192,18 @@ async def update_cratedb(
             id="start_cluster",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/start_cluster")
-    kopf.register(
-        fn=AfterClusterUpdateSubHandler(
-            namespace,
-            name,
-            hash,
-            context,
-            depends_on=depends_on.copy(),
-            run_on_dep_failures=True,
-        )(),
-        id="after_cluster_update",
-    )
+
+    if do_after_update:
+        kopf.register(
+            fn=AfterClusterUpdateSubHandler(
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
+                run_on_dep_failures=True,
+            )(),
+            id="after_cluster_update",
+        )
 
     patch.status[CLUSTER_UPDATE_ID] = context

@@ -28,6 +28,7 @@ from crate.operator.webhooks import (
     WebhookStatus,
     webhook_client,
 )
+from crate.operator.operations import get_desired_nodes_count
 
 HEALTHINESS_TO_STATUS = {
     1: PrometheusClusterStatus.GREEN,
@@ -41,6 +42,11 @@ async def ping_cratedb_status(
     name: str,
     logger: logging.Logger,
 ) -> None:
+    desired_instances = await get_desired_nodes_count(namespace, name)
+    # When the cluster is meant to be suspended do not ping it
+    if desired_instances == 0:
+        return
+
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
         host = await get_host(core, namespace, name)

@@ -65,6 +65,18 @@ from crate.operator.webhooks import (
     WebhookTemporaryFailurePayload,
 )
 
+async def get_desired_nodes_count(namespace: str, name: str) -> int:
+    """
+    Returns the amount of replicas specified by the StatefulSet
+    """
+    sts_name = f"crate-data-hot-{name}"
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        statefulset = await apps.read_namespaced_stateful_set(
+            namespace=namespace, name=sts_name
+        )
+        return statefulset.spec.replicas
+
 
 def get_total_nodes_count(nodes: Dict[str, Any], type: str = "all") -> int:
     """

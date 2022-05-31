@@ -173,6 +173,53 @@ async def test_scale_cluster(
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
+async def test_suspend_cluster(
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    # Create a cluster with 1 node
+    host, password = await start_cluster(
+        name,
+        namespace,
+        core,
+        coapi,
+        1,
+    )
+
+    conn_factory = connection_factory(host, password)
+    await create_test_sys_jobs_table(conn_factory)
+
+    # Request the cluster to be suspended
+    await _scale_cluster(coapi, name, namespace, 0)
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        False,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        0,
+        err_msg="Cluster wasn't healthy after 5 minutes.",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
 async def test_scale_cluster_while_create_snapshot_running(
     faker, namespace, kopf_runner, api_client
 ):

@@ -34,7 +34,7 @@ from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
-from crate.operator.operations import get_total_nodes_count
+from crate.operator.operations import get_total_nodes_count, suspend_or_start_cluster
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
@@ -663,16 +663,30 @@ class ScaleSubHandler(StateBasedSubHandler):
             apps = AppsV1Api(api_client)
             core = CoreV1Api(api_client)
 
-            await scale_cluster(
-                apps,
-                core,
-                namespace,
-                name,
-                old,
-                scale_master_diff_item,
-                (kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None),
-                logger,
-            )
+            # If old value is zero, resume the cluster (it was suspended)
+            # If new value is zero, suspend the cluster
+            if scale_data_diff_items[0][2] == 0 or scale_data_diff_items[0][3] == 0:
+                await suspend_or_start_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    kopf.Diff(scale_data_diff_items),
+                    logger,
+                )
+            # If old and new values are not zero, it's just a standard scale operation
+            else:
+                await scale_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    scale_master_diff_item,
+                    (kopf.Diff(scale_data_diff_items) if scale_data_diff_items else None),
+                    logger,
+                )
 
         self.schedule_notification(
             WebhookEvent.SCALE,
