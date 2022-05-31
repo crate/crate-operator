@@ -29,7 +29,6 @@ from crate.operator.webhooks import (
     WebhookStatus,
     webhook_client,
 )
-from crate.operator.operations import get_desired_nodes_count
 
 HEALTHINESS_TO_STATUS = {
     1: PrometheusClusterStatus.GREEN,
