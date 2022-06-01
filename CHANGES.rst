@@ -12,6 +12,8 @@ Unreleased
 
 * Clusters can now be suspended (replicas set to 0, keeping the storage) and resumed.
 
+* Switch to the better maintained burningalchemist/sql_exporter.
+
 2.12.0 (2022-05-03)
 -------------------
 
