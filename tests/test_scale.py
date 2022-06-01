@@ -23,6 +23,7 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
+from kubernetes_asyncio.client.api_client import ApiException
 
 from crate.operator.constants import (
     API_GROUP,
@@ -210,7 +211,13 @@ async def test_suspend_resume_cluster(
         timeout=DEFAULT_TIMEOUT,
     )
 
-    num_pods = await get_pods_in_cluster(core, namespace, name)
+    num_pods = None
+    try:
+        await get_pods_in_cluster(core, namespace, name)
+    except ApiException as e:
+        if e.status == 404:
+            num_pods = 0
+
     assert num_pods == 0
 
     # Request the cluster to be resumed
