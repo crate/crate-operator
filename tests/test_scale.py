@@ -23,6 +23,7 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
+from kubernetes_asyncio.client.api_client import ApiException
 
 from crate.operator.constants import (
     API_GROUP,
@@ -31,6 +32,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
+from crate.operator.operations import get_pods_in_cluster
 from crate.operator.scale import parse_replicas, patch_command
 
 from .utils import (
@@ -168,6 +170,77 @@ async def test_scale_cluster(
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Scaling has not finished",
         timeout=DEFAULT_TIMEOUT,
+    )
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+async def test_suspend_resume_cluster(
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    # Create a cluster with 1 node
+    host, password = await start_cluster(
+        name,
+        namespace,
+        core,
+        coapi,
+        1,
+    )
+
+    conn_factory = connection_factory(host, password)
+    await create_test_sys_jobs_table(conn_factory)
+
+    # Request the cluster to be suspended
+    await _scale_cluster(coapi, name, namespace, 0)
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    num_pods = None
+    try:
+        await get_pods_in_cluster(core, namespace, name)
+    except ApiException as e:
+        if e.status == 404:
+            num_pods = 0
+
+    assert num_pods == 0
+
+    # Request the cluster to be resumed
+    await _scale_cluster(coapi, name, namespace, 1)
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        err_msg="Scaling has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        connection_factory(host, password),
+        1,
+        err_msg="Cluster wasn't healthy after 5 minutes.",
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
 

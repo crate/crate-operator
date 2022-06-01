@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Eliminated the minimum of 1 replica data nodes to allow suspending clusters.
+
+* Clusters can now be suspended (replicas set to 0, keeping the storage) and resumed.
+
 2.12.0 (2022-05-03)
 -------------------
 

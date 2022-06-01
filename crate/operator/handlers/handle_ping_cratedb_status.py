@@ -20,6 +20,7 @@ from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.cratedb import connection_factory, get_healthiness
+from crate.operator.operations import get_desired_nodes_count
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.webhooks import (
@@ -41,6 +42,11 @@ async def ping_cratedb_status(
     name: str,
     logger: logging.Logger,
 ) -> None:
+    desired_instances = await get_desired_nodes_count(namespace, name)
+    # When the cluster is meant to be suspended do not ping it
+    if desired_instances == 0:
+        return
+
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
         host = await get_host(core, namespace, name)
