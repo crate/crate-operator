@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Change the value of ``when_unsatisfiable`` in the ``TopologySpreadConstraint`` to
+  ``ScheduleAnyway`` to be able to deploy a cluster with more than 3 nodes again.
+
 * Eliminated the minimum of 1 replica data nodes to allow suspending clusters.
 
 * Clusters can now be suspended (replicas set to 0, keeping the storage) and resumed.
