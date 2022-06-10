@@ -36,7 +36,7 @@ from crate.operator.webhooks import (
 )
 
 EXPAND_REPLICAS_IN_PROGRESS_MSG = (
-    "Suspending cluster and waiting for Persistent " "Volume Claim(s) to be resized."
+    "Suspending cluster and waiting for Persistent Volume Claim(s) to be resized."
 )
 
 
