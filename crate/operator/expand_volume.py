@@ -35,6 +35,10 @@ from crate.operator.webhooks import (
     WebhookStatus,
 )
 
+EXPAND_REPLICAS_IN_PROGRESS_MSG = (
+    "Suspending cluster and waiting for Persistent " "Volume Claim(s) to be resized."
+)
+
 
 async def expand_volume(
     core: CoreV1Api,
@@ -59,8 +63,7 @@ async def expand_volume(
     await send_operation_progress_notification(
         namespace=namespace,
         name=name,
-        message="Suspending cluster and waiting for Persistent "
-        "Volume Claim(s) to be resized.",
+        message=EXPAND_REPLICAS_IN_PROGRESS_MSG,
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.UPDATE,

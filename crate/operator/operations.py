@@ -19,6 +19,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+from expand_volume import EXPAND_REPLICAS_IN_PROGRESS_MSG
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -457,6 +458,7 @@ async def suspend_or_start_cluster(
     old: kopf.Body,
     data_diff_items: kopf.Diff,
     logger: logging.Logger,
+    operation_in_progress_message: str,
 ):
     """
     Suspend or scale a cluster ``name``  back up, according to the given
@@ -533,11 +535,11 @@ async def suspend_or_start_cluster(
                     await update_statefulset_replicas(
                         apps, namespace, sts_name, statefulset, new_replicas
                     )
+
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
-                    message="Suspending cluster and waiting for Persistent "
-                    "Volume Claim(s) to be resized.",
+                    message=operation_in_progress_message,
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
@@ -839,6 +841,7 @@ class StartClusterSubHandler(StateBasedSubHandler):
                     old,
                     kopf.Diff(scale_data_diff_items),
                     logger,
+                    EXPAND_REPLICAS_IN_PROGRESS_MSG,
                 )
 
         await self.send_notifications(logger)
@@ -890,4 +893,5 @@ class SuspendClusterSubHandler(StateBasedSubHandler):
                     old,
                     kopf.Diff(scale_data_diff_items),
                     logger,
+                    EXPAND_REPLICAS_IN_PROGRESS_MSG,
                 )
