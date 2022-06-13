@@ -132,6 +132,9 @@ class Config:
     #: The port on which prometheus exposes metrics
     PROMETHEUS_PORT: int = 8080
 
+    #: The sql_exporter image to use
+    SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.8.6"
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -276,6 +279,9 @@ class Config:
             "WEBHOOK_USERNAME", default=self.WEBHOOK_USERNAME
         )
         self.JOBS_TABLE = self.env("JOBS_TABLE", default=self.JOBS_TABLE)
+        self.SQL_EXPORTER_IMAGE = self.env(
+            "SQL_EXPORTER_IMAGE", default=self.SQL_EXPORTER_IMAGE
+        )
         cratedb_status_interval = int(
             self.env(
                 "CRATEDB_STATUS_CHECK_INTERVAL",

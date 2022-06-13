@@ -272,13 +272,7 @@ def get_statefulset_containers(
     crate_env: List[V1EnvVar],
     crate_volume_mounts: List[V1VolumeMount],
 ) -> List[V1Container]:
-    # There is no official release of 0.6, so let's use our own build
-    # from commit 1498107. Also, because it's a private registry, let's use the
-    # official release during tests so we don't need Docker secrets.
-    # https://github.com/free/sql_exporter/commit/1498107
-    sql_exporter_image = "cloud.registry.cr8.net/crate/sql-exporter:1498107"
-    if config.TESTING:
-        sql_exporter_image = "githubfree/sql_exporter:latest"
+    sql_exporter_image = config.SQL_EXPORTER_IMAGE
     return [
         V1Container(
             command=[
