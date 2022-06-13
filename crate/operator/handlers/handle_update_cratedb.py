@@ -19,13 +19,15 @@ import hashlib
 import kopf
 
 from crate.operator.constants import CLUSTER_UPDATE_ID
-from crate.operator.expand_volume import ExpandVolumeSubHandler
+from crate.operator.expand_volume import (
+    ExpandVolumeSubHandler,
+    StartClusterSubHandler,
+    SuspendClusterSubHandler,
+)
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
     RestartSubHandler,
-    StartClusterSubHandler,
-    SuspendClusterSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
