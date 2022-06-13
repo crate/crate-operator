@@ -19,7 +19,6 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
-from expand_volume import EXPAND_REPLICAS_IN_PROGRESS_MSG
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -51,6 +50,7 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
+from crate.operator.expand_volume import EXPAND_REPLICAS_IN_PROGRESS_MSG
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
