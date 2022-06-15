@@ -191,7 +191,6 @@ async def update_cratedb(
     if do_resume:
         kopf.register(
             fn=StartClusterSubHandler(
-                SUSPEND_IN_PROGRESS_MSG,
                 namespace,
                 name,
                 hash,
@@ -200,6 +199,7 @@ async def update_cratedb(
             )(),
             id="resume_cluster",
         )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/resume_cluster")
     if do_expand_volume:
         # Volume expansion and cluster suspension can run in parallel. Scaling the
         # cluster back up needs to wait until both operations are finished.
@@ -228,7 +228,6 @@ async def update_cratedb(
         )
         kopf.register(
             fn=StartClusterSubHandler(
-                EXPAND_REPLICAS_IN_PROGRESS_MSG,
                 namespace,
                 name,
                 hash,
@@ -257,28 +256,6 @@ async def update_cratedb(
 
 
 class StartClusterSubHandler(StateBasedSubHandler):
-    in_progress_message: str
-
-    def __init__(
-        self,
-        in_progress_msg: str,
-        namespace: str,
-        name: str,
-        hash: str,
-        context: dict,
-        depends_on,
-        run_on_dep_failures=False,
-    ):
-        self.in_progress_message = in_progress_msg
-        super().__init__(
-            namespace,
-            name,
-            hash,
-            context,
-            depends_on=depends_on,
-            run_on_dep_failures=run_on_dep_failures,
-        )
-
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
     async def handle(  # type: ignore
@@ -323,7 +300,7 @@ class StartClusterSubHandler(StateBasedSubHandler):
                     old,
                     kopf.Diff(scale_data_diff_items),
                     logger,
-                    self.in_progress_message,
+                    None,
                 )
 
         await self.send_notifications(logger)

@@ -444,7 +444,7 @@ async def suspend_or_start_cluster(
     old: kopf.Body,
     data_diff_items: kopf.Diff,
     logger: logging.Logger,
-    operation_in_progress_message: str,
+    operation_in_progress_message: Optional[str],
 ):
     """
     Suspend or scale a cluster ``name``  back up, according to the given
@@ -525,7 +525,8 @@ async def suspend_or_start_cluster(
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
-                    message=operation_in_progress_message,
+                    message=operation_in_progress_message
+                    or "Cluster is being suspended.",
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
