@@ -15,22 +15,28 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import hashlib
+import logging
+from typing import Any, List, Optional
 
 import kopf
+from kubernetes_asyncio.client import ApiClient, AppsV1Api, CoreV1Api
 
+from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import (
+    EXPAND_REPLICAS_IN_PROGRESS_MSG,
     ExpandVolumeSubHandler,
-    StartClusterSubHandler,
-    SuspendClusterSubHandler,
 )
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
     RestartSubHandler,
+    suspend_or_start_cluster,
 )
-from crate.operator.scale import ScaleSubHandler
+from crate.operator.scale import SUSPEND_IN_PROGRESS_MSG, ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.utils import crate
+from crate.operator.utils.kopf import StateBasedSubHandler
 
 
 async def update_cratedb(
@@ -87,6 +93,8 @@ async def update_cratedb(
     do_upgrade = False
     do_restart = False
     do_scale = False
+    do_suspend = False
+    do_resume = False
     do_expand_volume = False
 
     for _, field_path, old_spec, new_spec in diff:
@@ -104,13 +112,16 @@ async def update_cratedb(
                 new_spec = new_spec[node_spec_idx]
 
                 if old_spec.get("replicas") != new_spec.get("replicas"):
-                    do_scale = True
                     # When resuming the cluster do not register before_update
                     if old_spec.get("replicas") == 0:
+                        do_resume = True
                         do_before_update = False
                     # When suspending the cluster do not register after_update
                     elif new_spec.get("replicas") == 0:
+                        do_suspend = True
                         do_after_update = False
+                    else:
+                        do_scale = True
                 elif old_spec.get("resources", {}).get("disk", {}).get(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
@@ -156,11 +167,39 @@ async def update_cratedb(
     if do_scale:
         kopf.register(
             fn=ScaleSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
             )(),
             id="scale",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
+    if do_suspend:
+        kopf.register(
+            fn=SuspendClusterSubHandler(
+                SUSPEND_IN_PROGRESS_MSG,
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
+            )(),
+            id="suspend_cluster",
+        )
+    if do_resume:
+        kopf.register(
+            fn=StartClusterSubHandler(
+                SUSPEND_IN_PROGRESS_MSG,
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
+            )(),
+            id="resume_cluster",
+        )
     if do_expand_volume:
         # Volume expansion and cluster suspension can run in parallel. Scaling the
         # cluster back up needs to wait until both operations are finished.
@@ -172,7 +211,12 @@ async def update_cratedb(
         )
         kopf.register(
             fn=SuspendClusterSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
+                EXPAND_REPLICAS_IN_PROGRESS_MSG,
+                namespace,
+                name,
+                hash,
+                context,
+                depends_on=depends_on.copy(),
             )(),
             id="suspend_cluster",
         )
@@ -184,6 +228,7 @@ async def update_cratedb(
         )
         kopf.register(
             fn=StartClusterSubHandler(
+                EXPAND_REPLICAS_IN_PROGRESS_MSG,
                 namespace,
                 name,
                 hash,
@@ -209,3 +254,148 @@ async def update_cratedb(
         )
 
     patch.status[CLUSTER_UPDATE_ID] = context
+
+
+class StartClusterSubHandler(StateBasedSubHandler):
+    in_progress_message: str
+
+    def __init__(
+        self,
+        in_progress_msg: str,
+        namespace: str,
+        name: str,
+        hash: str,
+        context: dict,
+        depends_on,
+        run_on_dep_failures=False,
+    ):
+        self.in_progress_message = in_progress_msg
+        super().__init__(
+            namespace,
+            name,
+            hash,
+            context,
+            depends_on=depends_on,
+            run_on_dep_failures=run_on_dep_failures,
+        )
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        spec: kopf.Spec,
+        old: kopf.Body,
+        diff: kopf.Diff,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
+        for operation, field_path, old_value, new_value in diff:
+            if field_path == ("spec", "nodes", "data"):
+                scale_data_diff_items = []
+                for node_spec_idx in range(len(old_value)):
+                    new_spec = new_value[node_spec_idx]
+
+                    scale_data_diff_items.append(
+                        kopf.DiffItem(
+                            kopf.DiffOperation.CHANGE,
+                            (str(node_spec_idx), "replicas"),
+                            0,
+                            new_spec["replicas"],
+                        )
+                    )
+            else:
+                logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+        if scale_data_diff_items:
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+                core = CoreV1Api(api_client)
+
+                await suspend_or_start_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    kopf.Diff(scale_data_diff_items),
+                    logger,
+                    self.in_progress_message,
+                )
+
+        await self.send_notifications(logger)
+
+
+class SuspendClusterSubHandler(StateBasedSubHandler):
+    in_progress_message: str
+
+    def __init__(
+        self,
+        in_progress_msg: str,
+        namespace: str,
+        name: str,
+        hash: str,
+        context: dict,
+        depends_on=None,
+        run_on_dep_failures=False,
+    ):
+        self.in_progress_message = in_progress_msg
+        super().__init__(
+            namespace,
+            name,
+            hash,
+            context,
+            depends_on=depends_on,
+            run_on_dep_failures=run_on_dep_failures,
+        )
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        spec: kopf.Spec,
+        old: kopf.Body,
+        diff: kopf.Diff,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
+
+        for operation, field_path, old_value, new_value in diff:
+            if field_path == ("spec", "nodes", "data"):
+                scale_data_diff_items = []
+                for node_spec_idx in range(len(old_value)):
+                    old_spec = old_value[node_spec_idx]
+
+                    # scale all data nodes to 0 replicas
+                    scale_data_diff_items.append(
+                        kopf.DiffItem(
+                            kopf.DiffOperation.CHANGE,
+                            (str(node_spec_idx), "replicas"),
+                            old_spec["replicas"],
+                            0,
+                        )
+                    )
+            else:
+                logger.info("Ignoring operation %s on field %s", operation, field_path)
+
+        if scale_data_diff_items:
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+                core = CoreV1Api(api_client)
+
+                await suspend_or_start_cluster(
+                    apps,
+                    core,
+                    namespace,
+                    name,
+                    old,
+                    kopf.Diff(scale_data_diff_items),
+                    logger,
+                    self.in_progress_message,
+                )
