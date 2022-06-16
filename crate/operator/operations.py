@@ -444,6 +444,7 @@ async def suspend_or_start_cluster(
     old: kopf.Body,
     data_diff_items: kopf.Diff,
     logger: logging.Logger,
+    operation_in_progress_message: Optional[str],
 ):
     """
     Suspend or scale a cluster ``name``  back up, according to the given
@@ -520,11 +521,12 @@ async def suspend_or_start_cluster(
                     await update_statefulset_replicas(
                         apps, namespace, sts_name, statefulset, new_replicas
                     )
+
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
-                    message="Suspending cluster and waiting for Persistent "
-                    "Volume Claim(s) to be resized.",
+                    message=operation_in_progress_message
+                    or "Cluster is being suspended.",
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
@@ -779,102 +781,3 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
                 logger,
                 setting="cluster.routing.allocation.enable",
             )
-
-
-class StartClusterSubHandler(StateBasedSubHandler):
-    @crate.on.error(error_handler=crate.send_update_failed_notification)
-    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        spec: kopf.Spec,
-        old: kopf.Body,
-        diff: kopf.Diff,
-        logger: logging.Logger,
-        **kwargs: Any,
-    ):
-        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
-
-        for operation, field_path, old_value, new_value in diff:
-            if field_path == ("spec", "nodes", "data"):
-                scale_data_diff_items = []
-                for node_spec_idx in range(len(old_value)):
-                    new_spec = new_value[node_spec_idx]
-
-                    scale_data_diff_items.append(
-                        kopf.DiffItem(
-                            kopf.DiffOperation.CHANGE,
-                            (str(node_spec_idx), "replicas"),
-                            0,
-                            new_spec["replicas"],
-                        )
-                    )
-            else:
-                logger.info("Ignoring operation %s on field %s", operation, field_path)
-
-        if scale_data_diff_items:
-            async with ApiClient() as api_client:
-                apps = AppsV1Api(api_client)
-                core = CoreV1Api(api_client)
-
-                await suspend_or_start_cluster(
-                    apps,
-                    core,
-                    namespace,
-                    name,
-                    old,
-                    kopf.Diff(scale_data_diff_items),
-                    logger,
-                )
-
-        await self.send_notifications(logger)
-
-
-class SuspendClusterSubHandler(StateBasedSubHandler):
-    @crate.on.error(error_handler=crate.send_update_failed_notification)
-    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        spec: kopf.Spec,
-        old: kopf.Body,
-        diff: kopf.Diff,
-        logger: logging.Logger,
-        **kwargs: Any,
-    ):
-        scale_data_diff_items: Optional[List[kopf.DiffItem]] = None
-
-        for operation, field_path, old_value, new_value in diff:
-            if field_path == ("spec", "nodes", "data"):
-                scale_data_diff_items = []
-                for node_spec_idx in range(len(old_value)):
-                    old_spec = old_value[node_spec_idx]
-
-                    # scale all data nodes to 0 replicas
-                    scale_data_diff_items.append(
-                        kopf.DiffItem(
-                            kopf.DiffOperation.CHANGE,
-                            (str(node_spec_idx), "replicas"),
-                            old_spec["replicas"],
-                            0,
-                        )
-                    )
-            else:
-                logger.info("Ignoring operation %s on field %s", operation, field_path)
-
-        if scale_data_diff_items:
-            async with ApiClient() as api_client:
-                apps = AppsV1Api(api_client)
-                core = CoreV1Api(api_client)
-
-                await suspend_or_start_cluster(
-                    apps,
-                    core,
-                    namespace,
-                    name,
-                    old,
-                    kopf.Diff(scale_data_diff_items),
-                    logger,
-                )
