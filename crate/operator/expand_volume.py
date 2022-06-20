@@ -59,8 +59,7 @@ async def expand_volume(
     await send_operation_progress_notification(
         namespace=namespace,
         name=name,
-        message="Suspending cluster and waiting for Persistent "
-        "Volume Claim(s) to be resized.",
+        message="Suspending cluster.",
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.UPDATE,
