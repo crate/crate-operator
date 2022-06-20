@@ -48,8 +48,6 @@ from crate.operator.webhooks import (
     WebhookStatus,
 )
 
-SUSPEND_IN_PROGRESS_MSG = "Suspending cluster."
-
 
 def parse_replicas(r: str) -> int:
     """
@@ -684,7 +682,6 @@ class ScaleSubHandler(StateBasedSubHandler):
                     old,
                     kopf.Diff(scale_data_diff_items),
                     logger,
-                    SUSPEND_IN_PROGRESS_MSG,
                 )
             # If old and new values are not zero, it's just a standard scale operation
             else:
