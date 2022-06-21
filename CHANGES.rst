@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.13.0 (2022-06-21)
+-------------------
+
 * Change the value of ``when_unsatisfiable`` in the ``TopologySpreadConstraint`` to
   ``ScheduleAnyway`` to be able to deploy a cluster with more than 3 nodes again.
 
