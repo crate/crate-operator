@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+import datetime
 import logging
 
 import kopf
@@ -116,12 +116,13 @@ async def cluster_update(
     patch: kopf.Patch,
     status: kopf.Status,
     diff: kopf.Diff,
+    started: datetime.datetime,
     **_kwargs,
 ):
     """
     Handles updates to the CrateDB resource.
     """
-    await update_cratedb(namespace, name, patch, status, diff)
+    await update_cratedb(namespace, name, patch, status, diff, started)
 
 
 @kopf.on.update("", "v1", "secrets", labels={LABEL_USER_PASSWORD: "true"})

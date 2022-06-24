@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fix a bug that would lead to the operator getting stuck when performing repeated
+  operations (i.e. suspend/resume/suspend/resume/...)
+
 2.13.0 (2022-06-21)
 -------------------
 

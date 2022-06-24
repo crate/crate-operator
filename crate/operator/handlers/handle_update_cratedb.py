@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+import datetime
 import hashlib
 
 import kopf
@@ -37,6 +37,7 @@ async def update_cratedb(
     patch: kopf.Patch,
     status: kopf.Status,
     diff: kopf.Diff,
+    started: datetime.datetime,
 ):
     """
     Handle cluster updates.
@@ -69,9 +70,14 @@ async def update_cratedb(
     upon. Since kopf *does not clean up statuses*, when we start a new run we check if
     the hash matches - if not, it means we can disregard any refs that are not for this
     run.
+
+    The hash includes the new diff + the time this particular run started.
+    This helps avoid duplicate hashes for situations when the same op is
+    performed repeatedly, i.e. suspend/resume/suspend/resume/...
     """
     context = status.get(CLUSTER_UPDATE_ID)
-    hash = hashlib.md5(str(diff).encode("utf-8")).hexdigest()
+    hash_string = str(diff) + str(started)
+    hash = hashlib.md5(hash_string.encode("utf-8")).hexdigest()
     if not context:
         context = {"ref": hash}
     elif context.get("ref", "") != hash:
