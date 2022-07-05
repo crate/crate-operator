@@ -42,7 +42,12 @@ from kubernetes_asyncio.client import (
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
-from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME, SYSTEM_USERNAME
+from crate.operator.constants import (
+    BACKUP_METRICS_DEPLOYMENT_NAME,
+    LABEL_COMPONENT,
+    LABEL_NAME,
+    SYSTEM_USERNAME,
+)
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
@@ -217,7 +222,7 @@ def get_backup_metrics_exporter(
     ] + get_backup_env(name, http_port, backup_aws, has_ssl)
     return V1Deployment(
         metadata=V1ObjectMeta(
-            name=f"backup-metrics-{name}",
+            name=BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
             labels=labels,
             owner_references=owner_references,
         ),
@@ -233,7 +238,7 @@ def get_backup_metrics_exporter(
                         "prometheus.io/scrape": "true",
                     },
                     labels=labels,
-                    name=f"backup-metrics-{name}",
+                    name=BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
                 ),
                 spec=V1PodSpec(
                     containers=[
