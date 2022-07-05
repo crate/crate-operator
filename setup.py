@@ -44,7 +44,7 @@ setup(
     package_data={"crate.operator": ["data/*"]},
     setup_requires=["setuptools>=58", "setuptools_scm>=6.2"],
     install_requires=[
-        "aiopg==1.3.3",
+        "aiopg==1.3.4",
         "bitmath==1.3.3.1",
         "kopf==1.35.1",
         # Careful with 22+ - it is currently not compatible
