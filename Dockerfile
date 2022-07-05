@@ -24,6 +24,11 @@ LABEL license="AGPLv3" \
 WORKDIR /etc/cloud
 RUN useradd -U -M crate-operator
 
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /src/dist /wheels
 
 RUN pip install --no-cache-dir -U pip wheel && \
