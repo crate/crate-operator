@@ -14,25 +14,28 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import sys
 
 import pytest
 from kubernetes_asyncio.client import (
+    AppsV1Api,
     BatchV1beta1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1Namespace,
 )
-from kubernetes_asyncio.client.api_client import ApiException
 
 from crate.operator.constants import (
     API_GROUP,
+    BACKUP_METRICS_DEPLOYMENT_NAME,
+    DATA_NODE_NAME,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
-from crate.operator.operations import get_pods_in_cluster
+from crate.operator.operations import get_pods_in_deployment, get_pods_in_statefulset
 from crate.operator.scale import parse_replicas, patch_command
 
 from .utils import (
@@ -46,6 +49,7 @@ from .utils import (
     insert_test_snapshot_job,
     is_cluster_healthy,
     is_kopf_handler_finished,
+    start_backup_metrics,
     start_cluster,
 )
 
@@ -181,6 +185,7 @@ async def test_suspend_resume_cluster(
     kopf_runner,
     api_client,
 ):
+    apps = AppsV1Api(api_client)
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
@@ -197,6 +202,16 @@ async def test_suspend_resume_cluster(
     conn_factory = connection_factory(host, password)
     await create_test_sys_jobs_table(conn_factory)
 
+    await start_backup_metrics(name, namespace, faker)
+
+    await assert_wait_for(
+        True,
+        does_deployment_exist,
+        apps,
+        namespace.metadata.name,
+        BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
+    )
+
     # Request the cluster to be suspended
     await _scale_cluster(coapi, name, namespace, 0)
 
@@ -207,18 +222,30 @@ async def test_suspend_resume_cluster(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
-        err_msg="Scaling has not finished",
+        err_msg="Scaling down has not finished",
+        timeout=DEFAULT_TIMEOUT * 2,
+    )
+
+    await assert_wait_for(
+        False,
+        does_backup_metrics_pod_exist,
+        core,
+        name,
+        namespace.metadata.name,
+        err_msg="Backup metrics has not been scaled down.",
         timeout=DEFAULT_TIMEOUT,
     )
 
-    num_pods = None
-    try:
-        await get_pods_in_cluster(core, namespace, name)
-    except ApiException as e:
-        if e.status == 404:
-            num_pods = 0
-
-    assert num_pods == 0
+    await assert_wait_for(
+        False,
+        do_crate_pods_exist,
+        core,
+        name,
+        namespace.metadata.name,
+        DATA_NODE_NAME,
+        err_msg="CrateDB pods still exist.",
+        timeout=DEFAULT_TIMEOUT,
+    )
 
     # Request the cluster to be resumed
     await _scale_cluster(coapi, name, namespace, 1)
@@ -230,8 +257,8 @@ async def test_suspend_resume_cluster(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
-        err_msg="Scaling has not finished",
-        timeout=DEFAULT_TIMEOUT,
+        err_msg="Scaling up has not finished",
+        timeout=DEFAULT_TIMEOUT * 2,
     )
 
     await assert_wait_for(
@@ -241,6 +268,16 @@ async def test_suspend_resume_cluster(
         1,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    await assert_wait_for(
+        True,
+        does_backup_metrics_pod_exist,
+        core,
+        name,
+        namespace.metadata.name,
+        err_msg="Backup metrics has not been scaled up.",
+        timeout=DEFAULT_TIMEOUT,
     )
 
 
@@ -422,3 +459,24 @@ async def _scale_cluster(
         name=name,
         body=patch_body,
     )
+
+    await asyncio.sleep(1.0)
+
+
+async def does_backup_metrics_pod_exist(
+    core: CoreV1Api, name: str, namespace: V1Namespace
+) -> bool:
+    backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
+    return len(backup_metrics_pods) > 0
+
+
+async def does_deployment_exist(apps: AppsV1Api, namespace: str, name: str) -> bool:
+    deployments = await apps.list_namespaced_deployment(namespace=namespace)
+    return name in (d.metadata.name for d in deployments.items)
+
+
+async def do_crate_pods_exist(
+    core: CoreV1Api, name: str, namespace: V1Namespace, node_name: str
+) -> bool:
+    crate_pods = await get_pods_in_statefulset(core, namespace, name, node_name)
+    return len(crate_pods) > 0

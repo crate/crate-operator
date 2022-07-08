@@ -20,7 +20,11 @@ import pytest
 from kubernetes_asyncio.client import AppsV1Api, BatchV1beta1Api, V1beta1CronJob
 
 from crate.operator.backup import create_backups
-from crate.operator.constants import LABEL_COMPONENT, LABEL_NAME
+from crate.operator.constants import (
+    BACKUP_METRICS_DEPLOYMENT_NAME,
+    LABEL_COMPONENT,
+    LABEL_NAME,
+)
 
 from .utils import assert_wait_for
 
@@ -107,7 +111,7 @@ class TestBackup:
             self.does_deployment_exist,
             apps,
             namespace.metadata.name,
-            f"backup-metrics-{name}",
+            BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
         )
 
     async def test_create_with_custom_backup_location(
@@ -207,7 +211,9 @@ class TestBackup:
         )
         assert (
             await self.does_deployment_exist(
-                apps, namespace.metadata.name, f"backup-metrics-{name}"
+                apps,
+                namespace.metadata.name,
+                BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
             )
             is False
         )

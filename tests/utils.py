@@ -29,11 +29,16 @@ from kubernetes_asyncio.client import (
     V1Namespace,
 )
 
+from crate.operator.backup import create_backups
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_NODE_NAME,
     KOPF_STATE_STORE_PREFIX,
+    LABEL_COMPONENT,
+    LABEL_MANAGED_BY,
+    LABEL_NAME,
+    LABEL_PART_OF,
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import (
@@ -160,6 +165,61 @@ async def start_cluster(
         )
 
     return host, password
+
+
+async def start_backup_metrics(
+    name: str,
+    namespace: V1Namespace,
+    faker,
+):
+    backups_spec = {
+        "aws": {
+            "accessKeyId": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "basePath": faker.uri_path() + "/",
+            "cron": "1 2 3 4 5",
+            "region": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "bucket": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "secretAccessKey": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+        },
+    }
+
+    await create_backups(
+        None,
+        namespace.metadata.name,
+        name,
+        {
+            LABEL_COMPONENT: "backup",
+            LABEL_MANAGED_BY: "crate-operator",
+            LABEL_NAME: name,
+            LABEL_PART_OF: "cratedb",
+        },
+        32581,
+        23851,
+        backups_spec,
+        None,
+        True,
+        logger,
+    )
 
 
 async def is_cluster_healthy(

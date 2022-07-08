@@ -681,6 +681,7 @@ class ScaleSubHandler(StateBasedSubHandler):
                     name,
                     old,
                     kopf.Diff(scale_data_diff_items),
+                    True,
                     logger,
                 )
             # If old and new values are not zero, it's just a standard scale operation

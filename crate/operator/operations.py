@@ -37,6 +37,7 @@ from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.config import config
 from crate.operator.constants import (
+    BACKUP_METRICS_DEPLOYMENT_NAME,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -197,6 +198,30 @@ async def get_pvcs_in_namespace(
     return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pvcs.items]
 
 
+async def get_pods_in_deployment(
+    core: CoreV1Api, namespace: str, name: str
+) -> List[Dict[str, str]]:
+    """
+    Return a list of all pod IDs and names belonging to a given Deployment.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    """
+    labels = {
+        LABEL_COMPONENT: "backup",
+        LABEL_MANAGED_BY: "crate-operator",
+        LABEL_NAME: name,
+        LABEL_PART_OF: "cratedb",
+    }
+    label_selector = ",".join(f"{k}={v}" for k, v in labels.items())
+
+    all_pods: V1PodList = await core.list_namespaced_pod(
+        namespace=namespace, label_selector=label_selector
+    )
+    return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
+
+
 async def check_all_data_nodes_gone(
     core: CoreV1Api,
     namespace: str,
@@ -216,7 +241,7 @@ async def check_all_data_nodes_gone(
             await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
         )
     if pending_pods:
-        raise kopf.TemporaryError(f"Wating for pods to be gone {pending_pods}")
+        raise kopf.TemporaryError(f"Waiting for pods to be gone {pending_pods}")
 
 
 async def check_all_data_nodes_present(
@@ -276,6 +301,28 @@ async def check_all_data_nodes_present(
         raise kopf.TemporaryError("Waiting for database connection.", delay=15)
 
 
+async def check_backup_metrics_pod_count(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    desired_replicas: int,
+):
+    """
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param desired_replicas: Number of desired replicas.
+    :raises: A :class:`kopf.TemporaryError` when nodes count does not match the
+        desired replicas.
+    """
+    backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
+    if len(backup_metrics_pods) != desired_replicas:
+        raise kopf.TemporaryError(
+            f"Waiting for backup metrics pods {backup_metrics_pods} to match desired "
+            f"number of replicas {desired_replicas}"
+        )
+
+
 async def check_cluster_healthy(
     name: str, namespace: str, apps: AppsV1Api, conn_factory, logger
 ):
@@ -327,6 +374,30 @@ async def update_statefulset_replicas(
         body["spec"]["replicas"] = replicas
         await apps.patch_namespaced_stateful_set(
             namespace=namespace, name=sts_name, body=body
+        )
+
+
+async def update_deployment_replicas(
+    apps: AppsV1Api,
+    namespace: Optional[str],
+    name: Optional[str],
+    replicas: Optional[int],
+):
+    """
+    Call the Kubernetes API and update the number of replicas.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the Kubernetes Deployment to update.
+    :param replicas: The new number of replicas for the Deployment.
+    """
+    body: Dict[str, Any] = {
+        "spec": {},
+    }
+    if replicas is not None:
+        body["spec"]["replicas"] = replicas
+        await apps.patch_namespaced_deployment(
+            namespace=namespace, name=name, body=body
         )
 
 
@@ -443,6 +514,7 @@ async def suspend_or_start_cluster(
     name: str,
     old: kopf.Body,
     data_diff_items: kopf.Diff,
+    scale_backup_metrics: bool,
     logger: logging.Logger,
 ):
     """
@@ -456,6 +528,9 @@ async def suspend_or_start_cluster(
     :param old: The old resource body.
     :param data_diff_items: A list of changes made to the individual
         data node specifications.
+    :param scale_backup_metrics: Indicates whether backup metrics Deployment
+        should be suspended/started as well. This is usually not the case
+        for volume expansion operations.
     """
     spec = old["spec"]
 
@@ -485,6 +560,14 @@ async def suspend_or_start_cluster(
                         statefulset,
                         new_replicas,
                     )
+                    if scale_backup_metrics:
+                        # scale backup-metrics deployment back up
+                        backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(
+                            name=name
+                        )
+                        await update_deployment_replicas(
+                            apps, namespace, backup_metrics_name, 1
+                        )
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
@@ -494,7 +577,6 @@ async def suspend_or_start_cluster(
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
                 )
-
                 await check_all_data_nodes_present(
                     conn_factory,
                     old_replicas,
@@ -520,6 +602,14 @@ async def suspend_or_start_cluster(
                     await update_statefulset_replicas(
                         apps, namespace, sts_name, statefulset, new_replicas
                     )
+                    if scale_backup_metrics:
+                        # scale backup-metrics deployment down
+                        backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(
+                            name=name
+                        )
+                        await update_deployment_replicas(
+                            apps, namespace, backup_metrics_name, 0
+                        )
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
@@ -528,7 +618,13 @@ async def suspend_or_start_cluster(
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
                 )
-
+                if scale_backup_metrics:
+                    await check_backup_metrics_pod_count(
+                        core,
+                        namespace,
+                        name,
+                        0,
+                    )
                 await check_all_data_nodes_gone(core, namespace, name, old)
 
 
@@ -824,6 +920,7 @@ class StartClusterSubHandler(StateBasedSubHandler):
                     name,
                     old,
                     kopf.Diff(scale_data_diff_items),
+                    False,
                     logger,
                 )
 
@@ -875,5 +972,6 @@ class SuspendClusterSubHandler(StateBasedSubHandler):
                     name,
                     old,
                     kopf.Diff(scale_data_diff_items),
+                    False,
                     logger,
                 )
