@@ -467,7 +467,8 @@ async def does_backup_metrics_pod_exist(
     core: CoreV1Api, name: str, namespace: V1Namespace
 ) -> bool:
     backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
-    return len(backup_metrics_pods) > 0
+    backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
+    return any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods)
 
 
 async def does_deployment_exist(apps: AppsV1Api, namespace: str, name: str) -> bool:

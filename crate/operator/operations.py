@@ -301,25 +301,22 @@ async def check_all_data_nodes_present(
         raise kopf.TemporaryError("Waiting for database connection.", delay=15)
 
 
-async def check_backup_metrics_pod_count(
+async def check_backup_metrics_pod_gone(
     core: CoreV1Api,
     namespace: str,
     name: str,
-    desired_replicas: int,
 ):
     """
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param desired_replicas: Number of desired replicas.
-    :raises: A :class:`kopf.TemporaryError` when nodes count does not match the
-        desired replicas.
+    :raises: A :class:`kopf.TemporaryError` when node is still present.
     """
     backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
-    if len(backup_metrics_pods) != desired_replicas:
+    backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
+    if any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods):
         raise kopf.TemporaryError(
-            f"Waiting for backup metrics pods {backup_metrics_pods} to match desired "
-            f"number of replicas {desired_replicas}"
+            f"Waiting for backup metrics pod in {backup_metrics_pods} to be gone."
         )
 
 
@@ -619,11 +616,10 @@ async def suspend_or_start_cluster(
                     operation=WebhookOperation.UPDATE,
                 )
                 if scale_backup_metrics:
-                    await check_backup_metrics_pod_count(
+                    await check_backup_metrics_pod_gone(
                         core,
                         namespace,
                         name,
-                        0,
                     )
                 await check_all_data_nodes_gone(core, namespace, name, old)
 
