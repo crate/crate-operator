@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.13.2 (2022-07-11)
+-------------------
+
 * Scale backup-metrics deployment down/up when suspending/resuming a cluster.
 
 2.13.1 (2022-07-04)
