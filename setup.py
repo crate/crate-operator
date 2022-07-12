@@ -49,7 +49,7 @@ setup(
         "kopf==1.35.1",
         # Careful with 22+ - it is currently not compatible
         # and results in various "permission denied" errors.
-        "kubernetes-asyncio==21.7.1",
+        "kubernetes-asyncio==23.6.0",
         "PyYAML<7.0",
         "prometheus_client==0.14.1",
         # Versions 3.8+ incompatible with pytest-aiohttp.
