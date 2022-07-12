@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.13.3 (2022-07-12)
+-------------------
+
 * Fix a bug that would cause suspending a cluster to get stuck.
 
 2.13.2 (2022-07-11)
