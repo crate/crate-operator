@@ -61,7 +61,7 @@ setup(
             "sphinx>=3.0,<3.4",
             "sphinx-autodoc-typehints",
             # Pinning this as 0.18 does not work
-            "docutils==0.17.1",
+            "docutils==0.19",
             "Jinja2<3.1",
         ],
         "testing": [
