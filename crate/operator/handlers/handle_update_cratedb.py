@@ -120,15 +120,28 @@ async def update_cratedb(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
                     do_expand_volume = True
-                elif (old_spec.get("resources", {}).get("limits", {}).get("cpu") !=new_spec.get("resources", {}).get("limits", {}).get("cpu") or
-                      old_spec.get("resources", {}).get("requests", {}).get("cpu") != new_spec.get("resources", {}).get("requests", {}).get("cpu") or
-                      old_spec.get("resources", {}).get("limits", {}).get("memory") != new_spec.get("resources", {}).get("limits", {}).get("memory") or
-                      old_spec.get("resources", {}).get("requests", {}).get("memory") != new_spec.get("resources", {}).get("requests", {}).get("memory")
+                elif (
+                    old_spec.get("resources", {}).get("limits", {}).get("cpu")
+                    != new_spec.get("resources", {}).get("limits", {}).get("cpu")
+                    or old_spec.get("resources", {}).get("requests", {}).get("cpu")
+                    != new_spec.get("resources", {}).get("requests", {}).get("cpu")
+                    or old_spec.get("resources", {}).get("limits", {}).get("memory")
+                    != new_spec.get("resources", {}).get("limits", {}).get("memory")
+                    or old_spec.get("resources", {}).get("requests", {}).get("memory")
+                    != new_spec.get("resources", {}).get("requests", {}).get("memory")
                 ):
                     do_change_plan = True
-                    do_restart = True #  pod resources won't change until each pod is recreated
+                    do_restart = (
+                        True  #  pod resources won't change until each pod is recreated
+                    )
 
-    if not do_upgrade and not do_restart and not do_scale and not do_expand_volume and not do_change_plan:
+    if (
+        not do_upgrade
+        and not do_restart
+        and not do_scale
+        and not do_expand_volume
+        and not do_change_plan
+    ):
         return
 
     depends_on = []

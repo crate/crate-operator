@@ -1,23 +1,24 @@
 import logging
 from typing import Any
+
 import kopf
+from kubernetes_asyncio.client import AppsV1Api
+from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
-from kubernetes_asyncio.client import AppsV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 
 class ChangePlanSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
-            self,
-            namespace: str,
-            name: str,
-            body: kopf.Body,
-            old: kopf.Body,
-            logger: logging.Logger,
-            **kwargs: Any,
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
     ):
         async with ApiClient() as api_client:
             apps = AppsV1Api(api_client)
@@ -37,12 +38,12 @@ class ChangePlanSubHandler(StateBasedSubHandler):
 
 
 async def change_cluster_plan(
-        apps: AppsV1Api,
-        namespace: str,
-        name: str,
-        body: kopf.Body,
-        old: kopf.Body,
-        logger: logging.Logger,
+    apps: AppsV1Api,
+    namespace: str,
+    name: str,
+    body: kopf.Body,
+    old: kopf.Body,
+    logger: logging.Logger,
 ):
     # statefulset = await apps.read_namespaced_stateful_set(
     #     namespace=namespace, name=f"crate-master-{name}"
@@ -69,8 +70,8 @@ async def change_cluster_plan(
                                 "requests": {
                                     "cpu": new_cpu_request,
                                     "memory": new_memory_request,
-                                }
-                            }
+                                },
+                            },
                         }
                     ]
                 }
