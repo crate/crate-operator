@@ -18,6 +18,7 @@ import hashlib
 
 import kopf
 
+from crate.operator.change_plan import ChangePlanSubHandler
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
@@ -119,8 +120,15 @@ async def update_cratedb(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
                     do_expand_volume = True
+                elif (old_spec.get("resources", {}).get("limits", {}).get("cpu") !=new_spec.get("resources", {}).get("limits", {}).get("cpu") or
+                      old_spec.get("resources", {}).get("requests", {}).get("cpu") != new_spec.get("resources", {}).get("requests", {}).get("cpu") or
+                      old_spec.get("resources", {}).get("limits", {}).get("memory") != new_spec.get("resources", {}).get("limits", {}).get("memory") or
+                      old_spec.get("resources", {}).get("requests", {}).get("memory") != new_spec.get("resources", {}).get("requests", {}).get("memory")
+                ):
+                    do_change_plan = True
+                    do_restart = True #  pod resources won't change until each pod is recreated
 
-    if not do_upgrade and not do_restart and not do_scale and not do_expand_volume:
+    if not do_upgrade and not do_restart and not do_scale and not do_expand_volume and not do_change_plan:
         return
 
     depends_on = []
@@ -140,6 +148,14 @@ async def update_cratedb(
             id="upgrade",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
+    if do_change_plan:
+        kopf.register(
+            fn=ChangePlanSubHandler(
+                namespace, name, hash, context, depends_on=depends_on.copy()
+            )(),
+            id="change_plan",
+        )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/change_plan")
     if do_restart:
         kopf.register(
             fn=RestartSubHandler(
@@ -156,7 +172,6 @@ async def update_cratedb(
                 id="after_upgrade",
             )
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
-
     if do_scale:
         kopf.register(
             fn=ScaleSubHandler(

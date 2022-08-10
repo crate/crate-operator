@@ -8,6 +8,8 @@ Unreleased
 * Fixed a bug that would prematurely send a notification about the success of updating
   the user's password.
 
+* Added support to change cpu and memory on running clusters.
+
 2.13.3 (2022-07-12)
 -------------------
 
