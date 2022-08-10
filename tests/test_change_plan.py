@@ -21,8 +21,6 @@ from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
-from crate.operator.create import get_statefulset_crate_command
-from crate.operator.upgrade import upgrade_command
 
 from .utils import (
     DEFAULT_TIMEOUT,
