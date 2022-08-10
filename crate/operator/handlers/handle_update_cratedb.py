@@ -132,7 +132,7 @@ async def update_cratedb(
                 ):
                     do_change_plan = True
                     do_restart = (
-                        True  #  pod resources won't change until each pod is recreated
+                        True  # pod resources won't change until each pod is recreated
                     )
 
     if (
