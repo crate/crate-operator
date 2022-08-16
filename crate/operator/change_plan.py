@@ -4,10 +4,10 @@ from typing import Any
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
+from webhooks import WebhookChangePlanPayload, WebhookEvent, WebhookStatus
 
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
-from webhooks import WebhookEvent, WebhookChangePlanPayload, WebhookStatus
 
 
 class ChangePlanSubHandler(StateBasedSubHandler):
@@ -93,12 +93,14 @@ async def change_cluster_plan(
                             "name": "crate",
                             "resources": {
                                 "limits": {
-                                    "cpu": plan_change_data['new_cpu_limit'],
-                                    "memory": plan_change_data['new_memory_limit'],
+                                    "cpu": plan_change_data["new_cpu_limit"],
+                                    "memory": plan_change_data["new_memory_limit"],
                                 },
                                 "requests": {
-                                    "cpu": plan_change_data['new_cpu_request'] or plan_change_data['new_cpu_limit'],
-                                    "memory": plan_change_data['new_memory_request'] or plan_change_data['new_memory_limit'],
+                                    "cpu": plan_change_data["new_cpu_request"]
+                                    or plan_change_data["new_cpu_limit"],
+                                    "memory": plan_change_data["new_memory_request"]
+                                    or plan_change_data["new_memory_limit"],
                                 },
                             },
                         }

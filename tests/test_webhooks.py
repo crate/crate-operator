@@ -48,6 +48,7 @@ def test_payload_serialization_scale():
             new_master_replicas=4,
         ),
         upgrade_data=None,
+        plan_changed_data=None,
         temporary_failure_data=None,
         info_data=None,
         health_data=None,
@@ -82,6 +83,7 @@ def test_payload_serialization_upgrade():
         upgrade_data=WebhookUpgradePayload(
             old_registry="a", new_registry="b", old_version="c", new_version="d"
         ),
+        plan_changed_data=None,
         temporary_failure_data=None,
         info_data=None,
         health_data=None,
