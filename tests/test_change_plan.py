@@ -101,12 +101,12 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
     )
 
     await assert_wait_for(
-        False,
-        do_pod_ids_exist,
-        core,
-        namespace.metadata.name,
-        original_pods,
-        timeout=DEFAULT_TIMEOUT * 15,
+        True,
+        cluster_routing_allocation_enable_equals,
+        connection_factory(host, password),
+        "new_primaries",
+        err_msg="Cluster routing allocation setting has not been updated",
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     await assert_wait_for(
@@ -118,6 +118,15 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
         "operator.cloud.crate.io/cluster_update.change_plan",
         err_msg="Plan change has not finished",
         timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    await assert_wait_for(
+        False,
+        do_pod_ids_exist,
+        core,
+        namespace.metadata.name,
+        original_pods,
+        timeout=DEFAULT_TIMEOUT * 15,
     )
 
     await assert_wait_for(
