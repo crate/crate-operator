@@ -18,7 +18,7 @@ import hashlib
 
 import kopf
 
-from crate.operator.change_plan import ChangePlanSubHandler
+from crate.operator.change_plan import ChangePlanSubHandler, AfterChangePlanSubHandler
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
@@ -177,6 +177,7 @@ async def update_cratedb(
             id="restart",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
+        # Send a webhook success notification after upgrade and restart handlers
         if do_upgrade:
             kopf.register(
                 fn=AfterUpgradeSubHandler(
@@ -185,6 +186,17 @@ async def update_cratedb(
                 id="after_upgrade",
             )
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
+
+        # Send a webhook success notification after change_plan and restart handlers
+        if do_change_plan:
+            kopf.register(
+                fn=AfterChangePlanSubHandler(
+                    namespace, name, hash, context, depends_on=depends_on.copy()
+                )(),
+                id="after_change_plan",
+            )
+            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_plan")
+
     if do_scale:
         kopf.register(
             fn=ScaleSubHandler(
