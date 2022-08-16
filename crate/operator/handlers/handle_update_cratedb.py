@@ -24,7 +24,7 @@ import hashlib
 
 import kopf
 
-from crate.operator.change_plan import ChangePlanSubHandler, AfterChangePlanSubHandler
+from crate.operator.change_plan import AfterChangePlanSubHandler, ChangePlanSubHandler
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (

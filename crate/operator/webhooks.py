@@ -175,7 +175,7 @@ class WebhookClient:
         *,
         scale_data: Optional[WebhookScalePayload] = None,
         upgrade_data: Optional[WebhookUpgradePayload] = None,
-        plan_changed_data: Optional[WebhookUpgradePayload] = None,
+        plan_changed_data: Optional[WebhookChangePlanPayload] = None,
         temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         info_data: Optional[WebhookInfoChangedPayload] = None,
         health_data: Optional[WebhookClusterHealthPayload] = None,
