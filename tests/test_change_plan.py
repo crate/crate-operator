@@ -90,7 +90,7 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
             {
                 "op": "replace",
                 "path": "/spec/nodes/data/0/resources/limits/cpu",
-                "value": 1,  # Increase from 2
+                "value": 1,  # Decrease from 2
             },
             {
                 "op": "replace",
