@@ -36,7 +36,7 @@ class ChangePlanSubHandler(StateBasedSubHandler):
 
 class AfterChangePlanSubHandler(StateBasedSubHandler):
     """
-    A handler which depends on``restart`` having finishe successfully and sends a
+    A handler which depends on``restart`` having finished successfully and sends a
     success notification of the change plan process.
     """
 
