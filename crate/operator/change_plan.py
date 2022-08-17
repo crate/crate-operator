@@ -4,7 +4,7 @@ from typing import Any
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
-from webhooks import WebhookChangePlanPayload, WebhookEvent, WebhookStatus
+from crate.operator.webhooks import WebhookChangePlanPayload, WebhookEvent, WebhookStatus
 
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
