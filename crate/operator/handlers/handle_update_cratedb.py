@@ -18,7 +18,11 @@ import hashlib
 
 import kopf
 
-from crate.operator.change_plan import AfterChangePlanSubHandler, ChangePlanSubHandler
+from crate.operator.change_compute import (
+    AfterChangeComputeSubHandler,
+    ChangeComputeSubHandler,
+    has_compute_changed,
+)
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
@@ -120,27 +124,17 @@ async def update_cratedb(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
                     do_expand_volume = True
-                elif (
-                    old_spec.get("resources", {}).get("limits", {}).get("cpu")
-                    != new_spec.get("resources", {}).get("limits", {}).get("cpu")
-                    or old_spec.get("resources", {}).get("requests", {}).get("cpu")
-                    != new_spec.get("resources", {}).get("requests", {}).get("cpu")
-                    or old_spec.get("resources", {}).get("limits", {}).get("memory")
-                    != new_spec.get("resources", {}).get("limits", {}).get("memory")
-                    or old_spec.get("resources", {}).get("requests", {}).get("memory")
-                    != new_spec.get("resources", {}).get("requests", {}).get("memory")
-                ):
-                    do_change_plan = True
-                    do_restart = (
-                        True  # pod resources won't change until each pod is recreated
-                    )
+                elif has_compute_changed(old_spec, new_spec):
+                    do_change_compute = True
+                    # pod resources won't change until each pod is recreated
+                    do_restart = True
 
     if (
         not do_upgrade
         and not do_restart
         and not do_scale
         and not do_expand_volume
-        and not do_change_plan
+        and not do_change_compute
     ):
         return
 
@@ -161,14 +155,14 @@ async def update_cratedb(
             id="upgrade",
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
-    if do_change_plan:
+    if do_change_compute:
         kopf.register(
-            fn=ChangePlanSubHandler(
+            fn=ChangeComputeSubHandler(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
-            id="change_plan",
+            id="change_compute",
         )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/change_plan")
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/change_compute")
     if do_restart:
         kopf.register(
             fn=RestartSubHandler(
@@ -188,14 +182,14 @@ async def update_cratedb(
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
 
         # Send a webhook success notification after change_plan and restart handlers
-        if do_change_plan:
+        if do_change_compute:
             kopf.register(
-                fn=AfterChangePlanSubHandler(
+                fn=AfterChangeComputeSubHandler(
                     namespace, name, hash, context, depends_on=depends_on.copy()
                 )(),
-                id="after_change_plan",
+                id="after_change_compute",
             )
-            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_plan")
+            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_compute")
 
     if do_scale:
         kopf.register(

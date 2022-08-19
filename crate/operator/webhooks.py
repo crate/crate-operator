@@ -25,7 +25,7 @@ from pkg_resources import get_distribution
 class WebhookEvent(str, enum.Enum):
     SCALE = "scale"
     UPGRADE = "upgrade"
-    PLAN_CHANGED = "plan_changed"
+    COMPUTE_CHANGED = "compute_changed"
     SNAPSHOT = "snapshot"
     DELAY = "delay"
     INFO_CHANGED = "info_changed"
@@ -72,7 +72,7 @@ class WebhookUpgradePayload(WebhookSubPayload):
     new_version: str
 
 
-class WebhookChangePlanPayload(WebhookSubPayload):
+class WebhookChangeComputePayload(WebhookSubPayload):
     old_cpu_limit: int
     old_memory_limit: str
     old_cpu_request: int
@@ -104,7 +104,7 @@ class WebhookPayload(TypedDict):
     cluster: str
     scale_data: Optional[WebhookScalePayload]
     upgrade_data: Optional[WebhookUpgradePayload]
-    plan_changed_data: Optional[WebhookChangePlanPayload]
+    compute_changed_data: Optional[WebhookChangeComputePayload]
     temporary_failure_data: Optional[WebhookTemporaryFailurePayload]
     info_data: Optional[WebhookInfoChangedPayload]
     health_data: Optional[WebhookClusterHealthPayload]
@@ -170,7 +170,7 @@ class WebhookClient:
         *,
         scale_data: Optional[WebhookScalePayload] = None,
         upgrade_data: Optional[WebhookUpgradePayload] = None,
-        plan_changed_data: Optional[WebhookChangePlanPayload] = None,
+        compute_changed_data: Optional[WebhookChangeComputePayload] = None,
         temporary_failure_data: Optional[WebhookTemporaryFailurePayload] = None,
         info_data: Optional[WebhookInfoChangedPayload] = None,
         health_data: Optional[WebhookClusterHealthPayload] = None,
@@ -189,8 +189,8 @@ class WebhookClient:
             or was attempted.
         :param upgrade_data: Details about the upgrading operation that took
             place or was attempted.
-        :param plan_changed_data: Details about changing cpu and/or ram operation that
-            took place or was attempted.
+        :param compute_changed_data: Details about changing cpu and/or ram operation
+            that took place or was attempted.
         :param temporary_failure_data: Details about the temporary failure
         :param info_data: Information details payload
         :param logger: The logger to use
@@ -212,7 +212,7 @@ class WebhookClient:
             cluster=name,
             scale_data=scale_data,
             upgrade_data=upgrade_data,
-            plan_changed_data=plan_changed_data,
+            compute_changed_data=compute_changed_data,
             temporary_failure_data=temporary_failure_data,
             info_data=info_data,
             health_data=health_data,
@@ -283,8 +283,8 @@ class WebhookClient:
             kwargs = {"scale_data": sub_payload}
         elif event == WebhookEvent.UPGRADE:
             kwargs = {"upgrade_data": sub_payload}
-        elif event == WebhookEvent.PLAN_CHANGED:
-            kwargs = {"plan_changed_data": sub_payload}
+        elif event == WebhookEvent.COMPUTE_CHANGED:
+            kwargs = {"compute_changed_data": sub_payload}
         elif event == WebhookEvent.DELAY:
             kwargs = {"temporary_failure_data": sub_payload}
         elif event == WebhookEvent.INFO_CHANGED:

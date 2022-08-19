@@ -80,6 +80,14 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
     original_pods = {p.metadata.uid for p in pods.items}
 
+    for p in pods.items:
+        for c in p.spec.containers:
+            if c.name == "crate":
+                assert c.resources.limits["cpu"] == str(2)
+                assert c.resources.limits["memory"] == "4Gi"
+                assert c.resources.requests["cpu"] == str(2)
+                assert c.resources.requests["memory"] == "4Gi"
+
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -115,18 +123,9 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
         coapi,
         name,
         namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.change_plan",
+        "operator.cloud.crate.io/cluster_update.change_compute",
         err_msg="Plan change has not finished",
         timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    await assert_wait_for(
-        False,
-        do_pod_ids_exist,
-        core,
-        namespace.metadata.name,
-        original_pods,
-        timeout=DEFAULT_TIMEOUT * 15,
     )
 
     await assert_wait_for(
@@ -137,6 +136,26 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
         namespace.metadata.name,
         "operator.cloud.crate.io/cluster_update.restart",
         err_msg="Restart has not finished",
+        timeout=DEFAULT_TIMEOUT * 15,
+    )
+
+    await assert_wait_for(
+        False,
+        do_pod_ids_exist,
+        core,
+        namespace.metadata.name,
+        original_pods,
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "operator.cloud.crate.io/cluster_update.after_change_compute",
+        err_msg="Plan change has not finished",
         timeout=DEFAULT_TIMEOUT,
     )
 
@@ -157,3 +176,14 @@ async def test_up_cpu_and_ram(faker, namespace, kopf_runner, api_client):
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
     )
+
+    # Collect the pod info again to verify the changes have been applied
+    pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
+    assert len(pods.items) == 3
+    for p in pods.items:
+        for c in p.spec.containers:
+            if c.name == "crate":
+                assert c.resources.limits["cpu"] == str(1)
+                assert c.resources.limits["memory"] == "5Gi"
+                assert c.resources.requests["cpu"] == str(1)
+                assert c.resources.requests["memory"] == "5Gi"
