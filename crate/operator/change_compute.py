@@ -4,13 +4,17 @@ from typing import Any
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
-from crate.operator.webhooks import WebhookChangePlanPayload, WebhookEvent, WebhookStatus
 
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.webhooks import (
+    WebhookChangeComputePayload,
+    WebhookEvent,
+    WebhookStatus,
+)
 
 
-class ChangePlanSubHandler(StateBasedSubHandler):
+class ChangeComputeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
         self,
@@ -21,23 +25,23 @@ class ChangePlanSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        webhook_payload = generate_webhook_changeplan_payload(old, body)
+        webhook_payload = generate_change_compute_payload(old, body)
         async with ApiClient() as api_client:
             apps = AppsV1Api(api_client)
             await change_cluster_plan(apps, namespace, name, webhook_payload, logger)
 
         self.schedule_notification(
-            WebhookEvent.PLAN_CHANGED,
+            WebhookEvent.COMPUTE_CHANGED,
             webhook_payload,
             WebhookStatus.IN_PROGRESS,
         )
         await self.send_notifications(logger)
 
 
-class AfterChangePlanSubHandler(StateBasedSubHandler):
+class AfterChangeComputeSubHandler(StateBasedSubHandler):
     """
     A handler which depends on``restart`` having finished successfully and sends a
-    success notification of the change plan process.
+    success notification of the change compute process.
     """
 
     @crate.on.error(error_handler=crate.send_update_failed_notification)
@@ -51,17 +55,17 @@ class AfterChangePlanSubHandler(StateBasedSubHandler):
         **kwargs: Any,
     ):
         self.schedule_notification(
-            WebhookEvent.PLAN_CHANGED,
-            generate_webhook_changeplan_payload(old, body),
+            WebhookEvent.COMPUTE_CHANGED,
+            generate_change_compute_payload(old, body),
             WebhookStatus.SUCCESS,
         )
         await self.send_notifications(logger)
 
 
-def generate_webhook_changeplan_payload(old, body):
+def generate_change_compute_payload(old, body):
     old_data = old["spec"]["nodes"]["data"][0].get("resources", {})
     new_data = body["spec"]["nodes"]["data"][0].get("resources", {})
-    return WebhookChangePlanPayload(
+    return WebhookChangeComputePayload(
         old_cpu_limit=old_data.get("limits", {}).get("cpu"),
         old_memory_limit=old_data.get("limits", {}).get("memory"),
         old_cpu_request=old_data.get("requests", {}).get("cpu"),
@@ -77,7 +81,7 @@ async def change_cluster_plan(
     apps: AppsV1Api,
     namespace: str,
     name: str,
-    plan_change_data: WebhookChangePlanPayload,
+    plan_change_data: WebhookChangeComputePayload,
     logger: logging.Logger,
 ):
     """
@@ -97,10 +101,14 @@ async def change_cluster_plan(
                                     "memory": plan_change_data["new_memory_limit"],
                                 },
                                 "requests": {
-                                    "cpu": plan_change_data["new_cpu_request"]
-                                    or plan_change_data["new_cpu_limit"],
-                                    "memory": plan_change_data["new_memory_request"]
-                                    or plan_change_data["new_memory_limit"],
+                                    "cpu": plan_change_data.get(
+                                        "new_cpu_request",
+                                        plan_change_data["new_cpu_limit"],
+                                    ),
+                                    "memory": plan_change_data.get(
+                                        "new_memory_request",
+                                        plan_change_data["new_memory_limit"],
+                                    ),
                                 },
                             },
                         }
@@ -119,3 +127,16 @@ async def change_cluster_plan(
     )
     logger.info("updated the statefulset with name %s with body: %s", sts_name, body)
     pass
+
+
+def has_compute_changed(old_spec, new_spec) -> bool:
+    return (
+        old_spec.get("resources", {}).get("limits", {}).get("cpu")
+        != new_spec.get("resources", {}).get("limits", {}).get("cpu")
+        or old_spec.get("resources", {}).get("requests", {}).get("cpu")
+        != new_spec.get("resources", {}).get("requests", {}).get("cpu")
+        or old_spec.get("resources", {}).get("limits", {}).get("memory")
+        != new_spec.get("resources", {}).get("limits", {}).get("memory")
+        or old_spec.get("resources", {}).get("requests", {}).get("memory")
+        != new_spec.get("resources", {}).get("requests", {}).get("memory")
+    )
