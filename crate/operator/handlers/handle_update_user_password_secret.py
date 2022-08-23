@@ -81,16 +81,10 @@ async def update_user_password_secret(
                                 user_spec["name"],
                                 old_value,
                                 new_value,
+                                namespace,
+                                cluster_id,
                                 logger,
                             ),
                             id=f"update-{crate_custom_object['metadata']['name']}-{user_spec['name']}",  # noqa
                             timeout=config.BOOTSTRAP_TIMEOUT,
                         )
-    await send_operation_progress_notification(
-        namespace=namespace,
-        name=cluster_id,
-        message="Password updated successfully.",
-        logger=logger,
-        status=WebhookStatus.SUCCESS,
-        operation=WebhookOperation.UPDATE,
-    )
