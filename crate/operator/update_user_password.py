@@ -19,6 +19,8 @@ import logging
 from crate.operator.constants import CONNECT_TIMEOUT
 from crate.operator.cratedb import get_connection, update_user
 from crate.operator.utils.formatting import b64decode
+from crate.operator.utils.notifications import send_operation_progress_notification
+from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 
 # update_user_password(host, username, old_password, new_password)
@@ -27,6 +29,8 @@ async def update_user_password(
     username: str,
     old_password: str,
     new_password: str,
+    namespace: str,
+    cluster_id: str,
     logger: logging.Logger,
 ):
     """
@@ -44,3 +48,11 @@ async def update_user_password(
         async with conn.cursor() as cursor:
             logger.info("Updating password for user '%s'", username)
             await update_user(cursor, username, b64decode(new_password))
+            await send_operation_progress_notification(
+                namespace=namespace,
+                name=cluster_id,
+                message="Password updated successfully.",
+                logger=logger,
+                status=WebhookStatus.SUCCESS,
+                operation=WebhookOperation.UPDATE,
+            )
