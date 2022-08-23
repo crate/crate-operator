@@ -18,10 +18,10 @@ from typing import Set
 from unittest import mock
 
 import pytest
-from change_compute import generate_body_patch
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from webhooks import WebhookChangeComputePayload
 
+from crate.operator.change_compute import generate_body_patch
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
 
