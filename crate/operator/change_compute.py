@@ -2,10 +2,10 @@ import logging
 from typing import Any
 
 import kopf
-from create import get_statefulset_affinity
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.create import get_statefulset_affinity
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.webhooks import (
