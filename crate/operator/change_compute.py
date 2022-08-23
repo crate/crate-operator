@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 import kopf
+from create import get_statefulset_affinity
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
@@ -87,36 +88,7 @@ async def change_cluster_plan(
     """
     Patches the statefulset with the new cpu and memory requests and limits.
     """
-    # Patch cpu/memory limit/request
-    body = {
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "crate",
-                            "resources": {
-                                "limits": {
-                                    "cpu": plan_change_data["new_cpu_limit"],
-                                    "memory": plan_change_data["new_memory_limit"],
-                                },
-                                "requests": {
-                                    "cpu": plan_change_data.get(
-                                        "new_cpu_request",
-                                        plan_change_data["new_cpu_limit"],
-                                    ),
-                                    "memory": plan_change_data.get(
-                                        "new_memory_request",
-                                        plan_change_data["new_memory_limit"],
-                                    ),
-                                },
-                            },
-                        }
-                    ]
-                }
-            }
-        }
-    }
+    body = generate_body_patch(name, plan_change_data, logger)
 
     # Note only the stateful set is updated. Pods will become updated on restart
     sts_name = f"crate-data-hot-{name}"
@@ -127,6 +99,49 @@ async def change_cluster_plan(
     )
     logger.info("updated the statefulset with name %s with body: %s", sts_name, body)
     pass
+
+
+def generate_body_patch(
+    name: str,
+    plan_change_data: WebhookChangeComputePayload,
+    logger: logging.Logger,
+) -> dict:
+    """
+    Generates a dict representing the patch that will be applied to the statefulset.
+    That patch modifies cpu/memory requests/limits based on plan_change_data.
+    It also patches affinity as needed based on the existence or not of requests data.
+    """
+    node_spec = {
+        "name": "crate",
+        "resources": {
+            "limits": {
+                "cpu": plan_change_data["new_cpu_limit"],
+                "memory": plan_change_data["new_memory_limit"],
+            },
+            "requests": {
+                "cpu": plan_change_data.get(
+                    "new_cpu_request",
+                    plan_change_data["new_cpu_limit"],
+                ),
+                "memory": plan_change_data.get(
+                    "new_memory_request",
+                    plan_change_data["new_memory_limit"],
+                ),
+            },
+        },
+    }
+    body = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "affinity": get_statefulset_affinity(name, logger, node_spec),
+                    "containers": [node_spec],
+                }
+            }
+        }
+    }
+
+    return body
 
 
 def has_compute_changed(old_spec, new_spec) -> bool:
