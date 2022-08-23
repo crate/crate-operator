@@ -8,6 +8,9 @@ Unreleased
 * Fixed a bug that would prematurely send a notification about the success of updating
   the user's password.
 
+* LICENSE CHANGE: Moving from AGPL to Apache 2.0, to be in-line with our other open-source
+  projects.
+
 2.13.3 (2022-07-12)
 -------------------
 

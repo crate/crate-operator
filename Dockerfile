@@ -16,7 +16,7 @@ RUN python -m pip install -U setuptools==58.3.0 && \
 # Run container
 FROM python:3.8-slim
 
-LABEL license="AGPLv3" \
+LABEL license="Apache License 2.0" \
       maintainer="Crate.IO GmbH <office@crate.io>" \
       name="CrateDB Kubernetes Operator" \
       repository="crate/crate-operator"
