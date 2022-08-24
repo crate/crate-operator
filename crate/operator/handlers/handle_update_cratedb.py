@@ -29,6 +29,7 @@ from crate.operator.change_compute import (
     ChangeComputeSubHandler,
     has_compute_changed,
 )
+from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
@@ -152,6 +153,7 @@ async def update_cratedb(
         kopf.register(
             fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
             id="before_cluster_update",
+            backoff=get_backoff(),
         )
 
     if do_upgrade:
@@ -160,6 +162,7 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="upgrade",
+            backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
     if do_change_compute:
@@ -168,6 +171,7 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="change_compute",
+            backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/change_compute")
     if do_restart:
@@ -176,6 +180,7 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="restart",
+            backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
         # Send a webhook success notification after upgrade and restart handlers
@@ -185,6 +190,7 @@ async def update_cratedb(
                     namespace, name, hash, context, depends_on=depends_on.copy()
                 )(),
                 id="after_upgrade",
+                backoff=get_backoff(),
             )
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
 
@@ -195,6 +201,7 @@ async def update_cratedb(
                     namespace, name, hash, context, depends_on=depends_on.copy()
                 )(),
                 id="after_change_compute",
+                backoff=get_backoff(),
             )
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_compute")
 
@@ -204,6 +211,7 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="scale",
+            backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
     if do_expand_volume:
@@ -214,12 +222,14 @@ async def update_cratedb(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="expand_volume",
+            backoff=get_backoff(),
         )
         kopf.register(
             fn=SuspendClusterSubHandler(
                 namespace, name, hash, context, depends_on=depends_on.copy()
             )(),
             id="suspend_cluster",
+            backoff=get_backoff(),
         )
         depends_on.extend(
             [
@@ -237,6 +247,7 @@ async def update_cratedb(
                 run_on_dep_failures=True,
             )(),
             id="start_cluster",
+            backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/start_cluster")
 
@@ -251,6 +262,17 @@ async def update_cratedb(
                 run_on_dep_failures=True,
             )(),
             id="after_cluster_update",
+            backoff=get_backoff(),
         )
 
     patch.status[CLUSTER_UPDATE_ID] = context
+
+
+def get_backoff() -> int:
+    """
+    When in testing mode, use a shorter backoff period as it help with speeding up some
+    tests (they don't have to wait so long due to transient errors).
+    """
+    if config.TESTING:
+        return 5
+    return 30
