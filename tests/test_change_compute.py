@@ -88,20 +88,33 @@ async def test_change_cpu_and_ram(
             "value": memory_limit,
         },
     ]
-    if cpu_request != cpu_limit:
-        body_changes.append(
-            {
-                "op": "replace",
-                "path": "/spec/nodes/data/0/resources/requests/cpu",
-                "value": cpu_request,
-            },
-        )
-    if memory_request != memory_limit:
+    if set_initial_request_resources or cpu_request != cpu_limit:
+        if set_initial_request_resources:
+            body_changes.append(
+                {
+                    "op": "replace",
+                    "path": "/spec/nodes/data/0/resources/requests/cpu",
+                    "value": cpu_request,
+                },
+            )
+        else:
+            body_changes.append(
+                {
+                    "op": "add",
+                    "path": "/spec/nodes/data/0/resources/requests",
+                    "value": {
+                        "cpu": cpu_request,
+                        "memory": memory_request or memory_limit,
+                    },
+                },
+            )
+
+    if set_initial_request_resources:
         body_changes.append(
             {
                 "op": "replace",
                 "path": "/spec/nodes/data/0/resources/requests/memory",
-                "value": memory_request,
+                "value": memory_request or memory_limit,
             },
         )
 
@@ -147,13 +160,22 @@ async def test_change_cpu_and_ram(
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
     original_pods = {p.metadata.uid for p in pods.items}
 
+    # Check limits and requests before changing them
     for p in pods.items:
         for c in p.spec.containers:
             if c.name == "crate":
                 assert c.resources.limits["cpu"] == str(2)
                 assert c.resources.limits["memory"] == "4Gi"
-                assert c.resources.requests["cpu"] == str(2)
-                assert c.resources.requests["memory"] == "4Gi"
+                assert (
+                    c.resources.requests["cpu"] == str(2)
+                    if not set_initial_request_resources
+                    else str(1)
+                )
+                assert (
+                    c.resources.requests["memory"] == "4Gi"
+                    if not set_initial_request_resources
+                    else str("2Gi")
+                )
 
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
