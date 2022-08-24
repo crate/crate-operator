@@ -29,7 +29,7 @@ class ChangeComputeSubHandler(StateBasedSubHandler):
         webhook_payload = generate_change_compute_payload(old, body)
         async with ApiClient() as api_client:
             apps = AppsV1Api(api_client)
-            await change_cluster_plan(apps, namespace, name, webhook_payload, logger)
+            await change_cluster_compute(apps, namespace, name, webhook_payload, logger)
 
         self.schedule_notification(
             WebhookEvent.COMPUTE_CHANGED,
@@ -78,17 +78,17 @@ def generate_change_compute_payload(old, body):
     )
 
 
-async def change_cluster_plan(
+async def change_cluster_compute(
     apps: AppsV1Api,
     namespace: str,
     name: str,
-    plan_change_data: WebhookChangeComputePayload,
+    compute_change_data: WebhookChangeComputePayload,
     logger: logging.Logger,
 ):
     """
     Patches the statefulset with the new cpu and memory requests and limits.
     """
-    body = generate_body_patch(name, plan_change_data, logger)
+    body = generate_body_patch(name, compute_change_data, logger)
 
     # Note only the stateful set is updated. Pods will become updated on restart
     sts_name = f"crate-data-hot-{name}"
@@ -103,29 +103,29 @@ async def change_cluster_plan(
 
 def generate_body_patch(
     name: str,
-    plan_change_data: WebhookChangeComputePayload,
+    compute_change_data: WebhookChangeComputePayload,
     logger: logging.Logger,
 ) -> dict:
     """
     Generates a dict representing the patch that will be applied to the statefulset.
-    That patch modifies cpu/memory requests/limits based on plan_change_data.
+    That patch modifies cpu/memory requests/limits based on compute_change_data.
     It also patches affinity as needed based on the existence or not of requests data.
     """
     node_spec = {
         "name": "crate",
         "resources": {
             "limits": {
-                "cpu": plan_change_data["new_cpu_limit"],
-                "memory": plan_change_data["new_memory_limit"],
+                "cpu": compute_change_data["new_cpu_limit"],
+                "memory": compute_change_data["new_memory_limit"],
             },
             "requests": {
-                "cpu": plan_change_data.get(
+                "cpu": compute_change_data.get(
                     "new_cpu_request",
-                    plan_change_data["new_cpu_limit"],
+                    compute_change_data["new_cpu_limit"],
                 ),
-                "memory": plan_change_data.get(
+                "memory": compute_change_data.get(
                     "new_memory_request",
-                    plan_change_data["new_memory_limit"],
+                    compute_change_data["new_memory_limit"],
                 ),
             },
         },

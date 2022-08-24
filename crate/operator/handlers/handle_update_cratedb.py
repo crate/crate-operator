@@ -100,6 +100,7 @@ async def update_cratedb(
     do_after_update = True
 
     do_upgrade = False
+    do_change_compute = False
     do_restart = False
     do_scale = False
     do_expand_volume = False
@@ -187,7 +188,7 @@ async def update_cratedb(
             )
             depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
 
-        # Send a webhook success notification after change_plan and restart handlers
+        # Send a webhook success notification after change_compute and restart handlers
         if do_change_compute:
             kopf.register(
                 fn=AfterChangeComputeSubHandler(

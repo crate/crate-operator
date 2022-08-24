@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import logging
-from typing import Set
 from unittest import mock
 
 import pytest
@@ -30,20 +29,12 @@ from .utils import (
     assert_wait_for,
     cluster_routing_allocation_enable_equals,
     create_test_sys_jobs_table,
+    do_pod_ids_exist,
+    do_pods_exist,
     is_cluster_healthy,
     is_kopf_handler_finished,
     start_cluster,
 )
-
-
-async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
-    pods = await core.list_namespaced_pod(namespace=namespace)
-    return expected.issubset({p.metadata.name for p in pods.items})
-
-
-async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -> bool:
-    pods = await core.list_namespaced_pod(namespace=namespace)
-    return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
 
 
 @pytest.mark.k8s
@@ -52,10 +43,6 @@ async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -
     "set_initial_request_resources, cpu_request, memory_request, cpu_limit,"
     "memory_limit",
     [
-        # Test a change in cpu and memory with requests = limits
-        (False, 1, "5Gi", 1, "5Gi"),
-        # Test a change in cpu and memory from req = limits to req != limits
-        (False, 1, "3Gi", 3, "5Gi"),
         # Test a change in cpu and memory from req != limits to req = limits
         (True, 1, "5Gi", 1, "5Gi"),
     ],
@@ -125,12 +112,12 @@ async def test_change_cpu_and_ram(
         # Start a cluster with requests set to half the original limits
         initial_requests = {"cpu": 1, "memory": "2Gi"}
         host, password = await start_cluster(
-            name, namespace, core, coapi, 3, "5.0.0", resource_requests=initial_requests
+            name, namespace, core, coapi, 1, "5.0.0", resource_requests=initial_requests
         )
     else:
         # Start a cluster without requests, just the standard limits of cpu=2 and
         # memory=4Gi per node
-        host, password = await start_cluster(name, namespace, core, coapi, 3, "5.0.0")
+        host, password = await start_cluster(name, namespace, core, coapi, 1, "5.0.0")
 
     await assert_wait_for(
         True,
@@ -139,8 +126,6 @@ async def test_change_cpu_and_ram(
         namespace.metadata.name,
         {
             f"crate-data-hot-{name}-0",
-            f"crate-data-hot-{name}-1",
-            f"crate-data-hot-{name}-2",
         },
     )
 
@@ -150,7 +135,7 @@ async def test_change_cpu_and_ram(
         True,
         is_cluster_healthy,
         conn_factory,
-        3,
+        1,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -202,7 +187,7 @@ async def test_change_cpu_and_ram(
         name,
         namespace.metadata.name,
         "operator.cloud.crate.io/cluster_update.change_compute",
-        err_msg="Plan change has not finished",
+        err_msg="Compute change has not finished",
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
@@ -233,7 +218,7 @@ async def test_change_cpu_and_ram(
         name,
         namespace.metadata.name,
         "operator.cloud.crate.io/cluster_update.after_change_compute",
-        err_msg="Plan change has not finished",
+        err_msg="Compute change has not finished",
         timeout=DEFAULT_TIMEOUT,
     )
 
@@ -241,7 +226,7 @@ async def test_change_cpu_and_ram(
         True,
         is_cluster_healthy,
         connection_factory(host, password),
-        3,
+        1,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -257,7 +242,7 @@ async def test_change_cpu_and_ram(
 
     # Collect the pod info again to verify the changes have been applied
     pods = await core.list_namespaced_pod(namespace=namespace.metadata.name)
-    assert len(pods.items) == 3
+    assert len(pods.items) == 1
     for p in pods.items:
         for c in p.spec.containers:
             if c.name == "crate":
@@ -288,7 +273,7 @@ def test_generate_body_patch(
     new_memory_request,
     faker,
 ):
-    plan_change_data = WebhookChangeComputePayload(
+    compute_change_data = WebhookChangeComputePayload(
         old_cpu_limit=old_cpu_limit,
         old_memory_limit=old_memory_limit,
         old_cpu_request=old_cpu_request,
@@ -301,7 +286,9 @@ def test_generate_body_patch(
 
     name = faker.domain_word()
     with mock.patch("crate.operator.create.config.TESTING", False):
-        body = generate_body_patch(name, plan_change_data, logging.getLogger(__name__))
+        body = generate_body_patch(
+            name, compute_change_data, logging.getLogger(__name__)
+        )
 
     resources = body["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert resources["limits"]["cpu"] == new_cpu_limit

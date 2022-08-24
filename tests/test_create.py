@@ -62,7 +62,7 @@ from crate.operator.create import (
 )
 from crate.operator.utils.formatting import b64decode, format_bitmath
 
-from .utils import CRATE_VERSION, assert_wait_for
+from .utils import CRATE_VERSION, assert_wait_for, do_pods_exist
 
 
 @pytest.fixture
@@ -848,12 +848,6 @@ class TestStatefulSet:
         stss = await apps.list_namespaced_stateful_set(namespace=namespace)
         return name in (s.metadata.name for s in stss.items)
 
-    async def do_pods_exist(
-        self, core: CoreV1Api, namespace: str, expected: Set[str]
-    ) -> bool:
-        pods = await core.list_namespaced_pod(namespace=namespace)
-        return expected.issubset({p.metadata.name for p in pods.items})
-
     async def test_create(self, faker, namespace, api_client):
         apps = AppsV1Api(api_client)
         core = CoreV1Api(api_client)
@@ -921,7 +915,7 @@ class TestStatefulSet:
         )
         await assert_wait_for(
             True,
-            self.do_pods_exist,
+            do_pods_exist,
             core,
             namespace.metadata.name,
             {f"crate-data-{node_name}-{name}-{i}" for i in range(3)},
@@ -1077,12 +1071,6 @@ class TestCreateCustomResource:
         stss = await apps.list_namespaced_stateful_set(namespace=namespace)
         return name in (s.metadata.name for s in stss.items)
 
-    async def do_pods_exist(
-        self, core: CoreV1Api, namespace: str, expected: Set[str]
-    ) -> bool:
-        pods = await core.list_namespaced_pod(namespace=namespace)
-        return expected.issubset({p.metadata.name for p in pods.items})
-
     async def test_create_minimal(
         self, faker, namespace, cleanup_handler, kopf_runner, api_client
     ):
@@ -1142,7 +1130,7 @@ class TestCreateCustomResource:
         )
         await assert_wait_for(
             True,
-            self.do_pods_exist,
+            do_pods_exist,
             core,
             namespace.metadata.name,
             {f"crate-data-data-{name}-{i}" for i in range(3)},

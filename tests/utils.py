@@ -21,7 +21,7 @@
 
 import asyncio
 import logging
-from typing import Any, Callable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
 import psycopg2
@@ -81,6 +81,16 @@ async def assert_wait_for(
 async def does_namespace_exist(core, namespace: str) -> bool:
     namespaces = await core.list_namespace()
     return namespace in (ns.metadata.name for ns in namespaces.items)
+
+
+async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
+    pods = await core.list_namespaced_pod(namespace=namespace)
+    return expected.issubset({p.metadata.name for p in pods.items})
+
+
+async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -> bool:
+    pods = await core.list_namespaced_pod(namespace=namespace)
+    return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
 
 
 async def start_cluster(
