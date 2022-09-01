@@ -133,12 +133,8 @@ async def test_change_compute_from_request_to_limit(
             if c.name == "crate":
                 assert c.resources.limits["cpu"] == str(2)
                 assert c.resources.limits["memory"] == "4Gi"
-                assert (
-                    c.resources.requests["cpu"] == str(1)
-                )
-                assert (
-                    c.resources.requests["memory"] == str("2Gi")
-                )
+                assert c.resources.requests["cpu"] == str(1)
+                assert c.resources.requests["memory"] == str("2Gi")
 
                 # Test the initial heap ratio
                 total_env_vars = len(c.env)
