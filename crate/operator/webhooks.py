@@ -88,6 +88,9 @@ class WebhookChangeComputePayload(WebhookSubPayload):
     new_cpu_request: int
     new_memory_request: str
 
+    old_heap_ratio: float
+    new_heap_ratio: float
+
 
 class WebhookInfoChangedPayload(WebhookSubPayload):
     external_ip: str

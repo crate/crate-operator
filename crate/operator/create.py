@@ -471,6 +471,14 @@ def get_statefulset_crate_env_java_opts(
     ]
 
 
+def get_statefulset_env_crate_heap(memory: str, heap_ratio: float) -> V1EnvVar:
+    """Generates the environment variable with the explicit heap size in bytes"""
+    return V1EnvVar(
+        name="CRATE_HEAP_SIZE",
+        value=str(int(bitmath.parse_string_unsafe(memory).bytes * heap_ratio)),
+    )
+
+
 def get_statefulset_crate_env(
     node_spec: Dict[str, Any],
     jmx_port: int,
@@ -478,16 +486,9 @@ def get_statefulset_crate_env(
     ssl: Optional[Dict[str, Any]],
 ) -> List[V1EnvVar]:
     crate_env = [
-        V1EnvVar(
-            name="CRATE_HEAP_SIZE",
-            value=str(
-                int(
-                    bitmath.parse_string_unsafe(
-                        get_cluster_resource_limits(node_spec, resource_type="memory")
-                    ).bytes
-                    * node_spec["resources"]["heapRatio"]
-                )
-            ),
+        get_statefulset_env_crate_heap(
+            memory=get_cluster_resource_limits(node_spec, resource_type="memory"),
+            heap_ratio=node_spec["resources"]["heapRatio"],
         ),
         V1EnvVar(
             name="CRATE_JAVA_OPTS",

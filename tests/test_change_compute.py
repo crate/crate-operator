@@ -37,22 +37,13 @@ from .utils import (
 )
 
 
+def calculate_heap_size(memory_size_in_gb: int, heap_ratio: float) -> int:
+    return int(memory_size_in_gb * 1024 * 1024 * 1024 * heap_ratio)
+
+
 @pytest.mark.k8s
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "set_initial_request_resources, cpu_request, memory_request, cpu_limit,"
-    "memory_limit",
-    [
-        # Test a change in cpu and memory from req != limits to req = limits
-        (True, 1, "5Gi", 1, "5Gi"),
-    ],
-)
-async def test_change_cpu_and_ram(
-    set_initial_request_resources,
-    cpu_request,
-    memory_request,
-    cpu_limit,
-    memory_limit,
+async def test_change_compute_from_request_to_limit(
     faker,
     namespace,
     kopf_runner,
@@ -61,8 +52,15 @@ async def test_change_cpu_and_ram(
     """
     Tests that the cratedb resource changes in cpu/memory requests/limits are properly
     passed on to the statefulset.
+    The original cluster has requests and limits defined.
+    The changes requested involve requests=limits.
     Note we cannot test the affinity in a test cluster.
     """
+    cpu_limit = 1
+    memory_limit = "5Gi"
+    heap_ratio = 0.3
+    expected_heap_size = calculate_heap_size(5, 0.3)
+
     body_changes = [
         {
             "op": "replace",
@@ -74,50 +72,33 @@ async def test_change_cpu_and_ram(
             "path": "/spec/nodes/data/0/resources/limits/memory",
             "value": memory_limit,
         },
+        {
+            "op": "replace",
+            "path": "/spec/nodes/data/0/resources/heapRatio",
+            "value": heap_ratio,
+        },
+        # Make requests equal to limits
+        {
+            "op": "replace",
+            "path": "/spec/nodes/data/0/resources/requests/cpu",
+            "value": cpu_limit,
+        },
+        {
+            "op": "replace",
+            "path": "/spec/nodes/data/0/resources/requests/memory",
+            "value": memory_limit,
+        },
     ]
-    if set_initial_request_resources or cpu_request != cpu_limit:
-        if set_initial_request_resources:
-            body_changes.append(
-                {
-                    "op": "replace",
-                    "path": "/spec/nodes/data/0/resources/requests/cpu",
-                    "value": cpu_request,
-                },
-            )
-        else:
-            body_changes.append(
-                {
-                    "op": "add",
-                    "path": "/spec/nodes/data/0/resources/requests",
-                    "value": {
-                        "cpu": cpu_request,
-                        "memory": memory_request or memory_limit,
-                    },
-                },
-            )
-
-    if set_initial_request_resources:
-        body_changes.append(
-            {
-                "op": "replace",
-                "path": "/spec/nodes/data/0/resources/requests/memory",
-                "value": memory_request or memory_limit,
-            },
-        )
 
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
-    if set_initial_request_resources:
-        # Start a cluster with requests set to half the original limits
-        initial_requests = {"cpu": 1, "memory": "2Gi"}
-        host, password = await start_cluster(
-            name, namespace, core, coapi, 1, "5.0.0", resource_requests=initial_requests
-        )
-    else:
-        # Start a cluster without requests, just the standard limits of cpu=2 and
-        # memory=4Gi per node
-        host, password = await start_cluster(name, namespace, core, coapi, 1, "5.0.0")
+
+    # Start a cluster with requests set to half the original limits
+    initial_requests = {"cpu": 1, "memory": "2Gi"}
+    host, password = await start_cluster(
+        name, namespace, core, coapi, 1, "5.0.0", resource_requests=initial_requests
+    )
 
     await assert_wait_for(
         True,
@@ -146,21 +127,24 @@ async def test_change_cpu_and_ram(
     original_pods = {p.metadata.uid for p in pods.items}
 
     # Check limits and requests before changing them
+    total_env_vars = 0
     for p in pods.items:
         for c in p.spec.containers:
             if c.name == "crate":
                 assert c.resources.limits["cpu"] == str(2)
                 assert c.resources.limits["memory"] == "4Gi"
                 assert (
-                    c.resources.requests["cpu"] == str(2)
-                    if not set_initial_request_resources
-                    else str(1)
+                    c.resources.requests["cpu"] == str(1)
                 )
                 assert (
-                    c.resources.requests["memory"] == "4Gi"
-                    if not set_initial_request_resources
-                    else str("2Gi")
+                    c.resources.requests["memory"] == str("2Gi")
                 )
+
+                # Test the initial heap ratio
+                total_env_vars = len(c.env)
+                for env in c.env:
+                    if env.name == "CRATE_HEAP_SIZE":
+                        assert env.value == str(1024 * 1024 * 1024)
 
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
@@ -248,8 +232,14 @@ async def test_change_cpu_and_ram(
             if c.name == "crate":
                 assert c.resources.limits["cpu"] == str(cpu_limit)
                 assert c.resources.limits["memory"] == memory_limit
-                assert c.resources.requests["cpu"] == str(cpu_request)
-                assert c.resources.requests["memory"] == memory_request
+                assert c.resources.requests["cpu"] == str(cpu_limit)
+                assert c.resources.requests["memory"] == memory_limit
+
+                # Test the new heap ration has been applied
+                for env in c.env:
+                    if env.name == "CRATE_HEAP_SIZE":
+                        assert env.value == str(expected_heap_size)
+                assert total_env_vars == len(c.env)
 
 
 @pytest.mark.parametrize(
@@ -282,6 +272,8 @@ def test_generate_body_patch(
         new_memory_limit=new_memory_limit,
         new_cpu_request=new_cpu_request,
         new_memory_request=new_memory_request,
+        old_heap_ratio=0.25,
+        new_heap_ratio=0.25,
     )
 
     name = faker.domain_word()

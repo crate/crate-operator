@@ -5,7 +5,10 @@ import kopf
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
-from crate.operator.create import get_statefulset_affinity
+from crate.operator.create import (
+    get_statefulset_affinity,
+    get_statefulset_env_crate_heap,
+)
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.webhooks import (
@@ -71,10 +74,12 @@ def generate_change_compute_payload(old, body):
         old_memory_limit=old_data.get("limits", {}).get("memory"),
         old_cpu_request=old_data.get("requests", {}).get("cpu"),
         old_memory_request=old_data.get("requests", {}).get("memory"),
+        old_heap_ratio=old_data.get("heapRatio"),
         new_cpu_limit=new_data.get("limits", {}).get("cpu"),
         new_memory_limit=new_data.get("limits", {}).get("memory"),
         new_cpu_request=new_data.get("requests", {}).get("cpu"),
         new_memory_request=new_data.get("requests", {}).get("memory"),
+        new_heap_ratio=new_data.get("heapRatio"),
     )
 
 
@@ -113,6 +118,12 @@ def generate_body_patch(
     """
     node_spec = {
         "name": "crate",
+        "env": [
+            get_statefulset_env_crate_heap(
+                memory=compute_change_data["new_memory_limit"],
+                heap_ratio=compute_change_data["new_heap_ratio"],
+            )
+        ],
         "resources": {
             "limits": {
                 "cpu": compute_change_data["new_cpu_limit"],
