@@ -1,0 +1,67 @@
+# Default values for crate-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: crate/crate-operator
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: latest
+
+imagePullSecrets: []
+nameOverride: "crate-operator"
+fullnameOverride: "crate-operator"
+
+envVars:
+  - name: CRATEDB_OPERATOR_BOOTSTRAP_TIMEOUT
+    value: "1800"
+  - name: CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE
+    value: "128GiB"
+  - name: CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS
+    value: "default"
+  - name: CRATEDB_OPERATOR_JMX_EXPORTER_VERSION
+    value: "1.0.0"
+  - name: CRATEDB_OPERATOR_LOG_LEVEL
+    value: "INFO"
+  - name: CRATEDB_OPERATOR_ROLLING_RESTART_TIMEOUT
+    value: "3600"
+  - name: CRATEDB_OPERATOR_SCALING_TIMEOUT
+    value: "3600"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "crate-operator"
+
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: true
+
+podAnnotations: {}
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
