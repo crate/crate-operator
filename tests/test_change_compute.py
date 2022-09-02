@@ -285,9 +285,10 @@ def test_generate_body_patch(
     assert resources["requests"]["cpu"] == new_cpu_request or new_cpu_limit
     assert resources["requests"]["memory"] == new_memory_request or new_memory_limit
 
+    affinity = body["spec"]["template"]["spec"]["affinity"]
     if new_cpu_request or new_memory_request:
-        assert body["spec"]["template"]["spec"]["affinity"].node_affinity is not None
+        assert affinity.node_affinity is not None
+        assert affinity.pod_anti_affinity == {"$patch": "delete"}
     else:
-        assert (
-            body["spec"]["template"]["spec"]["affinity"].pod_anti_affinity is not None
-        )
+        assert affinity.pod_anti_affinity is not None
+        assert affinity.node_affinity == {"$patch": "delete"}

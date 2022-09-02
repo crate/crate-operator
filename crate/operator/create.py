@@ -176,6 +176,7 @@ def get_statefulset_affinity(
 
     if is_shared_resources_cluster(node_spec):
         return V1Affinity(
+            pod_anti_affinity={"$patch": "delete"},
             node_affinity=V1NodeAffinity(
                 required_during_scheduling_ignored_during_execution=V1NodeSelector(
                     node_selector_terms=[
@@ -190,10 +191,11 @@ def get_statefulset_affinity(
                         )
                     ]
                 )
-            )
+            ),
         )
     else:
         return V1Affinity(
+            node_affinity={"$patch": "delete"},
             pod_anti_affinity=V1PodAntiAffinity(
                 required_during_scheduling_ignored_during_execution=[
                     V1PodAffinityTerm(
