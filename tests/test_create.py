@@ -260,7 +260,7 @@ class TestTolerations:
         with mock.patch("crate.operator.create.config.TESTING", False):
             tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
 
-        assert tolerations is None
+        assert tolerations == [{"$patch": "delete"}]
 
     @pytest.mark.parametrize(
         "node_spec",
