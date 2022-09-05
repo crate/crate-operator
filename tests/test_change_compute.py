@@ -23,7 +23,13 @@ import logging
 from unittest import mock
 
 import pytest
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import (
+    CoreV1Api,
+    CustomObjectsApi,
+    V1NodeAffinity,
+    V1PodAntiAffinity,
+    V1Toleration,
+)
 
 from crate.operator.change_compute import generate_body_patch
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
@@ -292,9 +298,12 @@ def test_generate_body_patch(
     assert resources["requests"]["memory"] == new_memory_request or new_memory_limit
 
     affinity = body["spec"]["template"]["spec"]["affinity"]
+    tolerations = body["spec"]["template"]["spec"]["tolerations"]
     if new_cpu_request or new_memory_request:
-        assert affinity.node_affinity is not None
+        assert type(affinity.node_affinity) == V1NodeAffinity
         assert affinity.pod_anti_affinity == {"$patch": "delete"}
+        assert len(tolerations) == 1 and type(tolerations[0]) == V1Toleration
     else:
-        assert affinity.pod_anti_affinity is not None
+        assert type(affinity.pod_anti_affinity) == V1PodAntiAffinity
         assert affinity.node_affinity == {"$patch": "delete"}
+        assert tolerations == [{"$patch": "delete"}]

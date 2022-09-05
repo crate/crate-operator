@@ -234,6 +234,8 @@ def get_tolerations(
                 value=SHARED_NODE_TOLERATION_VALUE,
             )
         ]
+    else:
+        return [{"$patch": "delete"}]
 
     return None
 
