@@ -103,7 +103,7 @@ async def test_change_compute_from_request_to_limit(
     # Start a cluster with requests set to half the original limits
     initial_requests = {"cpu": 1, "memory": "2Gi"}
     host, password = await start_cluster(
-        name, namespace, core, coapi, 1, "5.0.0", resource_requests=initial_requests
+        name, namespace, core, coapi, 1, resource_requests=initial_requests
     )
 
     await assert_wait_for(

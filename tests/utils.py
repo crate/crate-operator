@@ -59,7 +59,7 @@ from crate.operator.utils.kubeapi import (
 
 logger = logging.getLogger(__name__)
 
-CRATE_VERSION = "4.6.4"
+CRATE_VERSION = "5.0.0"
 DEFAULT_TIMEOUT = 60
 
 
