@@ -21,7 +21,7 @@
 
 import asyncio
 import logging
-from typing import Any, Callable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
 import psycopg2
@@ -59,7 +59,7 @@ from crate.operator.utils.kubeapi import (
 
 logger = logging.getLogger(__name__)
 
-CRATE_VERSION = "4.6.4"
+CRATE_VERSION = "5.0.0"
 DEFAULT_TIMEOUT = 60
 
 
@@ -83,6 +83,16 @@ async def does_namespace_exist(core, namespace: str) -> bool:
     return namespace in (ns.metadata.name for ns in namespaces.items)
 
 
+async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
+    pods = await core.list_namespaced_pod(namespace=namespace)
+    return expected.issubset({p.metadata.name for p in pods.items})
+
+
+async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -> bool:
+    pods = await core.list_namespaced_pod(namespace=namespace)
+    return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
+
+
 async def start_cluster(
     name: str,
     namespace: V1Namespace,
@@ -93,6 +103,7 @@ async def start_cluster(
     wait_for_healthy: bool = True,
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
     users: Optional[List[Mapping[str, Any]]] = None,
+    resource_requests: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     body: dict = {
@@ -128,6 +139,13 @@ async def start_cluster(
             },
         },
     }
+
+    if resource_requests:
+        body["spec"]["nodes"]["data"][0]["resources"]["requests"] = {
+            "cpu": resource_requests["cpu"],
+            "memory": resource_requests["memory"],
+        }
+
     if users:
         body["spec"]["users"] = users
 

@@ -19,7 +19,6 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-from typing import Set
 
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
@@ -34,20 +33,12 @@ from .utils import (
     assert_wait_for,
     cluster_routing_allocation_enable_equals,
     create_test_sys_jobs_table,
+    do_pod_ids_exist,
+    do_pods_exist,
     is_cluster_healthy,
     is_kopf_handler_finished,
     start_cluster,
 )
-
-
-async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
-    pods = await core.list_namespaced_pod(namespace=namespace)
-    return expected.issubset({p.metadata.name for p in pods.items})
-
-
-async def do_pod_ids_exist(core: CoreV1Api, namespace: str, pod_ids: Set[str]) -> bool:
-    pods = await core.list_namespaced_pod(namespace=namespace)
-    return bool(pod_ids.intersection({p.metadata.uid for p in pods.items}))
 
 
 @pytest.mark.k8s

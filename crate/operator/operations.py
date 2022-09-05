@@ -246,7 +246,9 @@ async def check_all_data_nodes_gone(
             await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
         )
     if pending_pods:
-        raise kopf.TemporaryError(f"Waiting for pods to be gone {pending_pods}")
+        raise kopf.TemporaryError(
+            f"Waiting for pods to be gone {pending_pods}", delay=5
+        )
 
 
 async def check_all_data_nodes_present(
@@ -321,7 +323,8 @@ async def check_backup_metrics_pod_gone(
     backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
     if any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods):
         raise kopf.TemporaryError(
-            f"Waiting for backup metrics pod in {backup_metrics_pods} to be gone."
+            f"Waiting for backup metrics pod in {backup_metrics_pods} to be gone.",
+            delay=5,
         )
 
 
