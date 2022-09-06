@@ -28,7 +28,6 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1NodeAffinity,
     V1PodAntiAffinity,
-    V1Toleration,
 )
 
 from crate.operator.change_compute import generate_body_patch
@@ -302,8 +301,22 @@ def test_generate_body_patch(
     if new_cpu_request or new_memory_request:
         assert type(affinity.node_affinity) == V1NodeAffinity
         assert affinity.pod_anti_affinity == {"$patch": "delete"}
-        assert len(tolerations) == 1 and type(tolerations[0]) == V1Toleration
+        assert len(tolerations) == 1
+        assert tolerations[0].to_dict() == {
+            "effect": "NoSchedule",
+            "key": "cratedb",
+            "operator": "Equal",
+            "toleration_seconds": None,
+            "value": "shared",
+        }
     else:
         assert type(affinity.pod_anti_affinity) == V1PodAntiAffinity
         assert affinity.node_affinity == {"$patch": "delete"}
-        assert tolerations == [{"$patch": "delete"}]
+        assert len(tolerations) == 1
+        assert tolerations[0].to_dict() == {
+            "effect": "NoSchedule",
+            "key": "cratedb",
+            "operator": "Equal",
+            "toleration_seconds": None,
+            "value": "any",
+        }
