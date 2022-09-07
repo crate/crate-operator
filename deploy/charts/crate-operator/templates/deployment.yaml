@@ -1,13 +1,12 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "crate-operator.fullname" . }}
   labels:
     {{- include "crate-operator.labels" . | nindent 4 }}
+  name: {{ include "crate-operator.fullname" . }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "crate-operator.selectorLabels" . | nindent 6 }}
