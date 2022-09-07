@@ -260,7 +260,14 @@ class TestTolerations:
         with mock.patch("crate.operator.create.config.TESTING", False):
             tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
 
-        assert tolerations is None
+        assert len(tolerations) == 1
+        assert tolerations[0].to_dict() == {
+            "effect": "NoSchedule",
+            "key": "cratedb",
+            "operator": "Equal",
+            "toleration_seconds": None,
+            "value": "any",
+        }
 
     @pytest.mark.parametrize(
         "node_spec",

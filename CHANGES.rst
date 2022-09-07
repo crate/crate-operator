@@ -8,7 +8,7 @@ Unreleased
 * Fixed a bug that would prematurely send a notification about the success of updating
   the user's password.
 
-* Added support to change cpu and memory on running clusters.
+* Added support to change cpu, memory and heap ratio on running clusters.
 
 * LICENSE CHANGE: Moving from AGPL to Apache 2.0, to be in-line with our other open-source
   projects.

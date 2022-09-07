@@ -28,6 +28,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 from crate.operator.create import (
     get_statefulset_affinity,
     get_statefulset_env_crate_heap,
+    get_tolerations,
 )
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -166,6 +167,7 @@ def generate_body_patch(
             "template": {
                 "spec": {
                     "affinity": get_statefulset_affinity(name, logger, node_spec),
+                    "tolerations": get_tolerations(name, logger, node_spec),
                     "containers": [node_spec],
                 }
             }

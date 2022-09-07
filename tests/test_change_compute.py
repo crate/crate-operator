@@ -23,7 +23,12 @@ import logging
 from unittest import mock
 
 import pytest
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import (
+    CoreV1Api,
+    CustomObjectsApi,
+    V1NodeAffinity,
+    V1PodAntiAffinity,
+)
 
 from crate.operator.change_compute import generate_body_patch
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
@@ -292,9 +297,26 @@ def test_generate_body_patch(
     assert resources["requests"]["memory"] == new_memory_request or new_memory_limit
 
     affinity = body["spec"]["template"]["spec"]["affinity"]
+    tolerations = body["spec"]["template"]["spec"]["tolerations"]
     if new_cpu_request or new_memory_request:
-        assert affinity.node_affinity is not None
+        assert type(affinity.node_affinity) == V1NodeAffinity
         assert affinity.pod_anti_affinity == {"$patch": "delete"}
+        assert len(tolerations) == 1
+        assert tolerations[0].to_dict() == {
+            "effect": "NoSchedule",
+            "key": "cratedb",
+            "operator": "Equal",
+            "toleration_seconds": None,
+            "value": "shared",
+        }
     else:
-        assert affinity.pod_anti_affinity is not None
+        assert type(affinity.pod_anti_affinity) == V1PodAntiAffinity
         assert affinity.node_affinity == {"$patch": "delete"}
+        assert len(tolerations) == 1
+        assert tolerations[0].to_dict() == {
+            "effect": "NoSchedule",
+            "key": "cratedb",
+            "operator": "Equal",
+            "toleration_seconds": None,
+            "value": "any",
+        }

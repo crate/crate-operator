@@ -235,7 +235,17 @@ def get_tolerations(
             )
         ]
 
-    return None
+    # Since we cannot easily remove tolerations (or haven't figured out how to),
+    # we are instead configuring a "tolerate any" toleration which is effectively
+    # a no-op.
+    return [
+        V1Toleration(
+            effect=SHARED_NODE_TOLERATION_EFFECT,
+            key=SHARED_NODE_TOLERATION_KEY,
+            operator="Equal",
+            value="any",
+        )
+    ]
 
 
 def get_topology_spread(
