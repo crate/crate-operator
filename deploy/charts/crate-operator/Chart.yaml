@@ -19,3 +19,6 @@ dependencies:
   version: "0.1.0"
   repository: "file://../crate-operator-crds"
   condition: crate-operator-crds.enabled
+
+maintainers:
+  - name: Crate.io

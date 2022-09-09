@@ -19,8 +19,14 @@ If the RBAC resources are already installed, you need to pass `--set rbac.create
 
 Once Helm is properly set up, add the repo:
 
-```console
+```shell
 helm repo add crate https://
+```
+
+### Fetch dependencies
+
+```shell
+helm dependencies build crate-operator
 ```
 
 ### Installing the Operator
