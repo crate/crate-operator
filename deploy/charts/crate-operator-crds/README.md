@@ -22,5 +22,5 @@ helm install crate-operator-crds crate/crate-operator-crds
 ### Upgrading the Operator
 
 ```
-helm upgrade crate-operator-crds crate/crate-operator-crds
+helm upgrade --atomic crate-operator-crds crate/crate-operator-crds
 ```

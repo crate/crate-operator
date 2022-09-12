@@ -47,7 +47,7 @@ kubectl create namespace crate-operator
 or it will be created automatically by adding `--namespace=crate-operator --create-namespace` to the Helm command:
 
 ```shell
-helm install crate-operator crate/crate-operator \
+helm upgrade --install --atomic crate-operator crate/crate-operator \
     --namespace=crate-operator \
     --create-namespace
 ```
@@ -59,5 +59,5 @@ Please refer to the [configuration documentation](https://github.com/crate/crate
 ### Upgrading the Operator
 
 ```
-helm upgrade crate-operator crate/crate-operator
+helm upgrade --atomic crate-operator crate/crate-operator
 ```
