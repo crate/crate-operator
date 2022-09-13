@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.14.0 (2022-09-13)
+-------------------
+
 * Fixed a bug that would prematurely send a notification about the success of updating
   the user's password.
 
