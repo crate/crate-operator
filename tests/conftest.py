@@ -95,7 +95,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
-def load_config():
+def load_config(worker_id):
     env = {
         "CRATEDB_OPERATOR_CLUSTER_BACKUP_IMAGE": "crate/does-not-exist-backup",
         "CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE": "2GiB",
@@ -104,6 +104,9 @@ def load_config():
         "CRATEDB_OPERATOR_JMX_EXPORTER_VERSION": "1.0.0",
         "CRATEDB_OPERATOR_LOG_LEVEL": "DEBUG",
         "CRATEDB_OPERATOR_TESTING": "true",
+        "CRATEDB_OPERATOR_PARALLEL_TESTING": "false"
+        if worker_id == "master"
+        else "true",
         "CRATEDB_OPERATOR_JOBS_TABLE": "test.test_sys_jobs",
         "CRATEDB_OPERATOR_BOOTSTRAP_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_HEALTH_CHECK_RETRY_DELAY": "5",
@@ -173,7 +176,7 @@ def kopf_runner(request, cratedb_crd):
         ),
     }
     with mock.patch.dict(os.environ, env):
-        with KopfRunner(["run", "--standalone", main.__file__]) as runner:
+        with KopfRunner(["run", "--standalone", "-A", main.__file__]) as runner:
             yield runner
 
 
