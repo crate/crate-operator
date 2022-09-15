@@ -21,6 +21,7 @@
 
 import datetime
 import logging
+import os
 
 import kopf
 from prometheus_client import start_http_server
@@ -95,7 +96,20 @@ async def login(**kwargs):
     return await login_via_kubernetes_asyncio(**kwargs)
 
 
-@kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB)
+def annotation_filter():
+    """
+    If running in parallel testing mode, filter the cratedbs to only match those that
+    have the "testing" annotation set to the current PID.
+
+    This allows running several operators in parallel in each xdist worker.
+    """
+    if not config.TESTING or not config.PARALLEL_TESTING:
+        return
+
+    return {"testing": f"{os.getpid()}"}
+
+
+@kopf.on.create(API_GROUP, "v1", RESOURCE_CRATEDB, annotations=annotation_filter())
 @crate.on.error(error_handler=crate.send_create_failed_notification)
 @crate.timeout(timeout=float(config.BOOTSTRAP_TIMEOUT))
 async def cluster_create(
@@ -113,7 +127,13 @@ async def cluster_create(
     await create_cratedb(namespace, meta, spec, patch, status, logger)
 
 
-@kopf.on.update(API_GROUP, "v1", RESOURCE_CRATEDB, id=CLUSTER_UPDATE_ID)
+@kopf.on.update(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    id=CLUSTER_UPDATE_ID,
+    annotations=annotation_filter(),
+)
 @crate.on.error(error_handler=crate.send_update_failed_notification)
 @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
 async def cluster_update(
@@ -131,7 +151,12 @@ async def cluster_update(
     await update_cratedb(namespace, name, patch, status, diff, started)
 
 
-@kopf.on.update("", "v1", "secrets", labels={LABEL_USER_PASSWORD: "true"})
+@kopf.on.update(
+    "",
+    "v1",
+    "secrets",
+    labels={LABEL_USER_PASSWORD: "true"},
+)
 async def secret_update(
     namespace: str,
     name: str,
@@ -145,7 +170,13 @@ async def secret_update(
     await update_user_password_secret(namespace, name, diff, logger)
 
 
-@kopf.on.field(API_GROUP, "v1", RESOURCE_CRATEDB, field="spec.cluster.allowedCIDRs")
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field="spec.cluster.allowedCIDRs",
+    annotations=annotation_filter(),
+)
 async def service_cidr_changes(
     namespace: str,
     name: str,
@@ -190,6 +221,7 @@ async def service_external_ip_update(
     RESOURCE_CRATEDB,
     interval=config.CRATEDB_STATUS_CHECK_INTERVAL,  # check interval
     idle=15,  # Initial delay, CrateDB very unlikely to be up in less than 15s
+    annotations=annotation_filter(),
 )
 async def ping_cratedb(namespace: str, name: str, logger: logging.Logger, **kwargs):
     await ping_cratedb_status(namespace, name, logger)

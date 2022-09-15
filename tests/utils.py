@@ -21,6 +21,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Any, Callable, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
@@ -109,7 +110,7 @@ async def start_cluster(
     body: dict = {
         "apiVersion": "cloud.crate.io/v1",
         "kind": "CrateDB",
-        "metadata": {"name": name},
+        "metadata": {"name": name, "annotations": {"testing": f"{os.getpid()}"}},
         "spec": {
             "cluster": {
                 "imageRegistry": "crate",

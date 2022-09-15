@@ -62,7 +62,7 @@ from crate.operator.create import (
 )
 from crate.operator.utils.formatting import b64decode, format_bitmath
 
-from .utils import CRATE_VERSION, assert_wait_for, do_pods_exist
+from .utils import CRATE_VERSION, assert_wait_for, do_pods_exist, start_cluster
 
 
 @pytest.fixture
@@ -1078,69 +1078,26 @@ class TestCreateCustomResource:
         stss = await apps.list_namespaced_stateful_set(namespace=namespace)
         return name in (s.metadata.name for s in stss.items)
 
-    async def test_create_minimal(
-        self, faker, namespace, cleanup_handler, kopf_runner, api_client
-    ):
+    async def test_create_minimal(self, faker, namespace, kopf_runner, api_client):
         apps = AppsV1Api(api_client)
         coapi = CustomObjectsApi(api_client)
         core = CoreV1Api(api_client)
         name = faker.domain_word()
 
-        await coapi.create_namespaced_custom_object(
-            group=API_GROUP,
-            version="v1",
-            plural=RESOURCE_CRATEDB,
-            namespace=namespace.metadata.name,
-            body={
-                "apiVersion": "cloud.crate.io/v1",
-                "kind": "CrateDB",
-                "metadata": {"name": name},
-                "spec": {
-                    "cluster": {
-                        "imageRegistry": "crate",
-                        "name": "my-crate-cluster",
-                        "version": CRATE_VERSION,
-                    },
-                    "nodes": {
-                        "data": [
-                            {
-                                "name": "data",
-                                "replicas": 3,
-                                "resources": {
-                                    "requests": {
-                                        "cpu": 0.5,
-                                        "memory": "1Gi",
-                                    },
-                                    "limits": {
-                                        "cpu": 0.5,
-                                        "memory": "1Gi",
-                                    },
-                                    "heapRatio": 0.25,
-                                    "disk": {
-                                        "storageClass": "default",
-                                        "size": "16GiB",
-                                        "count": 1,
-                                    },
-                                },
-                            }
-                        ]
-                    },
-                },
-            },
-        )
+        await start_cluster(name, namespace, core, coapi, 1, wait_for_healthy=False)
         await assert_wait_for(
             True,
             self.does_statefulset_exist,
             apps,
             namespace.metadata.name,
-            f"crate-data-data-{name}",
+            f"crate-data-hot-{name}",
         )
         await assert_wait_for(
             True,
             do_pods_exist,
             core,
             namespace.metadata.name,
-            {f"crate-data-data-{name}-{i}" for i in range(3)},
+            {f"crate-data-hot-{name}-0"},
         )
 
     async def test_preserve_unknown_object_keys(

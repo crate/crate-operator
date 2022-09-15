@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added support for parallel testing, which greatly reduces test runtime.
+
 2.14.0 (2022-09-13)
 -------------------
 

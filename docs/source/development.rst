@@ -149,6 +149,16 @@ Finally, you can run ``pytest`` using the required arguments:
 .. _minikube tunnel: https://minikube.sigs.k8s.io/docs/handbook/accessing/#using-minikube-tunnel
 
 
+Running test in parallel
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The operator supports running the entire test suite in parallel, to significantly speed
+up execution. To do that, simply run the tests with the ``-n X`` parameter to pytest:
+
+.. code-block:: console
+
+   (env)$ pytest -n 2 --dist loadfile -vv --kube-config=~/.kube/test_config --kube-context=crate-testing
+
 Code style
 ----------
 

@@ -112,6 +112,11 @@ class Config:
     #: allow for easier testing in smaller Kubernetes clusters.
     TESTING: bool = False
 
+    #: Allows running tests in parallel. If enabled, filters the CrateDB resources
+    #: by the PID in which they were created, allowing multiple operators to run
+    #: in parallel.
+    PARALLEL_TESTING: bool = False
+
     #: HTTP Basic Auth password for web requests made to :attr:`WEBHOOK_URL`.
     WEBHOOK_PASSWORD: Optional[str] = None
 
@@ -275,6 +280,9 @@ class Config:
 
         testing = self.env("TESTING", default=str(self.TESTING))
         self.TESTING = testing.lower() == "true"
+
+        testing = self.env("PARALLEL_TESTING", default=str(self.PARALLEL_TESTING))
+        self.PARALLEL_TESTING = testing.lower() == "true"
 
         self.WEBHOOK_PASSWORD = self.env(
             "WEBHOOK_PASSWORD", default=self.WEBHOOK_PASSWORD

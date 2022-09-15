@@ -50,7 +50,7 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    host, password = await start_cluster(name, namespace, core, coapi, 3, version_from)
+    host, password = await start_cluster(name, namespace, core, coapi, 2, version_from)
 
     await assert_wait_for(
         True,
@@ -60,7 +60,6 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         {
             f"crate-data-hot-{name}-0",
             f"crate-data-hot-{name}-1",
-            f"crate-data-hot-{name}-2",
         },
     )
 
@@ -70,7 +69,7 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         True,
         is_cluster_healthy,
         conn_factory,
-        3,
+        2,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -138,7 +137,7 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         True,
         is_cluster_healthy,
         connection_factory(host, password),
-        3,
+        2,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
     )

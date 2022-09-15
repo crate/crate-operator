@@ -51,7 +51,7 @@ setup(
     install_requires=[
         "aiopg==1.3.4",
         "bitmath==1.3.3.1",
-        "kopf==1.35.1",
+        "kopf==1.35.6",
         # Careful with 22+ - it is currently not compatible
         # and results in various "permission denied" errors.
         "kubernetes-asyncio==21.7.1",
@@ -74,6 +74,7 @@ setup(
             "pytest==7.1.3",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.19.0",
+            "pytest-xdist==2.5.0",  # enables parallel testing
         ],
         "develop": [
             "black==22.3.0",
