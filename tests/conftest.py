@@ -28,6 +28,7 @@ from unittest import mock
 
 import pytest
 import pytest_asyncio
+from filelock import FileLock
 from kopf.testing import KopfRunner
 from kubernetes_asyncio.client import (
     CoreV1Api,
@@ -136,22 +137,25 @@ async def k8s_asyncio_api_client(kube_config) -> ApiClient:
 
 
 @pytest.fixture(scope="session")
-def cratedb_crd(request, load_config):
+def cratedb_crd(request, tmp_path_factory, load_config):
     kubeconfig = request.config.getoption(KUBECONFIG_OPTION)
     assert kubeconfig is not None, f"{KUBECONFIG_OPTION} must be present"
     fname = "deploy/crd.yaml"
-    subprocess.run(
-        [
-            "kubectl",
-            "--kubeconfig",
-            str(pathlib.Path(kubeconfig).expanduser().resolve()),
-            "apply",
-            "-f",
-            fname,
-        ],
-        check=True,
-        capture_output=True,
-    )
+    root_tmp_dir = tmp_path_factory.getbasetemp().parent
+    # lock required when parallel testing, as concurrent CRD apply cmds do not work.
+    with FileLock(f"{root_tmp_dir}/operator-apply-lock"):
+        subprocess.run(
+            [
+                "kubectl",
+                "--kubeconfig",
+                str(pathlib.Path(kubeconfig).expanduser().resolve()),
+                "apply",
+                "-f",
+                fname,
+            ],
+            check=True,
+            capture_output=True,
+        )
     yield
 
 
