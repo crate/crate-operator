@@ -22,6 +22,8 @@ imagePullSecrets: []
 nameOverride: "crate-operator"
 fullnameOverride: "crate-operator"
 
+namespace: crate-operator
+
 env:
   CRATEDB_OPERATOR_BOOTSTRAP_TIMEOUT: "1800"
   CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE: "128GiB"

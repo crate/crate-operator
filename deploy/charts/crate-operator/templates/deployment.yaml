@@ -5,6 +5,7 @@ metadata:
   labels:
     {{- include "crate-operator.labels" . | nindent 4 }}
   name: {{ include "crate-operator.fullname" . }}
+  namespace: {{ .Values.namespace }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
