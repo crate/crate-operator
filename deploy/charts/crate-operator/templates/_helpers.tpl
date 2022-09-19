@@ -47,7 +47,6 @@ Selector labels
 */}}
 {{- define "crate-operator.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "crate-operator.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
