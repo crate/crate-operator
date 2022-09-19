@@ -7,20 +7,16 @@ Helm must be installed to use the charts. Please refer to Helm's [documentation]
 
 ## Usage
 
-Once Helm is properly set up, add the repo:
+Once Helm is properly set up, install the chart.
 
-```console
-helm repo add crate https://
-```
-
-### Installing the Operator
+### Install from local folder
 
 ```shell
-helm install crate-operator-crds crate/crate-operator-crds
+helm install crate-operator-crds crate-operator-crds
 ```
 
 ### Upgrading the Operator
 
 ```
-helm upgrade --atomic crate-operator-crds crate/crate-operator-crds
+helm upgrade --atomic crate-operator-crds crate-operator-crds
 ```

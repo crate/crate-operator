@@ -17,22 +17,12 @@ If the RBAC resources are already installed, you need to pass `--set rbac.create
 
 ## Usage
 
-Once Helm is properly set up, add the repo:
+Once Helm is properly set up, install the chart.
+
+### Install from local folder
 
 ```shell
-helm repo add crate https://
-```
-
-### Fetch dependencies
-
-```shell
-helm dependencies build crate-operator
-```
-
-### Installing the Operator
-
-```shell
-helm install crate-operator crate/crate-operator
+helm install crate-operator crate-operator
 ```
 
 #### Namespace
@@ -47,7 +37,7 @@ kubectl create namespace crate-operator
 or it will be created automatically by adding `--namespace=crate-operator --create-namespace` to the Helm command:
 
 ```shell
-helm upgrade --install --atomic crate-operator crate/crate-operator \
+helm upgrade --install --atomic crate-operator crate-operator \
     --namespace=crate-operator \
     --create-namespace
 ```
@@ -59,5 +49,5 @@ Please refer to the [configuration documentation](https://github.com/crate/crate
 ### Upgrading the Operator
 
 ```
-helm upgrade --atomic crate-operator crate/crate-operator
+helm upgrade --atomic crate-operator crate-operator
 ```
