@@ -16,7 +16,7 @@ image:
   repository: crate/crate-operator
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: latest
+  # tag: latest
 
 imagePullSecrets: []
 nameOverride: "crate-operator"
@@ -48,13 +48,13 @@ rbac:
 
 podAnnotations: {}
 
-resources: {}
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+resources:
+  limits:
+    cpu: 250m
+    memory: 128Mi
+  requests:
+    cpu: 250m
+    memory: 128Mi
 
 nodeSelector: {}
 
