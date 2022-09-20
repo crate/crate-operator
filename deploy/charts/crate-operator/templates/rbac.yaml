@@ -3,6 +3,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  labels:
+    {{- include "crate-operator.labels" . | nindent 4 }}
   name: {{ template "crate-operator.fullname" . }}
 rules:
 # Framework: posting the events about the handlers progress/errors
@@ -60,6 +62,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    {{- include "crate-operator.labels" . | nindent 4 }}
   name: {{ template "crate-operator.fullname" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -68,5 +72,5 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ template "crate-operator.serviceAccountName" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 {{- end -}}

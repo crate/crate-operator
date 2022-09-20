@@ -22,7 +22,7 @@ imagePullSecrets: []
 nameOverride: "crate-operator"
 fullnameOverride: "crate-operator"
 
-namespace: crate-operator
+partOf: cratedb
 
 env:
   CRATEDB_OPERATOR_BOOTSTRAP_TIMEOUT: "1800"
@@ -32,6 +32,8 @@ env:
   CRATEDB_OPERATOR_LOG_LEVEL: "INFO"
   CRATEDB_OPERATOR_ROLLING_RESTART_TIMEOUT: "3600"
   CRATEDB_OPERATOR_SCALING_TIMEOUT: "3600"
+
+envFromSecret: {}
 
 serviceAccount:
   # Specifies whether a service account should be created
