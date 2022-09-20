@@ -218,12 +218,24 @@ For the following steps we assume the next version is going to be ``$VERSION``.
 
 #. Next, go ahead and ensure the changelog ``CHANGES.rst`` is up to date.
 
-#. Commit the changes to the ``CHANGES.rst``, push them to GitHub, and open a
+#. Run ``./devtools/bumpversion.sh $VERSION`` to update version:
+
+        $ ./devtools/bumpversion.sh 2.14.1
+         INFO:  Current branch is 'release/2.14.1'.
+         INFO:  Incrementing crate-operator Helm Chart to version '2.14.1'
+         INFO:  Incrementing crate-operator-crds Helm Chart to version '2.14.1'
+         INFO:  Done. ✨
+
+   If you want to inspect the changes made, run ``git diff``.
+
+#. Commit the changes to the ``CHANGES.rst``,
+   ``deploy/charts/crate-operator/Chart.yaml`` and
+   ``deploy/charts/crate-operator-crds/Chart.yaml``, push them to GitHub, and open a
    pull request against the ``master`` branch:
 
    .. code-block:: console
 
-      $ git add CHANGES.rst
+      $ git add CHANGES.rst deploy/charts/crate-operator/Chart.yaml deploy/charts/crate-operator-crds/Chart.yaml
       $ git commit -m "Prepare release $VERSION"
       $ git push --set-upstream origin "release/$VERSION"
 
