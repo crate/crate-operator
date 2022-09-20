@@ -952,6 +952,10 @@ class TestServiceModels:
                 "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"  # noqa
                 in annotation_keys
             )
+            assert (
+                "service.beta.kubernetes.io/aws-load-balancer-type"  # noqa
+                in annotation_keys
+            )
         if provider == "azure":
             assert (
                 "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset"

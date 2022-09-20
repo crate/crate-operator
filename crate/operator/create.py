@@ -886,6 +886,7 @@ def get_data_service(
                 "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout": "1800",  # noqa
                 # Default idle timeout is 60s, which kills the connection on long-running queries # noqa
                 "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout": "3600",  # noqa
+                "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",  # noqa
             }
         )
     elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
