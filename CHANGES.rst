@@ -7,6 +7,8 @@ Unreleased
 
 * Added support for parallel testing, which greatly reduces test runtime.
 
+* Change AWS Loadbalancer to type NLB instead of CLASSIC.
+
 2.14.0 (2022-09-13)
 -------------------
 
