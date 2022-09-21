@@ -4,10 +4,10 @@
 
 Install CrateDB by using the operator.
 
-| Charts                  | Description                                                    |
-| ------------------------| -------------------------------------------------------------- |
-| crate-operator          | CrateDB operator.                                              |
-| crate-operator-crds     | CrateDB Custom Resource Definitions (CRDs) for Crate operator. |
+| Charts                                                                                                                 | Description                                                    |
+| -----------------------------------------------------------------------------------------------------------------------| -------------------------------------------------------------- |
+| [crate-operator](https://github.com/crate/crate-operator/blob/master/deploy/charts/crate-operator/README.md)           | CrateDB operator.                                              |
+| [crate-operator-crds](https://github.com/crate/crate-operator/blob/master/deploy/charts/crate-operator-crds/README.md) | CrateDB Custom Resource Definitions (CRDs) for Crate operator. |
 
 ## Usage
 
@@ -23,7 +23,7 @@ helm search repo crate-operator
 
 Install the chart:
 ```
-helm install crate-operator/<chart name>
+helm install crate-operator/<chart_name>
 ```
 
 See [Helm docs](https://helm.sh/docs/helm) for further usage.
