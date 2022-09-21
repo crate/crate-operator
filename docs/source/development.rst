@@ -249,6 +249,20 @@ For the following steps we assume the next version is going to be ``$VERSION``.
       $ ./devtools/create_tag.sh "$VERSION"
 
 
+Automatic Helm chart release
+----------------------------
+
+This GitHub repo uses the ``chart-releaser`` action that detects any
+modification in the repo's charts during every push to ``master``.
+The action creates the artifacts and the corresponding GitHub release, then
+it updates the index.yaml in ``gh-pages`` branch, which is hosted on GitHub Pages.
+
+For more details, see `Helm Chart Releaser`_.
+
+
+.. _Helm Chart Releaser: https://github.com/marketplace/actions/helm-chart-releaser
+
+
 General Tips
 ------------
 

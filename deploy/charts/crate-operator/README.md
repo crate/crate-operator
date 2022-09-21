@@ -21,8 +21,16 @@ Once Helm is properly set up, install the chart.
 
 ### Install from local folder
 
-```shell
+```
 helm install crate-operator crate-operator
+```
+
+### Install from repo
+
+```
+helm repo add crate-operator https://crate.github.io/crate-operator
+helm search repo crate-operator
+helm install crate-operator/crate-operator
 ```
 
 #### Namespace
