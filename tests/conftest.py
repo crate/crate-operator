@@ -146,7 +146,7 @@ def cratedb_crd(request, tmp_path_factory, load_config):
     with FileLock(f"{root_tmp_dir}/operator-apply-lock"):
         subprocess.run(
             [
-                "/home/romanas/bin/kubectl",
+                "kubectl",
                 "--kubeconfig",
                 str(pathlib.Path(kubeconfig).expanduser().resolve()),
                 "apply",
