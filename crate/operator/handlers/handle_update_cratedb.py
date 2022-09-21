@@ -40,7 +40,6 @@ from crate.operator.operations import (
     SuspendClusterSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
-from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
 
 
 async def update_cratedb(
@@ -100,20 +99,13 @@ async def update_cratedb(
     do_before_update = True
     do_after_update = True
 
-    do_upgrade = False
     do_change_compute = False
     do_restart = False
     do_scale = False
     do_expand_volume = False
 
     for _, field_path, old_spec, new_spec in diff:
-        if field_path in {
-            ("spec", "cluster", "imageRegistry"),
-            ("spec", "cluster", "version"),
-        }:
-            do_upgrade = True
-            do_restart = True
-        elif field_path == ("spec", "nodes", "master", "replicas"):
+        if field_path == ("spec", "nodes", "master", "replicas"):
             do_scale = True
         elif field_path == ("spec", "nodes", "data"):
             for node_spec_idx in range(len(old_spec)):
@@ -138,8 +130,7 @@ async def update_cratedb(
                     do_restart = True
 
     if (
-        not do_upgrade
-        and not do_restart
+        not do_restart
         and not do_scale
         and not do_expand_volume
         and not do_change_compute
@@ -156,15 +147,6 @@ async def update_cratedb(
             backoff=get_backoff(),
         )
 
-    if do_upgrade:
-        kopf.register(
-            fn=UpgradeSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="upgrade",
-            backoff=get_backoff(),
-        )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
     if do_change_compute:
         kopf.register(
             fn=ChangeComputeSubHandler(
@@ -183,17 +165,6 @@ async def update_cratedb(
             backoff=get_backoff(),
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
-        # Send a webhook success notification after upgrade and restart handlers
-        if do_upgrade:
-            kopf.register(
-                fn=AfterUpgradeSubHandler(
-                    namespace, name, hash, context, depends_on=depends_on.copy()
-                )(),
-                id="after_upgrade",
-                backoff=get_backoff(),
-            )
-            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
-
         # Send a webhook success notification after change_compute and restart handlers
         if do_change_compute:
             kopf.register(

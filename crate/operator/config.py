@@ -377,3 +377,13 @@ class Config:
 
 #: The global instance of the CrateDB operator config
 config = Config(prefix="CRATEDB_OPERATOR_")
+
+
+def get_backoff() -> int:
+    """
+    When in testing mode, use a shorter backoff period as it help with speeding up some
+    tests (they don't have to wait so long due to transient errors).
+    """
+    if config.TESTING:
+        return 5
+    return 30

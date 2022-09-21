@@ -410,7 +410,7 @@ async def restart_cluster(
     core: CoreV1Api,
     namespace: str,
     name: str,
-    old: kopf.Body,
+    body: kopf.Body,
     logger: logging.Logger,
     patch: kopf.Patch,
     status: kopf.Status,
@@ -427,15 +427,15 @@ async def restart_cluster(
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param old: The old resource body.
+    :param body: The resource body.
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
     if not pending_pods:
-        if "master" in old["spec"]["nodes"]:
+        if "master" in body["spec"]["nodes"]:
             pending_pods.extend(
                 await get_pods_in_statefulset(core, namespace, name, "master")
             )
-        for node_spec in old["spec"]["nodes"]["data"]:
+        for node_spec in body["spec"]["nodes"]["data"]:
             pending_pods.extend(
                 await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
             )
@@ -472,7 +472,7 @@ async def restart_cluster(
             delay=15,
         )
     elif next_pod_name in all_pod_names:
-        total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
+        total_nodes = get_total_nodes_count(body["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
         await send_operation_progress_notification(
             namespace=namespace,
@@ -639,7 +639,7 @@ class RestartSubHandler(StateBasedSubHandler):
         self,
         namespace: str,
         name: str,
-        old: kopf.Body,
+        body: kopf.Body,
         logger: logging.Logger,
         patch: kopf.Patch,
         status: kopf.Status,
@@ -647,7 +647,7 @@ class RestartSubHandler(StateBasedSubHandler):
     ):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
-            await restart_cluster(core, namespace, name, old, logger, patch, status)
+            await restart_cluster(core, namespace, name, body, logger, patch, status)
 
         await self.send_notifications(logger)
 

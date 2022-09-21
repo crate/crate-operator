@@ -44,8 +44,8 @@ from .utils import (
 @pytest.mark.k8s
 @pytest.mark.asyncio
 async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
-    version_from = "4.6.1"
-    version_to = "4.6.4"
+    version_from = "4.8.2"
+    version_to = "5.0.1"
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
@@ -117,7 +117,7 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         coapi,
         name,
         namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.upgrade",
+        "operator.cloud.crate.io/upgrade.upgrade",
         err_msg="Upgrade has not finished",
         timeout=DEFAULT_TIMEOUT * 5,
     )
@@ -128,7 +128,7 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         coapi,
         name,
         namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.restart",
+        "operator.cloud.crate.io/upgrade.restart",
         err_msg="Restart has not finished",
         timeout=DEFAULT_TIMEOUT,
     )

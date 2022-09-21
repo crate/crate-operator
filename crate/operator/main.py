@@ -48,6 +48,7 @@ from crate.operator.handlers.handle_update_cratedb import update_cratedb
 from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
+from crate.operator.handlers.handle_upgrade_cratedb import upgrade_cratedb
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
@@ -149,6 +150,37 @@ async def cluster_update(
     Handles updates to the CrateDB resource.
     """
     await update_cratedb(namespace, name, patch, status, diff, started)
+
+
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    id="upgrade",
+    field="spec.cluster.version",
+    annotations=annotation_filter(),
+)
+@crate.on.error(error_handler=crate.send_update_failed_notification)
+@crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
+async def cluster_upgrade(
+    namespace: str,
+    name: str,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    diff: kopf.Diff,
+    old: kopf.Diff,
+    started: datetime.datetime,
+    **_kwargs,
+):
+    """
+    Handles upgrades of CrateDBs. Since this is also called when a CrateDB is created,
+    return immediately if there's no "old" version - i.e. it's just been created.
+    """
+    if not old:
+        return
+    await upgrade_cratedb(
+        namespace, name, patch, status, diff, started, "upgrade", "spec.cluster.version"
+    )
 
 
 @kopf.on.update(

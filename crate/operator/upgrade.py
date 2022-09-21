@@ -114,7 +114,7 @@ async def upgrade_cluster(
     namespace: str,
     name: str,
     body: kopf.Body,
-    old: kopf.Body,
+    old: str,
     logger: logging.Logger,
 ):
     """
@@ -127,9 +127,10 @@ async def upgrade_cluster(
     :param name: The name for the ``CrateDB`` custom resource.
     :param body: The full body of the ``CrateDB`` custom resource per
         :class:`kopf.Body`.
-    :param old: The old resource body. Required to get the old version.
+    :param old: The old version (string)
+    :param logger: The logger, self-explanatory.
     """
-    old_version = old["spec"]["cluster"]["version"]
+    old_version = old
     crate_image = (
         body.spec["cluster"]["imageRegistry"] + ":" + body.spec["cluster"]["version"]
     )
@@ -175,7 +176,8 @@ class UpgradeSubHandler(StateBasedSubHandler):
         namespace: str,
         name: str,
         body: kopf.Body,
-        old: kopf.Body,
+        old: str,
+        new: str,
         logger: logging.Logger,
         **kwargs: Any,
     ):
@@ -186,10 +188,10 @@ class UpgradeSubHandler(StateBasedSubHandler):
         self.schedule_notification(
             WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
-                old_registry=old["spec"]["cluster"]["imageRegistry"],
+                old_registry=body.spec["cluster"]["imageRegistry"],
                 new_registry=body.spec["cluster"]["imageRegistry"],
-                old_version=old["spec"]["cluster"]["version"],
-                new_version=body.spec["cluster"]["version"],
+                old_version=old,
+                new_version=new,
             ),
             WebhookStatus.IN_PROGRESS,
         )
@@ -208,17 +210,18 @@ class AfterUpgradeSubHandler(StateBasedSubHandler):
         namespace: str,
         name: str,
         body: kopf.Body,
-        old: kopf.Body,
+        old: str,
+        new: str,
         logger: logging.Logger,
         **kwargs: Any,
     ):
         self.schedule_notification(
             WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
-                old_registry=old["spec"]["cluster"]["imageRegistry"],
+                old_registry=body.spec["cluster"]["imageRegistry"],
                 new_registry=body.spec["cluster"]["imageRegistry"],
-                old_version=old["spec"]["cluster"]["version"],
-                new_version=body.spec["cluster"]["version"],
+                old_version=old,
+                new_version=new,
             ),
             WebhookStatus.SUCCESS,
         )
