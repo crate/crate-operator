@@ -32,16 +32,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            {{- range $name, $value := .Values.env }}
-            - name: {{ $name }}
-              value: "{{ $value }}"
-            {{- end }}
             {{- range $name, $value := .Values.envFromSecret }}
             - name: {{ $name }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $value.name }}
                   key: {{ $value.key }}
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: "{{ $value }}"
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
