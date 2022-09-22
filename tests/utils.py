@@ -54,7 +54,7 @@ from crate.operator.cratedb import (
     get_number_of_nodes,
 )
 from crate.operator.utils.kubeapi import (
-    get_public_host_for_testing,
+    get_service_public_hostname,
     get_system_user_password,
 )
 
@@ -159,7 +159,7 @@ async def start_cluster(
     )
 
     host = await asyncio.wait_for(
-        get_public_host_for_testing(core, namespace.metadata.name, name),
+        get_service_public_hostname(core, namespace.metadata.name, name),
         # It takes a while to retrieve an external IP on AKS.
         timeout=DEFAULT_TIMEOUT * 5,
     )

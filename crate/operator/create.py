@@ -994,28 +994,6 @@ async def create_services(
             ),
         )
 
-        """
-        If we're in testing mode, provision an additional load balancer w/o any IP
-        restrictions.
-        """
-        if config.TESTING:
-            await call_kubeapi(
-                core.create_namespaced_service,
-                logger,
-                continue_on_conflict=True,
-                namespace=namespace,
-                body=get_data_service(
-                    owner_references,
-                    name,
-                    labels,
-                    http_port,
-                    postgres_port,
-                    None,
-                    None,
-                    prefix="testing",
-                ),
-            )
-
 
 def get_system_user_secret(
     owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType

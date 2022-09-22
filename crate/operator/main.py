@@ -212,7 +212,7 @@ async def service_external_ip_update(
     This gets posted to the backend for further handling as a webhook
     (if webhooks are enabled).
     """
-    await external_ip_changed(name, namespace, diff, meta, logger)
+    await external_ip_changed(namespace, diff, meta, logger)
 
 
 @kopf.timer(

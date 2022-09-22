@@ -24,22 +24,16 @@ import logging
 import kopf
 from kopf import DiffItem, DiffOperation
 
-from crate.operator.config import config
 from crate.operator.constants import LABEL_NAME
 from crate.operator.edge import notify_service_ip
 
 
 async def external_ip_changed(
-    name: str,
     namespace: str,
     diff: kopf.Diff,
     meta: dict,
     logger: logging.Logger,
 ):
-    # Ignore the testing service
-    if config.TESTING and name.startswith("crate-testing"):
-        return
-
     if len(diff) == 0:
         return
 

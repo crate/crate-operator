@@ -14,6 +14,9 @@ Unreleased
 * Added the ``-A`` option (all-namespaces) to the operator run command in the Dockerfile.
   This fixes a warning that the operator prints when starting.
 
+* Removed the testing load balancer. We didn't actually need it for testing, and
+  it was using up another external IP, which are in short supply.
+
 2.14.0 (2022-09-13)
 -------------------
 

@@ -139,21 +139,6 @@ async def get_system_user_password(core: CoreV1Api, namespace: str, name: str) -
     )
 
 
-async def get_public_host_for_testing(
-    core: CoreV1Api, namespace: str, name: str
-) -> str:
-    """
-    Query the Kubernetes service deployed alongside CrateDB for the public
-    CrateDB cluster IP or hostname. Note that this queries the *testing* service
-    that is only deployed in test mode.
-
-    :param core: An instance of the Kubernetes Core V1 API.
-    :param namespace: The namespace where the CrateDB cluster is deployed.
-    :param name: The name of the CrateDB cluster.
-    """
-    return await get_service_public_hostname(core, namespace, f"testing-{name}")
-
-
 async def get_service_public_hostname(
     core: CoreV1Api, namespace: str, name: str
 ) -> str:
@@ -205,7 +190,7 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
         # During testing we need to connect to the cluster via its public IP
         # address, because the operator isn't running inside the Kubernetes
         # cluster.
-        return await get_public_host_for_testing(core, namespace, name)
+        return await get_service_public_hostname(core, namespace, name)
 
     return f"crate-discovery-{name}.{namespace}"
 
