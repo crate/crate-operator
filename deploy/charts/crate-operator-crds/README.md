@@ -20,7 +20,7 @@ helm install crate-operator-crds crate-operator-crds
 ```
 helm repo add crate-operator https://crate.github.io/crate-operator
 helm search repo crate-operator
-helm install crate-operator/crate-operator-crds
+helm install crate-operator-crds crate-operator/crate-operator-crds
 ```
 
 ### Upgrading the Operator

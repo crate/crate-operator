@@ -30,7 +30,7 @@ helm install crate-operator crate-operator
 ```
 helm repo add crate-operator https://crate.github.io/crate-operator
 helm search repo crate-operator
-helm install crate-operator/crate-operator
+helm install crate-operator crate-operator/crate-operator
 ```
 
 #### Namespace
