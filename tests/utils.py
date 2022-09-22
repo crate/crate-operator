@@ -110,7 +110,15 @@ async def start_cluster(
     body: dict = {
         "apiVersion": "cloud.crate.io/v1",
         "kind": "CrateDB",
-        "metadata": {"name": name, "annotations": {"testing": f"{os.getpid()}"}},
+        "metadata": {
+            "name": name,
+            "annotations": {
+                "testing": f"{os.getpid()}",
+                "test-name": os.environ.get("PYTEST_CURRENT_TEST", "")
+                .split(":")[-1]
+                .split(" ")[0],
+            },
+        },
         "spec": {
             "cluster": {
                 "imageRegistry": "crate",
