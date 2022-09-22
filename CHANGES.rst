@@ -9,6 +9,8 @@ Unreleased
 
 * Change AWS Loadbalancer to type NLB instead of CLASSIC.
 
+* Added Helm Chart and ``Helm Chart Releaser`` GitHub action.
+
 2.14.0 (2022-09-13)
 -------------------
 
