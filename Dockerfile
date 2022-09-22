@@ -38,5 +38,5 @@ RUN pip install --no-cache-dir -U pip wheel && \
 
 USER crate-operator
 
-ENTRYPOINT ["kopf", "run", "--standalone"]
+ENTRYPOINT ["kopf", "run", "--standalone", "-A"]
 CMD ["main.py"]

@@ -11,6 +11,9 @@ Unreleased
 
 * Added Helm Chart and ``Helm Chart Releaser`` GitHub action.
 
+* Added the ``-A`` option (all-namespaces) to the operator run command in the Dockerfile.
+  This fixes a warning that the operator prints when starting.
+
 2.14.0 (2022-09-13)
 -------------------
 
