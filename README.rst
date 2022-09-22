@@ -89,6 +89,25 @@ A minimal custom resource for a 3 node CrateDB cluster may look like this:
 💽 Installation
 ==============
 
+Installation with Helm
+----------------------
+
+To be able to deploy the custom resource ``CrateDB`` to a Kubernetes cluster,
+the API needs to be extended with a `Custom Resource Definition` (CRD).
+It can be installed separately by installing the `CRD Helm Chart`_ or as a
+dependency of the `Operator Helm Chart`_.
+
+.. code-block:: console
+
+   helm repo add crate-operator https://crate.github.io/crate-operator
+   helm install crate-operator crate-operator/crate-operator
+
+To override the environment variables from values.yaml, please refer to
+the `configuration documentation`_.
+
+Installation with kubectl
+-------------------------
+
 To be able to deploy the custom resource ``CrateDB`` to a Kubernetes cluster,
 the API needs to be extended with a `Custom Resource Definition` (CRD). The CRD
 for ``CrateDB`` can be found in the ``deploy/`` folder and can be applied
@@ -125,3 +144,5 @@ Please refer to the `Working on the operator`_ section of the documentation.
 .. _`Kopf: Kubernetes Operators Framework`: https://kopf.readthedocs.io/en/latest/
 .. _configuration documentation: ./docs/source/configuration.rst
 .. _Working on the operator: ./docs/source/development.rst
+.. _CRD Helm Chart: ./deploy/charts/crate-operator-crds/README.md
+.. _Operator Helm Chart: ./deploy/charts/crate-operator/README.md
