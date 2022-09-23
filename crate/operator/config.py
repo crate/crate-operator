@@ -143,7 +143,7 @@ class Config:
     PROMETHEUS_PORT: int = 8080
 
     #: The sql_exporter image to use
-    SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.8.6"
+    SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.9.1"
 
     def __init__(self, *, prefix: str):
         self._prefix = prefix

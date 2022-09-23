@@ -11,6 +11,8 @@ Unreleased
 
 * Added Helm Chart and ``Helm Chart Releaser`` GitHub action.
 
+* Bump sql_exporter to 0.9.1.
+
 2.14.0 (2022-09-13)
 -------------------
 
