@@ -21,6 +21,7 @@
 
 import logging
 
+import kopf
 from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
@@ -41,15 +42,19 @@ HEALTHINESS_TO_STATUS = {
     3: PrometheusClusterStatus.RED,
 }
 
+CLUSTER_STATUS_KEY = "crateDBStatus"
+
 
 async def ping_cratedb_status(
     namespace: str,
     name: str,
+    patch: kopf.Patch,
     logger: logging.Logger,
 ) -> None:
     desired_instances = await get_desired_nodes_count(namespace, name)
     # When the cluster is meant to be suspended do not ping it
     if desired_instances == 0:
+        patch.status[CLUSTER_STATUS_KEY] = {"health": "SUSPENDED"}
         return
 
     async with ApiClient() as api_client:
@@ -72,6 +77,7 @@ async def ping_cratedb_status(
             status = PrometheusClusterStatus.UNREACHABLE
 
         report_cluster_status(name, status)
+        patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
 
         await webhook_client.send_notification(
             namespace,
