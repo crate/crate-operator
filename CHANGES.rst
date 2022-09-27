@@ -20,6 +20,8 @@ Unreleased
 * Added reporting of cluster's health to the status field in the CRD. This allows us to
   print the status as part of ``kubectl get cratedbs``.
 
+* Fixed an issue that might result in CronJobs not being re-enabled after suspension.
+
 2.14.0 (2022-09-13)
 -------------------
 
