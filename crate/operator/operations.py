@@ -728,7 +728,11 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                     )
                     update = {"spec": {"suspend": True}}
                     await batch.patch_namespaced_cron_job(job_name, namespace, update)
-                    return {CRONJOB_NAME: job_name, CRONJOB_SUSPENDED: True}
+                    return {
+                        CRONJOB_NAME: job_name,
+                        CRONJOB_SUSPENDED: True,
+                        IGNORE_CRONJOB: False,
+                    }
 
         return None
 
