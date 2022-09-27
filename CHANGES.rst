@@ -17,6 +17,9 @@ Unreleased
 * Removed the testing load balancer. We didn't actually need it for testing, and
   it was using up another external IP, which are in short supply.
 
+* Added reporting of cluster's health to the status field in the CRD. This allows us to
+  print the status as part of ``kubectl get cratedbs``.
+
 2.14.0 (2022-09-13)
 -------------------
 

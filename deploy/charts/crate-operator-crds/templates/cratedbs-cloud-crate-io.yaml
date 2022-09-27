@@ -31,6 +31,9 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.crateDBStatus.health
+      name: Health
+      type: string
     name: v1
     schema:
       openAPIV3Schema:

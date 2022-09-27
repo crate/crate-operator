@@ -223,5 +223,7 @@ async def service_external_ip_update(
     idle=15,  # Initial delay, CrateDB very unlikely to be up in less than 15s
     annotations=annotation_filter(),
 )
-async def ping_cratedb(namespace: str, name: str, logger: logging.Logger, **kwargs):
-    await ping_cratedb_status(namespace, name, logger)
+async def ping_cratedb(
+    namespace: str, name: str, patch: kopf.Patch, logger: logging.Logger, **kwargs
+):
+    await ping_cratedb_status(namespace, name, patch, logger)
