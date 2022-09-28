@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.15.0 (2022-09-28)
+-------------------
+
 * Added support for parallel testing, which greatly reduces test runtime.
 
 * Change AWS Loadbalancer to type NLB instead of CLASSIC.
