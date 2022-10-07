@@ -1,0 +1,14 @@
+---
+collector_name: cratedb_cluster_last_activity_collector
+# This metric is intended to know if the cluster is used
+# and to calculate for how long it has not been used.
+metrics:
+- help: "Indicates when the last job occured on the cluster."
+  metric_name: cratedb_cluster_last_activity
+  query: |
+    SELECT max(ended) AS cratedb_cluster_last_activity
+    FROM sys.jobs_log
+    WHERE username NOT IN ('crate', 'system');
+  type: gauge
+  value_label: cratedb_cluster_last_activity
+  values: [cratedb_cluster_last_activity]
