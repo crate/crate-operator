@@ -6,7 +6,7 @@ metrics:
 - help: "Indicates when the last job occured on the cluster."
   metric_name: cratedb_cluster_last_user_activity
   query: |
-    SELECT max(ended) AS cratedb_cluster_last_user_activity
+    SELECT cast(extract(epoch from max(ended)) as integer) AS cratedb_cluster_last_user_activity
     FROM sys.jobs_log
     WHERE username NOT IN ('crate', 'system');
   type: gauge
