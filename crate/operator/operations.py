@@ -932,8 +932,6 @@ class StartClusterSubHandler(StateBasedSubHandler):
                     logger,
                 )
 
-        await self.send_notifications(logger)
-
 
 class SuspendClusterSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)

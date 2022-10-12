@@ -222,4 +222,3 @@ class AfterUpgradeSubHandler(StateBasedSubHandler):
             ),
             WebhookStatus.SUCCESS,
         )
-        await self.send_notifications(logger)

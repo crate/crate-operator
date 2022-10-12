@@ -41,6 +41,7 @@ from crate.operator.operations import (
 )
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.utils.notifications import FlushNotificationsSubHandler
 
 
 async def update_cratedb(
@@ -264,8 +265,22 @@ async def update_cratedb(
             id="after_cluster_update",
             backoff=get_backoff(),
         )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/after_cluster_update")
 
     patch.status[CLUSTER_UPDATE_ID] = context
+
+    kopf.register(
+        fn=FlushNotificationsSubHandler(
+            namespace,
+            name,
+            hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(),
+        id="notify_success_update",
+        backoff=get_backoff(),
+    )
 
 
 def get_backoff() -> int:

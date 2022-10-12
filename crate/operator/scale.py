@@ -728,7 +728,6 @@ class ScaleSubHandler(StateBasedSubHandler):
             ),
             WebhookStatus.SUCCESS,
         )
-        await self.send_notifications(logger)
 
 
 async def _ensure_cluster_healthy(
