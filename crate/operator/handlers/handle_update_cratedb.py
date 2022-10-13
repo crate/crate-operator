@@ -269,6 +269,7 @@ async def update_cratedb(
 
     patch.status[CLUSTER_UPDATE_ID] = context
 
+    # Ensure all success notifications are only sent at the very end of the handler
     kopf.register(
         fn=FlushNotificationsSubHandler(
             namespace,
