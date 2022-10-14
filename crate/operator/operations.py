@@ -649,8 +649,6 @@ class RestartSubHandler(StateBasedSubHandler):
             core = CoreV1Api(api_client)
             await restart_cluster(core, namespace, name, old, logger, patch, status)
 
-        await self.send_notifications(logger)
-
 
 DISABLE_CRONJOB_HANDLER_ID = "disable_cronjob"
 IGNORE_CRONJOB = "ignore_cronjob"
@@ -786,12 +784,12 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                     )
 
     async def _notify_backup_running(self, logger):
-        self.schedule_notification(
+        await self.send_notification_now(
+            logger,
             WebhookEvent.DELAY,
             WebhookTemporaryFailurePayload(reason="A snapshot is in progress"),
             WebhookStatus.TEMPORARY_FAILURE,
         )
-        await self.send_notifications(logger)
 
     async def _set_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger

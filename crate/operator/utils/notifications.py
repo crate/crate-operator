@@ -21,7 +21,6 @@
 
 
 import logging
-from datetime import datetime
 from typing import Any
 
 import kopf
@@ -66,6 +65,4 @@ class FlushNotificationsSubHandler(StateBasedSubHandler):
         status: kopf.Status,
         **kwargs: Any,
     ):
-        logger.info(f"{datetime.now()} NOTIFY-UPDATE handler started!")
-        await self.send_notifications(logger)
-        logger.info(f"{datetime.now()} NOTIFY-UPDATE handler finished!")
+        await self.send_registered_notifications(logger)

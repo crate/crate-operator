@@ -155,23 +155,38 @@ class StateBasedSubHandler(abc.ABC):
             Notification(event=event, payload=payload, status=status)
         )
 
-    async def send_notifications(self, logger: logging.Logger):
+    async def send_registered_notifications(self, logger: logging.Logger):
         for notification in self._context.get("notifications", []):
-            logger.info(
-                "Sending %s notification event %s with payload %s",
-                notification["status"],
-                notification["event"],
-                notification["payload"],
-            )
-            await webhook_client.send_notification(
-                self.namespace,
-                self.name,
-                notification["event"],
-                notification["payload"],
-                notification["status"],
+            await self.send_notification_now(
                 logger,
+                notification["event"],
+                notification["payload"],
+                notification["status"],
             )
         self._context.get("notifications", []).clear()
+
+    async def send_notification_now(
+        self,
+        logger: logging.Logger,
+        event: WebhookEvent,
+        payload: WebhookSubPayload,
+        status: WebhookStatus,
+    ):
+        notification = Notification(event=event, payload=payload, status=status)
+        logger.info(
+            "Sending %s notification event %s with payload %s",
+            notification["status"],
+            notification["event"],
+            notification["payload"],
+        )
+        await webhook_client.send_notification(
+            self.namespace,
+            self.name,
+            notification["event"],
+            notification["payload"],
+            notification["status"],
+            logger,
+        )
 
     def _get_status(self, statuses: dict, dependency: str, logger) -> Optional[dict]:
         """

@@ -183,7 +183,8 @@ class UpgradeSubHandler(StateBasedSubHandler):
             apps = AppsV1Api(api_client)
             await upgrade_cluster(apps, namespace, name, body, old, logger)
 
-        self.schedule_notification(
+        await self.send_notification_now(
+            logger,
             WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
                 old_registry=old["spec"]["cluster"]["imageRegistry"],
@@ -193,7 +194,6 @@ class UpgradeSubHandler(StateBasedSubHandler):
             ),
             WebhookStatus.IN_PROGRESS,
         )
-        await self.send_notifications(logger)
 
 
 class AfterUpgradeSubHandler(StateBasedSubHandler):

@@ -55,12 +55,12 @@ class ChangeComputeSubHandler(StateBasedSubHandler):
             apps = AppsV1Api(api_client)
             await change_cluster_compute(apps, namespace, name, webhook_payload, logger)
 
-        self.schedule_notification(
+        await self.send_notification_now(
+            logger,
             WebhookEvent.COMPUTE_CHANGED,
             webhook_payload,
             WebhookStatus.IN_PROGRESS,
         )
-        await self.send_notifications(logger)
 
 
 class AfterChangeComputeSubHandler(StateBasedSubHandler):
@@ -84,7 +84,6 @@ class AfterChangeComputeSubHandler(StateBasedSubHandler):
             generate_change_compute_payload(old, body),
             WebhookStatus.SUCCESS,
         )
-        await self.send_notifications(logger)
 
 
 def generate_change_compute_payload(old, body):

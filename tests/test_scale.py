@@ -21,6 +21,7 @@
 
 import asyncio
 import sys
+from unittest import mock
 
 import pytest
 from kubernetes_asyncio.client import (
@@ -42,6 +43,7 @@ from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.operations import get_pods_in_deployment, get_pods_in_statefulset
 from crate.operator.scale import parse_replicas, patch_command
+from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -56,6 +58,7 @@ from .utils import (
     is_kopf_handler_finished,
     start_backup_metrics,
     start_cluster,
+    was_notification_sent,
 )
 
 
@@ -136,7 +139,9 @@ def test_patch_sts_command_deprecated(total, quorum, new_total, new_quorum):
         (3, 2),  # scale down from 3 to 2 data nodes
     ],
 )
+@mock.patch("crate.operator.webhooks.webhook_client._send")
 async def test_scale_cluster(
+    mock_send_notification,
     repl_hot_from,
     repl_hot_to,
     faker,
@@ -147,6 +152,16 @@ async def test_scale_cluster(
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()
+
+    notification_success_call = mock.call(
+        WebhookEvent.SCALE,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        scale_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
 
     host, password = await start_cluster(
         name,
@@ -160,6 +175,10 @@ async def test_scale_cluster(
     await create_test_sys_jobs_table(conn_factory)
 
     await _scale_cluster(coapi, name, namespace, repl_hot_to)
+
+    assert not await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was sent too early"
 
     await assert_wait_for(
         True,
@@ -180,6 +199,10 @@ async def test_scale_cluster(
         err_msg="Scaling has not finished",
         timeout=DEFAULT_TIMEOUT,
     )
+
+    assert await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was expected but was not sent"
 
 
 @pytest.mark.k8s

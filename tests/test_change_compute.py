@@ -33,7 +33,11 @@ from kubernetes_asyncio.client import (
 from crate.operator.change_compute import generate_body_patch
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
-from crate.operator.webhooks import WebhookChangeComputePayload
+from crate.operator.webhooks import (
+    WebhookChangeComputePayload,
+    WebhookEvent,
+    WebhookStatus,
+)
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -45,6 +49,7 @@ from .utils import (
     is_cluster_healthy,
     is_kopf_handler_finished,
     start_cluster,
+    was_notification_sent,
 )
 
 
@@ -54,7 +59,9 @@ def calculate_heap_size(memory_size_in_gb: int, heap_ratio: float) -> int:
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
+@mock.patch("crate.operator.webhooks.webhook_client._send")
 async def test_change_compute_from_request_to_limit(
+    mock_send_notification,
     faker,
     namespace,
     kopf_runner,
@@ -171,6 +178,20 @@ async def test_change_compute_from_request_to_limit(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
+    notification_success_call = mock.call(
+        WebhookEvent.COMPUTE_CHANGED,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        compute_changed_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
+
+    assert not await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was sent too early"
+
     await assert_wait_for(
         True,
         is_kopf_handler_finished,
@@ -247,6 +268,21 @@ async def test_change_compute_from_request_to_limit(
                     if env.name == "CRATE_HEAP_SIZE":
                         assert env.value == str(expected_heap_size)
                 assert total_env_vars == len(c.env)
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "operator.cloud.crate.io/cluster_update.after_cluster_update",
+        err_msg="After Cluster Update has not finished",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    assert await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was expected but was not sent"
 
 
 @pytest.mark.parametrize(
