@@ -13,5 +13,4 @@ metrics:
     SELECT settings['cluster']['max_shards_per_node'] AS cratedb_max_shards_per_node
     FROM sys.cluster LIMIT 1;
   type: gauge
-  value_label: cratedb_max_shards_per_node
   values: [cratedb_max_shards_per_node]
