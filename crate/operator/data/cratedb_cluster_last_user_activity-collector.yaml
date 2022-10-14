@@ -10,5 +10,4 @@ metrics:
     FROM sys.jobs_log
     WHERE username NOT IN ('crate', 'system');
   type: gauge
-  value_label: cratedb_cluster_last_user_activity
   values: [cratedb_cluster_last_user_activity]
