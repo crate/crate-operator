@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.16.0 (2022-10-17)
+-------------------
+
 * Added cratedb_cluster_last_user_activity metric to the sql exporter
 
 2.15.0 (2022-09-28)

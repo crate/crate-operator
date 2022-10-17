@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Script to increment Helm chart version
 #
 # Usage:
