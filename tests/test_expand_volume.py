@@ -115,10 +115,6 @@ async def test_expand_cluster_storage(
 
     await _expand_volume(coapi, name, namespace, "32Gi")
 
-    assert not await was_notification_sent(
-        mock_send_notification=mock_send_notification, call=notification_success_call
-    ), "A success notification was sent too early"
-
     # we just check if the PVC has been patched with the correct new disk size. We
     # do not wait for the PVC to be really resized because there is no guarantee
     # it is supported.
