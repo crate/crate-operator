@@ -153,16 +153,6 @@ async def test_scale_cluster(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    notification_success_call = mock.call(
-        WebhookEvent.SCALE,
-        WebhookStatus.SUCCESS,
-        namespace.metadata.name,
-        name,
-        scale_data=mock.ANY,
-        unsafe=mock.ANY,
-        logger=mock.ANY,
-    )
-
     host, password = await start_cluster(
         name,
         namespace,
@@ -175,10 +165,6 @@ async def test_scale_cluster(
     await create_test_sys_jobs_table(conn_factory)
 
     await _scale_cluster(coapi, name, namespace, repl_hot_to)
-
-    assert not await was_notification_sent(
-        mock_send_notification=mock_send_notification, call=notification_success_call
-    ), "A success notification was sent too early"
 
     await assert_wait_for(
         True,
@@ -200,6 +186,15 @@ async def test_scale_cluster(
         timeout=DEFAULT_TIMEOUT,
     )
 
+    notification_success_call = mock.call(
+        WebhookEvent.SCALE,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        scale_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
     assert await was_notification_sent(
         mock_send_notification=mock_send_notification, call=notification_success_call
     ), "A success notification was expected but was not sent"

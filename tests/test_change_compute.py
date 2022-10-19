@@ -178,20 +178,6 @@ async def test_change_compute_from_request_to_limit(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
-    notification_success_call = mock.call(
-        WebhookEvent.COMPUTE_CHANGED,
-        WebhookStatus.SUCCESS,
-        namespace.metadata.name,
-        name,
-        compute_changed_data=mock.ANY,
-        unsafe=mock.ANY,
-        logger=mock.ANY,
-    )
-
-    assert not await was_notification_sent(
-        mock_send_notification=mock_send_notification, call=notification_success_call
-    ), "A success notification was sent too early"
-
     await assert_wait_for(
         True,
         is_kopf_handler_finished,
@@ -280,6 +266,15 @@ async def test_change_compute_from_request_to_limit(
         timeout=DEFAULT_TIMEOUT,
     )
 
+    notification_success_call = mock.call(
+        WebhookEvent.COMPUTE_CHANGED,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        compute_changed_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
     assert await was_notification_sent(
         mock_send_notification=mock_send_notification, call=notification_success_call
     ), "A success notification was expected but was not sent"

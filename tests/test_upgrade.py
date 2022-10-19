@@ -55,16 +55,6 @@ async def test_upgrade_cluster(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    notification_success_call = mock.call(
-        WebhookEvent.UPGRADE,
-        WebhookStatus.SUCCESS,
-        namespace.metadata.name,
-        name,
-        upgrade_data=mock.ANY,
-        unsafe=mock.ANY,
-        logger=mock.ANY,
-    )
-
     host, password = await start_cluster(name, namespace, core, coapi, 2, version_from)
 
     await assert_wait_for(
@@ -126,10 +116,6 @@ async def test_upgrade_cluster(
         timeout=DEFAULT_TIMEOUT * 15,
     )
 
-    assert not await was_notification_sent(
-        mock_send_notification=mock_send_notification, call=notification_success_call
-    ), "A success notification was sent too early"
-
     await assert_wait_for(
         True,
         is_kopf_handler_finished,
@@ -170,6 +156,15 @@ async def test_upgrade_cluster(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
+    notification_success_call = mock.call(
+        WebhookEvent.UPGRADE,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        upgrade_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
     assert await was_notification_sent(
         mock_send_notification=mock_send_notification, call=notification_success_call
     ), "A success notification was expected but was not sent"
