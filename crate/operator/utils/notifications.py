@@ -21,8 +21,12 @@
 
 
 import logging
+from typing import Any
+
+import kopf
 
 from crate.operator.utils import crate
+from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 
@@ -43,3 +47,22 @@ async def send_operation_progress_notification(
         status=status,
         logger=logger,
     )
+
+
+class FlushNotificationsSubHandler(StateBasedSubHandler):
+    """
+    Ensures any previously registered and pending notification is sent.
+    """
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        status: kopf.Status,
+        **kwargs: Any,
+    ):
+        await self.send_registered_notifications(logger)

@@ -18,7 +18,7 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
-
+from unittest import mock
 
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
@@ -27,6 +27,7 @@ from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.upgrade import upgrade_command
+from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -38,12 +39,16 @@ from .utils import (
     is_cluster_healthy,
     is_kopf_handler_finished,
     start_cluster,
+    was_notification_sent,
 )
 
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
-async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
+@mock.patch("crate.operator.webhooks.webhook_client._send")
+async def test_upgrade_cluster(
+    mock_send_notification, faker, namespace, kopf_runner, api_client
+):
     version_from = "4.6.1"
     version_to = "4.6.4"
     coapi = CustomObjectsApi(api_client)
@@ -150,6 +155,19 @@ async def test_upgrade_cluster(faker, namespace, kopf_runner, api_client):
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
     )
+
+    notification_success_call = mock.call(
+        WebhookEvent.UPGRADE,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        upgrade_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
+    assert await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was expected but was not sent"
 
 
 @pytest.mark.parametrize(

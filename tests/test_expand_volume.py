@@ -18,6 +18,7 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+from unittest import mock
 
 import bitmath
 import pytest
@@ -36,6 +37,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.utils.formatting import convert_to_bytes
+from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -44,6 +46,7 @@ from .utils import (
     is_cluster_healthy,
     is_kopf_handler_finished,
     start_cluster,
+    was_notification_sent,
 )
 
 
@@ -62,7 +65,9 @@ def test_convert_to_bytes(input, expected):
 
 @pytest.mark.k8s
 @pytest.mark.asyncio
+@mock.patch("crate.operator.webhooks.webhook_client._send")
 async def test_expand_cluster_storage(
+    mock_send_notification,
     faker,
     namespace,
     kopf_runner,
@@ -73,6 +78,16 @@ async def test_expand_cluster_storage(
     storage = StorageV1Api(api_client)
     name = faker.domain_word()
     number_of_nodes = 2
+
+    notification_success_call = mock.call(
+        WebhookEvent.FEEDBACK,
+        WebhookStatus.SUCCESS,
+        namespace.metadata.name,
+        name,
+        feedback_data=mock.ANY,
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
 
     expansion_supported = await _is_volume_expansion_supported(storage)
     if expansion_supported is not True:
@@ -133,6 +148,10 @@ async def test_expand_cluster_storage(
         err_msg="Volume Expansion handler has not finished.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
+
+    assert await was_notification_sent(
+        mock_send_notification=mock_send_notification, call=notification_success_call
+    ), "A success notification was expected but was not sent"
 
 
 async def _all_pvcs_resized(
