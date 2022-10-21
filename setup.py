@@ -60,6 +60,7 @@ setup(
         # Versions 3.8+ incompatible with pytest-aiohttp.
         "aiohttp<=3.7.4",
         "wrapt==1.14.1",
+        "cron-converter==1.0.1",  # For parsing cron expressions
     ],
     extras_require={
         "docs": [

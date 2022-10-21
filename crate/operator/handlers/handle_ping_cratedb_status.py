@@ -20,11 +20,15 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
+from datetime import datetime
+from typing import Optional
 
 import kopf
-from kubernetes_asyncio.client import CoreV1Api
+from cron_converter import Cron
+from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.operations import get_desired_nodes_count
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
@@ -76,7 +80,10 @@ async def ping_cratedb_status(
             logger.warning("Failed to ping cluster.", exc_info=e)
             status = PrometheusClusterStatus.UNREACHABLE
 
-        report_cluster_status(name, status)
+        next_backup_run = await get_next_scheduled_backup_run(
+            api_client, name, namespace
+        )
+        report_cluster_status(name, status, next_backup_run=next_backup_run)
         patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
 
         await webhook_client.send_notification(
@@ -87,3 +94,23 @@ async def ping_cratedb_status(
             WebhookStatus.SUCCESS,
             logger,
         )
+
+
+async def get_next_scheduled_backup_run(
+    api_client: ApiClient, name: str, namespace: str
+) -> Optional[int]:
+    crds = CustomObjectsApi(api_client)
+    cratedb = await crds.get_namespaced_custom_object(
+        API_GROUP, "v1", namespace, RESOURCE_CRATEDB, name
+    )
+    schedule_expression = (
+        cratedb.get("spec").get("backups", {}).get("aws", {}).get("cron", None)
+    )
+    if not schedule_expression:
+        return None
+
+    cron_instance = Cron(schedule_expression)
+
+    schedule = cron_instance.schedule(datetime.now())
+
+    return int(schedule.next().timestamp())

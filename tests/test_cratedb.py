@@ -18,13 +18,14 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
-
+import time
 from unittest import mock
 
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
 from crate.operator.cratedb import create_user, get_healthiness, get_number_of_nodes
+from crate.operator.prometheus import PrometheusClusterStatus
 from crate.operator.webhooks import (
     WebhookClusterHealthPayload,
     WebhookEvent,
@@ -34,6 +35,7 @@ from crate.operator.webhooks import (
 from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
+    get_latest_metric_value,
     start_cluster,
     was_notification_sent,
 )
@@ -117,13 +119,39 @@ async def test_cratedb_health_ping(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
+    backups_spec = {
+        "aws": {
+            "accessKeyId": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "basePath": faker.uri_path() + "/",
+            "cron": "25 * * * *",
+            "region": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "bucket": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+            "secretAccessKey": {
+                "secretKeyRef": {
+                    "key": faker.domain_word(),
+                    "name": faker.domain_word(),
+                },
+            },
+        },
+    }
+
     await start_cluster(
-        name,
-        namespace,
-        core,
-        coapi,
-        1,
-        wait_for_healthy=True,
+        name, namespace, core, coapi, 1, wait_for_healthy=True, backup_spec=backups_spec
     )
 
     await assert_wait_for(
@@ -140,4 +168,13 @@ async def test_cratedb_health_ping(
         ),
         err_msg="Failed to ping cluster.",
         timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    assert (
+        get_latest_metric_value("cloud_clusters_health", name)
+        == PrometheusClusterStatus.GREEN.value
+    )
+    assert get_latest_metric_value("cloud_clusters_last_seen", name) is not None
+    assert get_latest_metric_value("cloud_clusters_next_scheduled_backup", name) > int(
+        time.time()
     )

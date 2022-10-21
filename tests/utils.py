@@ -34,6 +34,7 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
+from prometheus_client import REGISTRY
 
 from crate.operator.backup import create_backups
 from crate.operator.config import config
@@ -105,6 +106,7 @@ async def start_cluster(
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
     users: Optional[List[Mapping[str, Any]]] = None,
     resource_requests: Optional[Mapping[str, Any]] = None,
+    backup_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     body: dict = {
@@ -120,6 +122,7 @@ async def start_cluster(
             },
         },
         "spec": {
+            "backups": backup_spec if backup_spec else None,
             "cluster": {
                 "imageRegistry": "crate",
                 "name": "my-crate-cluster",
@@ -426,3 +429,18 @@ async def was_notification_sent(
         return True
     except AssertionError:
         return False
+
+
+def get_latest_metric_value(name: str, cluster_id: str):
+    metrics = list(REGISTRY.collect())
+    metric = next(filter(lambda m: m.name == name, metrics), None)
+    if not metric:
+        return None
+    latest = next(
+        filter(
+            lambda s: s.labels["cluster_id"] == cluster_id,
+            metric.samples,
+        ),
+        None,
+    )
+    return latest.value if latest else None

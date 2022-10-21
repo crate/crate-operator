@@ -21,79 +21,34 @@
 
 import time
 
-from prometheus_client import REGISTRY
-
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
+from tests.utils import get_latest_metric_value
 
 
 def test_will_report_metrics_for_clusters():
     last_reported = int(time.time())
-    report_cluster_status("id", PrometheusClusterStatus.GREEN, last_reported)
-    metrics = list(REGISTRY.collect())
-    cloud_clusters_health = next(
-        filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
+    report_cluster_status(
+        "id", PrometheusClusterStatus.GREEN, last_reported, last_reported
     )
-    cloud_clusters_last_seen = next(
-        filter(lambda metric: metric.name == "cloud_clusters_last_seen", metrics), None
+    assert get_latest_metric_value("cloud_clusters_health", "id") == 0
+    assert get_latest_metric_value("cloud_clusters_last_seen", "id") == last_reported
+    assert (
+        get_latest_metric_value("cloud_clusters_next_scheduled_backup", "id")
+        == last_reported
     )
-    cloud_clusters_health_sample = next(
-        filter(lambda s: s.labels["cluster_id"] == "id", cloud_clusters_health.samples),
-        None,
-    )
-    cloud_clusters_last_seen = next(
-        filter(
-            lambda s: s.labels["cluster_id"] == "id", cloud_clusters_last_seen.samples
-        ),
-        None,
-    )
-    assert cloud_clusters_health_sample.value == 0
-    assert cloud_clusters_last_seen.value == last_reported
 
 
 def test_will_expire_clusters_that_have_not_reported_for_a_while():
     last_reported = int(time.time()) - 100000
     report_cluster_status("id", PrometheusClusterStatus.GREEN, last_reported)
-    metrics = list(REGISTRY.collect())
-    cloud_clusters_health = next(
-        filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
-    )
-    cloud_clusters_last_seen = next(
-        filter(lambda metric: metric.name == "cloud_clusters_last_seen", metrics), None
-    )
-    cloud_clusters_health_sample = next(
-        filter(lambda s: s.labels["cluster_id"] == "id", cloud_clusters_health.samples),
-        None,
-    )
-    cloud_clusters_last_seen_sample = next(
-        filter(
-            lambda s: s.labels["cluster_id"] == "id", cloud_clusters_last_seen.samples
-        ),
-        None,
-    )
-    assert cloud_clusters_health_sample is None
-    assert cloud_clusters_last_seen_sample is None
+    assert get_latest_metric_value("cloud_clusters_health", "id") is None
+    assert get_latest_metric_value("cloud_clusters_last_seen", "id") is None
 
 
 def test_will_not_report_last_seen_for_unreachable_clusters():
     report_cluster_status("id", PrometheusClusterStatus.UNREACHABLE)
-    metrics = list(REGISTRY.collect())
-    cloud_clusters_health = next(
-        filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
-    )
-    cloud_clusters_last_seen = next(
-        filter(lambda metric: metric.name == "cloud_clusters_last_seen", metrics), None
-    )
-    cloud_clusters_health_sample = next(
-        filter(lambda s: s.labels["cluster_id"] == "id", cloud_clusters_health.samples),
-        None,
-    )
-    cloud_clusters_last_seen_sample = next(
-        filter(
-            lambda s: s.labels["cluster_id"] == "id", cloud_clusters_last_seen.samples
-        ),
-        None,
-    )
     assert (
-        cloud_clusters_health_sample.value == PrometheusClusterStatus.UNREACHABLE.value
+        get_latest_metric_value("cloud_clusters_health", "id")
+        == PrometheusClusterStatus.UNREACHABLE.value
     )
-    assert cloud_clusters_last_seen_sample is None
+    assert get_latest_metric_value("cloud_clusters_last_seen", "id") is None

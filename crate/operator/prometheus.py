@@ -53,10 +53,12 @@ def report_cluster_status(
     cluster_id: str,
     status: PrometheusClusterStatus,
     last_reported: Optional[int] = None,
+    next_backup_run: Optional[int] = None,
 ):
     CLUSTER_METRICS[cluster_id] = {
         "status": status,
         "last_reported": last_reported if last_reported else int(time.time()),
+        "next_backup_run": next_backup_run,
     }
 
 
@@ -73,9 +75,18 @@ class ClusterCollector:
             "Unix timestamp of when a cluster was last seen (not unreachable).",
             labels=["cluster_id"],
         )
+        cloud_clusters_next_scheduled_backup = GaugeMetricFamily(
+            "cloud_clusters_next_scheduled_backup",
+            "Unix timestamp of when the next scheduled backup run is for this cluster.",
+            labels=["cluster_id"],
+        )
         for cluster_id, metrics in CLUSTER_METRICS.items():
             if now - metrics["last_reported"] < LAST_SEEN_THRESHOLD:
                 cloud_clusters_health.add_metric([cluster_id], metrics["status"].value)
+                if metrics["next_backup_run"]:
+                    cloud_clusters_next_scheduled_backup.add_metric(
+                        [cluster_id], metrics["next_backup_run"]
+                    )
                 if metrics["status"] != PrometheusClusterStatus.UNREACHABLE:
                     cloud_clusters_last_seen.add_metric(
                         [cluster_id], metrics["last_reported"]
@@ -83,6 +94,7 @@ class ClusterCollector:
 
         yield cloud_clusters_health
         yield cloud_clusters_last_seen
+        yield cloud_clusters_next_scheduled_backup
 
 
 REGISTRY.register(ClusterCollector())
