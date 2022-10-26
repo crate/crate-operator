@@ -103,10 +103,14 @@ class Config:
     CLUSTER_UPDATE_TIMEOUT = 7200
 
     #: Time in seconds for which the operator will continue and wait to perform
-    #: a check if volume expansion has finshed successfully. Once this threshold
-    # has passed, a volume expansion is considered failed or not supported by the
-    # StorageClass.
+    #: a check if volume expansion has finished successfully. Once this threshold
+    #: has passed, volume expansion is considered failed or not supported by the
+    #: StorageClass.
     EXPAND_VOLUME_TIMEOUT = 1800
+
+    #: Do not scale down cluster when performing storage expansion.
+    #: The underlying infrastructure must support this - i.e. Azure or AWS CSI volumes.
+    NO_DOWNTIME_STORAGE_EXPANSION: bool = False
 
     #: Enable several testing behaviors, such as relaxed pod anti-affinity to
     #: allow for easier testing in smaller Kubernetes clusters.
@@ -354,6 +358,11 @@ class Config:
                 f"Invalid {self._prefix}EXPAND_VOLUME_TIMEOUT="
                 f"'{expand_volume_timeout}'. Needs to be a positive integer or 0."
             )
+        expansion = self.env(
+            "NO_DOWNTIME_STORAGE_EXPANSION",
+            default=str(self.NO_DOWNTIME_STORAGE_EXPANSION),
+        )
+        self.NO_DOWNTIME_STORAGE_EXPANSION = expansion.lower() == "true"
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """
