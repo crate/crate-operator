@@ -21,6 +21,7 @@
 
 import datetime
 import hashlib
+from typing import List
 
 import kopf
 
@@ -90,11 +91,11 @@ async def update_cratedb(
     """
     context = status.get(CLUSTER_UPDATE_ID)
     hash_string = str(diff) + str(started)
-    hash = hashlib.md5(hash_string.encode("utf-8")).hexdigest()
+    change_hash = hashlib.md5(hash_string.encode("utf-8")).hexdigest()
     if not context:
-        context = {"ref": hash}
-    elif context.get("ref", "") != hash:
-        context["ref"] = hash
+        context = {"ref": change_hash}
+    elif context.get("ref", "") != change_hash:
+        context["ref"] = change_hash
 
     # Determines whether the before_cluster_update and after_cluster_update handlers
     # will be registered
@@ -147,87 +148,84 @@ async def update_cratedb(
     ):
         return
 
-    depends_on = []
+    depends_on: List[str] = []
 
     if do_before_update:
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
-        kopf.register(
-            fn=BeforeClusterUpdateSubHandler(namespace, name, hash, context)(),
-            id="before_cluster_update",
-            backoff=get_backoff(),
+        register_before_update_handlers(
+            namespace, name, change_hash, context, depends_on
         )
 
     if do_upgrade:
-        kopf.register(
-            fn=UpgradeSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="upgrade",
-            backoff=get_backoff(),
-        )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
-    if do_change_compute:
-        kopf.register(
-            fn=ChangeComputeSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="change_compute",
-            backoff=get_backoff(),
-        )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/change_compute")
-    if do_restart:
-        kopf.register(
-            fn=RestartSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="restart",
-            backoff=get_backoff(),
-        )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
-        # Send a webhook success notification after upgrade and restart handlers
-        if do_upgrade:
-            kopf.register(
-                fn=AfterUpgradeSubHandler(
-                    namespace, name, hash, context, depends_on=depends_on.copy()
-                )(),
-                id="after_upgrade",
-                backoff=get_backoff(),
-            )
-            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
+        register_upgrade_handlers(namespace, name, change_hash, context, depends_on)
 
-        # Send a webhook success notification after change_compute and restart handlers
-        if do_change_compute:
-            kopf.register(
-                fn=AfterChangeComputeSubHandler(
-                    namespace, name, hash, context, depends_on=depends_on.copy()
-                )(),
-                id="after_change_compute",
-                backoff=get_backoff(),
-            )
-            depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_compute")
+    if do_change_compute:
+        register_change_compute_handlers(
+            namespace, name, change_hash, context, depends_on
+        )
+
+    if do_restart:
+        register_restart_handlers(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on,
+            do_upgrade,
+            do_change_compute,
+        )
 
     if do_scale:
-        kopf.register(
-            fn=ScaleSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="scale",
-            backoff=get_backoff(),
-        )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
+        register_scale_handlers(namespace, name, change_hash, context, depends_on)
+
     if do_expand_volume:
-        # Volume expansion and cluster suspension can run in parallel. Scaling the
-        # cluster back up needs to wait until both operations are finished.
-        kopf.register(
-            fn=ExpandVolumeSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
-            )(),
-            id="expand_volume",
-            backoff=get_backoff(),
+        register_storage_expansion_handlers(
+            namespace, name, change_hash, context, depends_on
         )
+
+    if do_after_update:
+        register_after_update_handlers(
+            namespace, name, change_hash, context, depends_on
+        )
+
+    patch.status[CLUSTER_UPDATE_ID] = context
+
+    # Ensure all success notifications are only sent at the very end of the handler
+    kopf.register(
+        fn=FlushNotificationsSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(),
+        id="notify_success_update",
+        backoff=get_backoff(),
+    )
+
+
+def register_storage_expansion_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    # Volume expansion and cluster suspension can run in parallel. Scaling the
+    # cluster back up needs to wait until both operations are finished.
+    kopf.register(
+        fn=ExpandVolumeSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="expand_volume",
+        backoff=get_backoff(),
+    )
+    if config.NO_DOWNTIME_STORAGE_EXPANSION:
+        depends_on.extend(
+            [
+                f"{CLUSTER_UPDATE_ID}/expand_volume",
+            ]
+        )
+    else:
         kopf.register(
             fn=SuspendClusterSubHandler(
-                namespace, name, hash, context, depends_on=depends_on.copy()
+                namespace, name, change_hash, context, depends_on=depends_on.copy()
             )(),
             id="suspend_cluster",
             backoff=get_backoff(),
@@ -242,7 +240,7 @@ async def update_cratedb(
             fn=StartClusterSubHandler(
                 namespace,
                 name,
-                hash,
+                change_hash,
                 context,
                 depends_on=depends_on.copy(),
                 run_on_dep_failures=True,
@@ -252,36 +250,113 @@ async def update_cratedb(
         )
         depends_on.append(f"{CLUSTER_UPDATE_ID}/start_cluster")
 
-    if do_after_update:
+
+def register_restart_handlers(
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    do_upgrade: bool,
+    do_change_compute: bool,
+):
+    kopf.register(
+        fn=RestartSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="restart",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
+    # Send a webhook success notification after upgrade and restart handlers
+    if do_upgrade:
         kopf.register(
-            fn=AfterClusterUpdateSubHandler(
-                namespace,
-                name,
-                hash,
-                context,
-                depends_on=depends_on.copy(),
-                run_on_dep_failures=True,
+            fn=AfterUpgradeSubHandler(
+                namespace, name, change_hash, context, depends_on=depends_on.copy()
             )(),
-            id="after_cluster_update",
+            id="after_upgrade",
             backoff=get_backoff(),
         )
-        depends_on.append(f"{CLUSTER_UPDATE_ID}/after_cluster_update")
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/after_upgrade")
 
-    patch.status[CLUSTER_UPDATE_ID] = context
+    # Send a webhook success notification after change_compute and restart handlers
+    if do_change_compute:
+        kopf.register(
+            fn=AfterChangeComputeSubHandler(
+                namespace, name, change_hash, context, depends_on=depends_on.copy()
+            )(),
+            id="after_change_compute",
+            backoff=get_backoff(),
+        )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/after_change_compute")
 
-    # Ensure all success notifications are only sent at the very end of the handler
+
+def register_change_compute_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
     kopf.register(
-        fn=FlushNotificationsSubHandler(
+        fn=ChangeComputeSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="change_compute",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/change_compute")
+
+
+def register_scale_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=ScaleSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="scale",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/scale")
+
+
+def register_upgrade_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=UpgradeSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="upgrade",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
+
+
+def register_after_update_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=AfterClusterUpdateSubHandler(
             namespace,
             name,
-            hash,
+            change_hash,
             context,
             depends_on=depends_on.copy(),
             run_on_dep_failures=True,
         )(),
-        id="notify_success_update",
+        id="after_cluster_update",
         backoff=get_backoff(),
     )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/after_cluster_update")
+
+
+def register_before_update_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=BeforeClusterUpdateSubHandler(namespace, name, change_hash, context)(),
+        id="before_cluster_update",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
 
 
 def get_backoff() -> int:

@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ----------
 
+* Added support for expanding volumes online (without suspending the cluster).
+  This is controlled by the ``NO_DOWNTIME_STORAGE_EXPANSION`` config option
+  and defaults to false. The feature must be supported by the underlying infrastructure,
+  i.e. Azure AKS or AWS EKS supports it using CSI drivers.
+
 2.16.0 (2022-10-17)
 -------------------
 

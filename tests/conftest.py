@@ -112,6 +112,7 @@ def load_config(worker_id):
         "CRATEDB_OPERATOR_BOOTSTRAP_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_HEALTH_CHECK_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_CRATEDB_STATUS_CHECK_INTERVAL": "5",
+        "CRATEDB_OPERATOR_NO_DOWNTIME_STORAGE_EXPANSION": "true",
     }
     # If the environment already has any of these keys defined, leave them be
     for k in env.keys():

@@ -173,6 +173,17 @@ expected to use upper case letters and must be prefixed with
 
    The default value is ``None``.
 
+.. envvar:: NO_DOWNTIME_STORAGE_EXPANSION
+
+   Whether to perform volume expansion operations without suspending the cluster.
+   For this to work, it must be supported by the underlying infrastructure. At the time
+   of writing, this works on Azure AKS and AWS EKS if using the CSI drivers.
+
+   By default, the operator will suspend the cluster while performing volume expansion,
+   and resume it once the PVCs expand.
+
+   The default value is ``False``.
+
 
 .. _12 Factor Principles: https://12factor.net/
 .. _Prometheus: https://prometheus.io/
