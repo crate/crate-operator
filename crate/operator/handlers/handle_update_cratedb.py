@@ -207,21 +207,15 @@ async def update_cratedb(
 def register_storage_expansion_handlers(
     namespace: str, name: str, change_hash: str, context: dict, depends_on: list
 ):
-    # Volume expansion and cluster suspension can run in parallel. Scaling the
-    # cluster back up needs to wait until both operations are finished.
-    kopf.register(
-        fn=ExpandVolumeSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
-        )(),
-        id="expand_volume",
-        backoff=get_backoff(),
-    )
     if config.NO_DOWNTIME_STORAGE_EXPANSION:
-        depends_on.extend(
-            [
-                f"{CLUSTER_UPDATE_ID}/expand_volume",
-            ]
+        kopf.register(
+            fn=ExpandVolumeSubHandler(
+                namespace, name, change_hash, context, depends_on=depends_on.copy()
+            )(),
+            id="expand_volume",
+            backoff=get_backoff(),
         )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/expand_volume")
     else:
         kopf.register(
             fn=SuspendClusterSubHandler(
@@ -230,12 +224,17 @@ def register_storage_expansion_handlers(
             id="suspend_cluster",
             backoff=get_backoff(),
         )
-        depends_on.extend(
-            [
-                f"{CLUSTER_UPDATE_ID}/suspend_cluster",
-                f"{CLUSTER_UPDATE_ID}/expand_volume",
-            ]
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/suspend_cluster")
+
+        kopf.register(
+            fn=ExpandVolumeSubHandler(
+                namespace, name, change_hash, context, depends_on=depends_on.copy()
+            )(),
+            id="expand_volume",
+            backoff=get_backoff(),
         )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/expand_volume")
+
         kopf.register(
             fn=StartClusterSubHandler(
                 namespace,
