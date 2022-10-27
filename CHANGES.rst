@@ -10,6 +10,9 @@ Unreleased
   and defaults to false. The feature must be supported by the underlying infrastructure,
   i.e. Azure AKS or AWS EKS supports it using CSI drivers.
 
+* Disabled parallel cluster suspension and volume resizing. This was causing issues on
+  Azure AKS. Will now first suspend the cluster and only then attempt to resize volumes.
+
 2.16.0 (2022-10-17)
 -------------------
 
