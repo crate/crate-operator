@@ -36,6 +36,7 @@ class WebhookEvent(str, enum.Enum):
     INFO_CHANGED = "info_changed"
     HEALTH = "health"
     FEEDBACK = "feedback"
+    BACKUP_SCHEDULE_CHANGED = "backup_schedule_changed"
 
 
 class WebhookStatus(str, enum.Enum):

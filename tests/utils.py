@@ -105,6 +105,7 @@ async def start_cluster(
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
     users: Optional[List[Mapping[str, Any]]] = None,
     resource_requests: Optional[Mapping[str, Any]] = None,
+    backups_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     body: dict = {
@@ -154,6 +155,9 @@ async def start_cluster(
             "cpu": resource_requests["cpu"],
             "memory": resource_requests["memory"],
         }
+
+    if backups_spec:
+        body["spec"]["backups"] = backups_spec
 
     if users:
         body["spec"]["users"] = users

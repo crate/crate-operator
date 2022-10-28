@@ -44,6 +44,7 @@ from kubernetes_asyncio.client import (
     V1PodTemplateSpec,
     V1SecretKeySelector,
 )
+from kubernetes_asyncio.client.api.batch_v1_api import BatchV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
@@ -317,6 +318,17 @@ async def create_backups(
                 ),
             )
 
+
+async def change_backup_schedule(logger, namespace, name, new_value):
+    async with ApiClient() as api_client:
+
+        patch = {"spec": {"schedule": new_value}}
+
+        batch = BatchV1Api(api_client)
+        result = await call_kubeapi(
+            batch.patch_namespaced_cron_job(name, namespace, patch)
+        )
+        print(result)
 
 class CreateBackupsSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_create_failed_notification)
