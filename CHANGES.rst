@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.17.0 (2022-10-31)
+-------------------
+
 * Added support for expanding volumes online (without suspending the cluster).
   This is controlled by the ``NO_DOWNTIME_STORAGE_EXPANSION`` config option
   and defaults to false. The feature must be supported by the underlying infrastructure,
