@@ -58,6 +58,7 @@ def test_payload_serialization_scale():
         info_data=None,
         health_data=None,
         feedback_data=None,
+        backup_schedule_changed_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "scale",
@@ -94,6 +95,7 @@ def test_payload_serialization_upgrade():
         info_data=None,
         health_data=None,
         feedback_data=None,
+        backup_schedule_changed_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "upgrade",
@@ -322,6 +324,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "info_data": None,
                 "temporary_failure_data": None,
                 "feedback_data": None,
+                "backup_schedule_changed_data": None,
                 "health_data": {"status": "GREEN"},
             },
         }

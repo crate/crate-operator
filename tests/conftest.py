@@ -108,7 +108,7 @@ def load_config(worker_id):
         "CRATEDB_OPERATOR_PARALLEL_TESTING": "false"
         if worker_id == "master"
         else "true",
-        "CRATEDB_OPERATOR_JOBS_TABLE": "test.test_sys_jobs",
+        "CRATEDB_OPERATOR_JOBS_TABLE": "sys.jobs",
         "CRATEDB_OPERATOR_BOOTSTRAP_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_HEALTH_CHECK_RETRY_DELAY": "5",
         "CRATEDB_OPERATOR_CRATEDB_STATUS_CHECK_INTERVAL": "5",

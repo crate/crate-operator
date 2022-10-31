@@ -319,16 +319,16 @@ async def create_backups(
             )
 
 
-async def change_backup_schedule(logger, namespace, name, new_value):
+async def change_backup_schedule(namespace, name, new_value):
     async with ApiClient() as api_client:
 
         patch = {"spec": {"schedule": new_value}}
 
         batch = BatchV1Api(api_client)
-        result = await call_kubeapi(
-            batch.patch_namespaced_cron_job(name, namespace, patch)
+        await batch.patch_namespaced_cron_job(
+            f"create-snapshot-{name}", namespace, patch
         )
-        print(result)
+
 
 class CreateBackupsSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_create_failed_notification)
