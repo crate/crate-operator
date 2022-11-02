@@ -1,7 +1,7 @@
-from time import sleep
 from unittest import mock
 
 import pytest
+from cratedb import connection_factory
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from kubernetes_asyncio.client.api.batch_v1_api import BatchV1Api
 
@@ -11,6 +11,9 @@ from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
+    create_test_sys_jobs_table,
+    is_cluster_healthy,
+    is_cronjob_schedule_matching,
     is_kopf_handler_finished,
     start_cluster,
     was_notification_sent,
@@ -71,7 +74,21 @@ async def test_update_backups_schedule(
         },
     }
 
-    await start_cluster(name, namespace, core, coapi, 1, backups_spec=backups_spec)
+    host, password = await start_cluster(
+        name, namespace, core, coapi, 1, backups_spec=backups_spec
+    )
+    conn_factory = connection_factory(host, password)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        conn_factory,
+        1,
+        err_msg="Cluster wasn't healthy",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await create_test_sys_jobs_table(conn_factory)
     cronjob_pre = await batch.read_namespaced_cron_job(
         namespace=namespace.metadata.name, name=f"create-snapshot-{name}"
     )
@@ -127,12 +144,16 @@ async def test_update_backups_schedule(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
-    sleep(10)
-
-    cronjob_post = await batch.read_namespaced_cron_job(
-        namespace=namespace.metadata.name, name=f"create-snapshot-{name}"
+    await assert_wait_for(
+        True,
+        is_cronjob_schedule_matching,
+        batch,
+        namespace.metadata.name,
+        f"create-snapshot-{name}",
+        body_changes[0]["value"],
+        err_msg="The backup cronjob schedule does not match",
+        timeout=45,
     )
-    assert cronjob_post.spec.schedule == body_changes[0]["value"]
 
     notification_success_call = mock.call(
         WebhookEvent.BACKUP_SCHEDULE_CHANGED,

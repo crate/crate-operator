@@ -430,3 +430,10 @@ async def was_notification_sent(
         return True
     except AssertionError:
         return False
+
+
+async def is_cronjob_schedule_matching(
+    batch: BatchV1Api, namespace: str, name: str, schedule: str
+) -> bool:
+    cronjob = await batch.read_namespaced_cron_job(namespace=namespace, name=name)
+    return cronjob.spec.schedule == schedule
