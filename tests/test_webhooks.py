@@ -77,6 +77,7 @@ def test_payload_serialization_scale():
         "info_data": None,
         "health_data": None,
         "feedback_data": None,
+        "backup_schedule_changed_data": None,
     }
 
 
@@ -114,6 +115,7 @@ def test_payload_serialization_upgrade():
         "info_data": None,
         "health_data": None,
         "feedback_data": None,
+        "backup_schedule_changed_data": None,
     }
 
 
@@ -196,6 +198,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "info_data": None,
                 "health_data": None,
                 "feedback_data": None,
+                "backup_schedule_changed_data": None,
             },
         }
 
@@ -233,6 +236,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "info_data": None,
                 "health_data": None,
                 "feedback_data": None,
+                "backup_schedule_changed_data": None,
             },
         }
 
@@ -265,6 +269,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 },
                 "health_data": None,
                 "feedback_data": None,
+                "backup_schedule_changed_data": None,
             },
         }
 
@@ -295,6 +300,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "temporary_failure_data": None,
                 "health_data": None,
                 "feedback_data": None,
+                "backup_schedule_changed_data": None,
             },
         }
 
