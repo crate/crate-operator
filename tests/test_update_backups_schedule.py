@@ -1,11 +1,11 @@
 from unittest import mock
 
 import pytest
-from cratedb import connection_factory
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from kubernetes_asyncio.client.api.batch_v1_api import BatchV1Api
 
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
+from crate.operator.cratedb import connection_factory
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
