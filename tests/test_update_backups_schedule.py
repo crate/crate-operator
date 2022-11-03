@@ -164,6 +164,12 @@ async def test_update_backups_schedule(
         unsafe=mock.ANY,
         logger=mock.ANY,
     )
-    assert await was_notification_sent(
-        mock_send_notification=mock_send_notification, call=notification_success_call
-    ), "A success notification was expected but was not sent"
+
+    await assert_wait_for(
+        True,
+        was_notification_sent,
+        mock_send_notification,
+        notification_success_call,
+        err_msg="A success notification was expected but was not sent",
+        timeout=DEFAULT_TIMEOUT,
+    )

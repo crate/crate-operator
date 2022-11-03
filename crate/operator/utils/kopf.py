@@ -159,9 +159,9 @@ class StateBasedSubHandler(abc.ABC):
         for notification in self._context.get("notifications", []):
             await self.send_notification_now(
                 logger,
-                notification["event"],
+                WebhookEvent(notification["event"]),
                 notification["payload"],
-                notification["status"],
+                WebhookStatus(notification["status"]),
             )
         self._context.get("notifications", []).clear()
 

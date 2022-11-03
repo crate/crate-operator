@@ -315,7 +315,7 @@ class WebhookClient:
         elif event == WebhookEvent.FEEDBACK:
             kwargs = {"feedback_data": sub_payload}
         elif event == WebhookEvent.BACKUP_SCHEDULE_CHANGED:
-            kwargs = {"backup_schedule_changed": sub_payload}
+            kwargs = {"backup_schedule_changed_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 
