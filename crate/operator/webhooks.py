@@ -189,9 +189,7 @@ class WebhookClient:
         info_data: Optional[WebhookInfoChangedPayload] = None,
         health_data: Optional[WebhookClusterHealthPayload] = None,
         feedback_data: Optional[WebhookFeedbackPayload] = None,
-        backup_schedule_data: Optional[
-            WebhookBackupScheduleUpdatePayload
-        ] = None,
+        backup_schedule_data: Optional[WebhookBackupScheduleUpdatePayload] = None,
         unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:

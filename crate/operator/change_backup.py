@@ -3,7 +3,7 @@ from typing import Any
 
 import kopf
 
-from crate.operator.backup import change_backup_schedule
+from crate.operator.backup import update_backup_schedule
 from crate.operator.config import config
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -39,7 +39,7 @@ class BackupScheduleUpdateSubHandler(StateBasedSubHandler):
                 diff_found = d
 
         assert diff_found is not None
-        payload = WebhookBackupScheduleUpdatePayload(new_schedule=d.new)
+        payload = WebhookBackupScheduleUpdatePayload(backup_schedule=d.new)
 
         await self.send_notification_now(
             logger,
@@ -48,7 +48,7 @@ class BackupScheduleUpdateSubHandler(StateBasedSubHandler):
             WebhookStatus.IN_PROGRESS,
         )
 
-        await change_backup_schedule(namespace, name, payload["new_schedule"])
+        await update_backup_schedule(namespace, name, payload["backup_schedule"])
 
         self.schedule_notification(
             WebhookEvent.BACKUP_SCHEDULE_UPDATE,
