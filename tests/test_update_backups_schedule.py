@@ -156,11 +156,11 @@ async def test_update_backups_schedule(
     )
 
     notification_success_call = mock.call(
-        WebhookEvent.BACKUP_SCHEDULE_CHANGED,
+        WebhookEvent.BACKUP_SCHEDULE_UPDATE,
         WebhookStatus.SUCCESS,
         namespace.metadata.name,
         name,
-        backup_schedule_changed_data=mock.ANY,
+        backup_schedule_data=mock.ANY,
         unsafe=mock.ANY,
         logger=mock.ANY,
     )

@@ -8,7 +8,7 @@ from crate.operator.config import config
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.webhooks import (
-    WebhookBackupScheduleChangedPayload,
+    WebhookBackupScheduleUpdatePayload,
     WebhookEvent,
     WebhookStatus,
 )
@@ -39,13 +39,11 @@ class BackupScheduleUpdateSubHandler(StateBasedSubHandler):
                 diff_found = d
 
         assert diff_found is not None
-        payload = WebhookBackupScheduleChangedPayload(
-            old_schedule=d.old, new_schedule=d.new
-        )
+        payload = WebhookBackupScheduleUpdatePayload(new_schedule=d.new)
 
         await self.send_notification_now(
             logger,
-            WebhookEvent.BACKUP_SCHEDULE_CHANGED,
+            WebhookEvent.BACKUP_SCHEDULE_UPDATE,
             payload,
             WebhookStatus.IN_PROGRESS,
         )
@@ -53,7 +51,7 @@ class BackupScheduleUpdateSubHandler(StateBasedSubHandler):
         await change_backup_schedule(namespace, name, payload["new_schedule"])
 
         self.schedule_notification(
-            WebhookEvent.BACKUP_SCHEDULE_CHANGED,
+            WebhookEvent.BACKUP_SCHEDULE_UPDATE,
             payload,
             WebhookStatus.SUCCESS,
         )
