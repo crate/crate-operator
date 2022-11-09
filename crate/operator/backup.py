@@ -319,7 +319,7 @@ async def create_backups(
             )
 
 
-async def update_backup_schedule(namespace, name, new_value):
+async def update_backup_schedule_in_cronjob(namespace, name, new_value):
     async with ApiClient() as api_client:
 
         patch = {"spec": {"schedule": new_value}}

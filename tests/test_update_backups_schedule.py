@@ -14,7 +14,6 @@ from .utils import (
     create_test_sys_jobs_table,
     is_cluster_healthy,
     is_cronjob_schedule_matching,
-    is_kopf_handler_finished,
     start_cluster,
     was_notification_sent,
 )
@@ -113,46 +112,13 @@ async def test_update_backups_schedule(
 
     await assert_wait_for(
         True,
-        is_kopf_handler_finished,
-        coapi,
-        name,
-        namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.backup_schedule_update",
-        err_msg="Backup schedule change has not finished",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    await assert_wait_for(
-        True,
-        is_kopf_handler_finished,
-        coapi,
-        name,
-        namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.after_cluster_update",
-        err_msg="After cluster update has not finished",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    await assert_wait_for(
-        True,
-        is_kopf_handler_finished,
-        coapi,
-        name,
-        namespace.metadata.name,
-        "operator.cloud.crate.io/cluster_update.notify_success_update",
-        err_msg="Success notification has not finished",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    await assert_wait_for(
-        True,
         is_cronjob_schedule_matching,
         batch,
         namespace.metadata.name,
         f"create-snapshot-{name}",
         body_changes[0]["value"],
         err_msg="The backup cronjob schedule does not match",
-        timeout=45,
+        timeout=DEFAULT_TIMEOUT,
     )
 
     notification_success_call = mock.call(

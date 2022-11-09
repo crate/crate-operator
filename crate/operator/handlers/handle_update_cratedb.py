@@ -25,7 +25,6 @@ from typing import List
 
 import kopf
 
-from crate.operator.change_backup import BackupScheduleUpdateSubHandler
 from crate.operator.change_compute import (
     AfterChangeComputeSubHandler,
     ChangeComputeSubHandler,
@@ -108,7 +107,6 @@ async def update_cratedb(
     do_restart = False
     do_scale = False
     do_expand_volume = False
-    do_update_backup_schedule = False
 
     for _, field_path, old_spec, new_spec in diff:
         if field_path in {
@@ -140,8 +138,6 @@ async def update_cratedb(
                     do_change_compute = True
                     # pod resources won't change until each pod is recreated
                     do_restart = True
-        elif field_path == ("spec", "backups", "aws", "cron"):
-            do_update_backup_schedule = True
 
     if (
         not do_upgrade
@@ -149,7 +145,6 @@ async def update_cratedb(
         and not do_scale
         and not do_expand_volume
         and not do_change_compute
-        and not do_update_backup_schedule
     ):
         return
 
@@ -184,11 +179,6 @@ async def update_cratedb(
 
     if do_expand_volume:
         register_storage_expansion_handlers(
-            namespace, name, change_hash, context, depends_on
-        )
-
-    if do_update_backup_schedule:
-        register_update_backup_schedule(
             namespace, name, change_hash, context, depends_on
         )
 
@@ -366,19 +356,6 @@ def register_before_update_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
-
-
-def register_update_backup_schedule(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
-):
-    kopf.register(
-        fn=BackupScheduleUpdateSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
-        )(),
-        id="backup_schedule_update",
-        backoff=get_backoff(),
-    )
-    depends_on.append(f"{CLUSTER_UPDATE_ID}/backup_schedule_update")
 
 
 def get_backoff() -> int:
