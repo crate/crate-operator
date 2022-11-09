@@ -23,14 +23,13 @@ import logging
 import re
 
 import kopf
-from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import CustomObjectsApi
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.kopf import subhandler_partial
-from crate.operator.utils.kubeapi import get_host
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
@@ -55,7 +54,6 @@ async def update_user_password_secret(
     )
     async with ApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)
-        core = CoreV1Api(api_client)
 
         for operation, field_path, old_value, new_value in diff:
             custom_objects = await coapi.list_namespaced_custom_object(
@@ -66,10 +64,6 @@ async def update_user_password_secret(
             )
 
             for crate_custom_object in custom_objects["items"]:
-                host = await get_host(
-                    core, namespace, crate_custom_object["metadata"]["name"]
-                )
-
                 for user_spec in crate_custom_object["spec"]["users"]:
                     expected_field_path = (
                         "data",
@@ -79,15 +73,25 @@ async def update_user_password_secret(
                         user_spec["password"]["secretKeyRef"]["name"] == name
                         and field_path == expected_field_path
                     ):
+                        has_master_nodes = (
+                            "master" in crate_custom_object["spec"]["nodes"]
+                        )
+                        if has_master_nodes:
+                            pod_name = f"crate-master-{cluster_id}-0"
+                        else:
+                            node_name = crate_custom_object["spec"]["nodes"]["data"][0][
+                                "name"
+                            ]
+                            pod_name = f"crate-data-{node_name}-{cluster_id}-0"
                         kopf.register(
                             fn=subhandler_partial(
                                 update_user_password,
-                                host,
-                                user_spec["name"],
-                                old_value,
-                                new_value,
                                 namespace,
                                 cluster_id,
+                                pod_name,
+                                user_spec["name"],
+                                new_value,
+                                "ssl" in crate_custom_object["spec"]["cluster"],
                                 logger,
                             ),
                             id=f"update-{crate_custom_object['metadata']['name']}-{user_spec['name']}",  # noqa
