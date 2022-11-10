@@ -231,7 +231,7 @@ async def service_backup_schedule_update(
     **_kwargs,
 ):
     """
-    Handles updates to the list of allowed CIDRs, and updates the relevant k8s Service.
+    Handles updates to the backup schedule for AWS s3 backups.
     """
     await update_backup_schedule(namespace, name, diff, logger)
 

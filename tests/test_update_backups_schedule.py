@@ -11,7 +11,6 @@ from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from .utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
-    create_test_sys_jobs_table,
     is_cluster_healthy,
     is_cronjob_schedule_matching,
     start_cluster,
@@ -87,7 +86,6 @@ async def test_update_backups_schedule(
         timeout=DEFAULT_TIMEOUT,
     )
 
-    await create_test_sys_jobs_table(conn_factory)
     cronjob_pre = await batch.read_namespaced_cron_job(
         namespace=namespace.metadata.name, name=f"create-snapshot-{name}"
     )
