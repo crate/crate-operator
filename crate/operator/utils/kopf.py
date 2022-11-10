@@ -159,9 +159,9 @@ class StateBasedSubHandler(abc.ABC):
         for notification in self._context.get("notifications", []):
             await self.send_notification_now(
                 logger,
-                notification["event"],
+                WebhookEvent(notification["event"]),
                 notification["payload"],
-                notification["status"],
+                WebhookStatus(notification["status"]),
             )
         self._context.get("notifications", []).clear()
 
@@ -172,20 +172,8 @@ class StateBasedSubHandler(abc.ABC):
         payload: WebhookSubPayload,
         status: WebhookStatus,
     ):
-        notification = Notification(event=event, payload=payload, status=status)
-        logger.info(
-            "Sending %s notification event %s with payload %s",
-            notification["status"],
-            notification["event"],
-            notification["payload"],
-        )
-        await webhook_client.send_notification(
-            self.namespace,
-            self.name,
-            notification["event"],
-            notification["payload"],
-            notification["status"],
-            logger,
+        await send_webhook_notification(
+            self.namespace, self.name, logger, event, payload, status
         )
 
     def _get_status(self, statuses: dict, dependency: str, logger) -> Optional[dict]:
@@ -234,3 +222,28 @@ class StateBasedSubHandler(abc.ABC):
                 )
 
         return False
+
+
+async def send_webhook_notification(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    event: WebhookEvent,
+    payload: WebhookSubPayload,
+    status: WebhookStatus,
+):
+    notification = Notification(event=event, payload=payload, status=status)
+    logger.info(
+        "Sending %s notification event %s with payload %s",
+        notification["status"],
+        notification["event"],
+        notification["payload"],
+    )
+    await webhook_client.send_notification(
+        namespace,
+        name,
+        notification["event"],
+        notification["payload"],
+        notification["status"],
+        logger,
+    )

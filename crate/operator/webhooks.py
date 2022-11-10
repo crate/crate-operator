@@ -36,6 +36,7 @@ class WebhookEvent(str, enum.Enum):
     INFO_CHANGED = "info_changed"
     HEALTH = "health"
     FEEDBACK = "feedback"
+    BACKUP_SCHEDULE_UPDATE = "backup_schedule_update"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -105,6 +106,10 @@ class WebhookFeedbackPayload(WebhookSubPayload):
     operation: WebhookOperation
 
 
+class WebhookBackupScheduleUpdatePayload(WebhookSubPayload):
+    backup_schedule: str
+
+
 class WebhookPayload(TypedDict):
     event: WebhookEvent
     status: WebhookStatus
@@ -117,6 +122,7 @@ class WebhookPayload(TypedDict):
     info_data: Optional[WebhookInfoChangedPayload]
     health_data: Optional[WebhookClusterHealthPayload]
     feedback_data: Optional[WebhookFeedbackPayload]
+    backup_schedule_data: Optional[WebhookBackupScheduleUpdatePayload]
 
 
 class WebhookClient:
@@ -183,6 +189,7 @@ class WebhookClient:
         info_data: Optional[WebhookInfoChangedPayload] = None,
         health_data: Optional[WebhookClusterHealthPayload] = None,
         feedback_data: Optional[WebhookFeedbackPayload] = None,
+        backup_schedule_data: Optional[WebhookBackupScheduleUpdatePayload] = None,
         unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
@@ -201,6 +208,8 @@ class WebhookClient:
             that took place or was attempted.
         :param temporary_failure_data: Details about the temporary failure
         :param info_data: Information details payload
+        :param backup_schedule_data: Details about the change in the backup
+            cronjob schedule.
         :param logger: The logger to use
         :param unsafe: Whether to re-throw exceptions if any are caught.
         """
@@ -225,6 +234,7 @@ class WebhookClient:
             info_data=info_data,
             health_data=health_data,
             feedback_data=feedback_data,
+            backup_schedule_data=backup_schedule_data,
         )
 
         logger.info(
@@ -301,6 +311,8 @@ class WebhookClient:
             kwargs = {"health_data": sub_payload}
         elif event == WebhookEvent.FEEDBACK:
             kwargs = {"feedback_data": sub_payload}
+        elif event == WebhookEvent.BACKUP_SCHEDULE_UPDATE:
+            kwargs = {"backup_schedule_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 

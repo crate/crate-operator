@@ -44,6 +44,7 @@ from kubernetes_asyncio.client import (
     V1PodTemplateSpec,
     V1SecretKeySelector,
 )
+from kubernetes_asyncio.client.api.batch_v1_api import BatchV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
@@ -316,6 +317,17 @@ async def create_backups(
                     has_ssl,
                 ),
             )
+
+
+async def update_backup_schedule_in_cronjob(namespace, name, new_value):
+    async with ApiClient() as api_client:
+
+        patch = {"spec": {"schedule": new_value}}
+
+        batch = BatchV1Api(api_client)
+        await batch.patch_namespaced_cron_job(
+            f"create-snapshot-{name}", namespace, patch
+        )
 
 
 class CreateBackupsSubHandler(StateBasedSubHandler):

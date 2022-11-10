@@ -44,6 +44,7 @@ from crate.operator.handlers.handle_ping_cratedb_status import ping_cratedb_stat
 from crate.operator.handlers.handle_update_allowed_cidrs import (
     update_service_allowed_cidrs,
 )
+from crate.operator.handlers.handle_update_backup_schedule import update_backup_schedule
 from crate.operator.handlers.handle_update_cratedb import update_cratedb
 from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
@@ -213,6 +214,26 @@ async def service_external_ip_update(
     (if webhooks are enabled).
     """
     await external_ip_changed(namespace, diff, meta, logger)
+
+
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field="spec.backups.aws.cron",
+    annotations=annotation_filter(),
+)
+async def service_backup_schedule_update(
+    namespace: str,
+    name: str,
+    diff: kopf.Diff,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handles updates to the backup schedule for AWS s3 backups.
+    """
+    await update_backup_schedule(namespace, name, diff, logger)
 
 
 @kopf.timer(
