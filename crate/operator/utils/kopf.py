@@ -172,7 +172,7 @@ class StateBasedSubHandler(abc.ABC):
         payload: WebhookSubPayload,
         status: WebhookStatus,
     ):
-        send_webhook_notification(
+        await send_webhook_notification(
             self.namespace, self.name, logger, event, payload, status
         )
 
