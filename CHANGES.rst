@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed the way user passwords are updated to not require the old password anymore.
+
 2.17.0 (2022-10-31)
 -------------------
 

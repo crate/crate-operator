@@ -21,8 +21,13 @@
 
 import logging
 
-from crate.operator.constants import CONNECT_TIMEOUT
-from crate.operator.cratedb import get_connection, update_user
+from aiohttp.client_exceptions import WSServerHandshakeError
+from kopf import TemporaryError
+from kubernetes_asyncio.client import ApiException, CoreV1Api
+from kubernetes_asyncio.stream import WsApiClient
+from psycopg2.extensions import QuotedString
+
+from crate.operator.config import config
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookOperation, WebhookStatus
@@ -30,29 +35,55 @@ from crate.operator.webhooks import WebhookOperation, WebhookStatus
 
 # update_user_password(host, username, old_password, new_password)
 async def update_user_password(
-    host: str,
-    username: str,
-    old_password: str,
-    new_password: str,
     namespace: str,
     cluster_id: str,
+    pod_name: str,
+    username: str,
+    new_password: str,
+    has_ssl: bool,
     logger: logging.Logger,
 ):
     """
     Update the password of a given ``user_spec`` in a CrateDB cluster.
 
-    :param host: The host of the CrateDB resource that should be updated.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param cluster_id: The ID of the CrateDB cluster.
+    :param pod_name: The name of the pod to ``exec`` into.
     :param username: The username of the user of the CrateDB resource that
         should be updated.
-    :param old_password: The old password of the user that should be updated.
     :param new_password: The new password of the user that should be updated.
+    :param has_ssl: When ``True``, ``crash`` will establish a connection to
+        the CrateDB cluster from inside the ``crate`` container using SSL/TLS.
+        This must match how the cluster is configured, otherwise ``crash``
+        won't be able to connect, since non-encrypted connections are forbidden
+        when SSL/TLS is enabled, and encrypted connections aren't possible when
+        no SSL/TLS is configured.
     """
-    async with get_connection(
-        host, b64decode(old_password), username, timeout=CONNECT_TIMEOUT
-    ) as conn:
-        async with conn.cursor() as cursor:
-            logger.info("Updating password for user '%s'", username)
-            await update_user(cursor, username, b64decode(new_password))
+    scheme = "https" if has_ssl else "http"
+    password_quoted = QuotedString(b64decode(new_password)).getquoted().decode()
+    command_alter_user = [
+        "crash",
+        "--verify-ssl=false",
+        f"--host={scheme}://localhost:4200",
+        "-c",
+        f'ALTER USER "{username}" SET (password={password_quoted});',
+    ]
+    exception_logger = logger.exception if config.TESTING else logger.error
+
+    async with WsApiClient() as ws_api_client:
+        core_ws = CoreV1Api(ws_api_client)
+        try:
+            logger.info("Trying to update user password ...")
+            result = await core_ws.connect_get_namespaced_pod_exec(
+                namespace=namespace,
+                name=pod_name,
+                command=command_alter_user,
+                container="crate",
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+            )
             await send_operation_progress_notification(
                 namespace=namespace,
                 name=cluster_id,
@@ -61,3 +92,21 @@ async def update_user_password(
                 status=WebhookStatus.SUCCESS,
                 operation=WebhookOperation.UPDATE,
             )
+        except ApiException as e:
+            # We don't use `logger.exception()` to not accidentally include the
+            # password in the log messages which might be part of the string
+            # representation of the exception.
+            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
+            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+        except WSServerHandshakeError as e:
+            # We don't use `logger.exception()` to not accidentally include the
+            # password in the log messages which might be part of the string
+            # representation of the exception.
+            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
+            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+        else:
+            if "ALTER OK" in result:
+                logger.info("... success")
+            else:
+                logger.info("... error. %s", result)
+                raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
