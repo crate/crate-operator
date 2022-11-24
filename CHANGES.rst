@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.18.0 (2022-11-24)
+-------------------
+
 * Cluster backup cronjob schedules can now be updated.
 
 * Fixed the way user passwords are updated to not require the old password anymore.
