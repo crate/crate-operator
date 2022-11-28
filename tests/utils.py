@@ -22,7 +22,8 @@
 import asyncio
 import logging
 import os
-from typing import Any, Callable, List, Mapping, Optional, Set, Tuple
+from functools import reduce
+from typing import Any, Callable, List, Mapping, Optional, Set, Tuple, Union
 from unittest import mock
 
 import psycopg2
@@ -39,6 +40,7 @@ from crate.operator.backup import create_backups
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    BACKUP_METRICS_DEPLOYMENT_NAME,
     DATA_NODE_NAME,
     KOPF_STATE_STORE_PREFIX,
     LABEL_COMPONENT,
@@ -53,6 +55,7 @@ from crate.operator.cratedb import (
     get_healthiness,
     get_number_of_nodes,
 )
+from crate.operator.operations import get_pods_in_deployment
 from crate.operator.utils.kubeapi import (
     get_service_public_hostname,
     get_system_user_password,
@@ -437,3 +440,41 @@ async def is_cronjob_schedule_matching(
 ) -> bool:
     cronjob = await batch.read_namespaced_cron_job(namespace=namespace, name=name)
     return cronjob.spec.schedule == schedule
+
+
+async def mocked_coro_func_called_with(
+    mocked_coro_func: mock.AsyncMock, call: mock.call
+) -> bool:
+    if mocked_coro_func.call_count == 0:
+        return False
+
+    try:
+        mocked_coro_func.assert_has_calls([call], any_order=False)
+        return True
+    except AssertionError:
+        return False
+
+
+async def cluster_setting_equals(
+    conn_factory: Callable[[], Connection],
+    setting: str,
+    expected_value: Union[str, int],
+) -> bool:
+    try:
+        async with conn_factory() as conn:
+            async with conn.cursor() as cursor:
+                cluster_settings = await get_cluster_settings(cursor)
+                value = reduce(
+                    lambda k, v: k.get(v, {}), setting.split("."), cluster_settings
+                )
+                return value == expected_value
+    except (psycopg2.DatabaseError, asyncio.exceptions.TimeoutError):
+        return False
+
+
+async def does_backup_metrics_pod_exist(
+    core: CoreV1Api, name: str, namespace: V1Namespace
+) -> bool:
+    backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
+    backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
+    return any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods)

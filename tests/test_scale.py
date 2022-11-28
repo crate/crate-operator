@@ -41,11 +41,10 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
-from crate.operator.operations import get_pods_in_deployment, get_pods_in_statefulset
+from crate.operator.operations import get_pods_in_statefulset
 from crate.operator.scale import parse_replicas, patch_command
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
-
-from .utils import (
+from tests.utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
     clear_test_snapshot_jobs,
@@ -53,6 +52,7 @@ from .utils import (
     create_fake_snapshot_job,
     create_test_sys_jobs_table,
     delete_fake_snapshot_job,
+    does_backup_metrics_pod_exist,
     insert_test_snapshot_job,
     is_cluster_healthy,
     is_kopf_handler_finished,
@@ -484,14 +484,6 @@ async def _scale_cluster(
     )
 
     await asyncio.sleep(1.0)
-
-
-async def does_backup_metrics_pod_exist(
-    core: CoreV1Api, name: str, namespace: V1Namespace
-) -> bool:
-    backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
-    backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
-    return any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods)
 
 
 async def does_deployment_exist(apps: AppsV1Api, namespace: str, name: str) -> bool:

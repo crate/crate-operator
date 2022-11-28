@@ -108,6 +108,11 @@ class Config:
     #: StorageClass.
     EXPAND_VOLUME_TIMEOUT = 1800
 
+    #: Time in seconds for which the operator will continue and wait to restore
+    #: a snapshot. Once the threshold has passed, a restore operation is considered
+    #: failed.
+    RESTORE_BACKUP_TIMEOUT = 3600 * 24
+
     #: Do not scale down cluster when performing storage expansion.
     #: The underlying infrastructure must support this - i.e. Azure or AWS CSI volumes.
     NO_DOWNTIME_STORAGE_EXPANSION: bool = False
@@ -148,6 +153,10 @@ class Config:
 
     #: The sql_exporter image to use
     SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.9.1"
+
+    #: Name of the secret containing credentials to access the source
+    #: backup when restoring a snapshot.
+    RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
 
     def __init__(self, *, prefix: str):
         self._prefix = prefix
@@ -363,6 +372,26 @@ class Config:
             default=str(self.NO_DOWNTIME_STORAGE_EXPANSION),
         )
         self.NO_DOWNTIME_STORAGE_EXPANSION = expansion.lower() == "true"
+
+        self.RESTORE_BACKUP_SECRET_NAME = self.env(
+            "RESTORE_BACKUP_SECRET_NAME", default=self.RESTORE_BACKUP_SECRET_NAME
+        )
+
+        restore_timeout = self.env(
+            "RESTORE_BACKUP_TIMEOUT", default=str(self.RESTORE_BACKUP_TIMEOUT)
+        )
+        try:
+            self.RESTORE_BACKUP_TIMEOUT = int(restore_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}RESTORE_BACKUP_TIMEOUT="
+                f"'{restore_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.RESTORE_BACKUP_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}RESTORE_BACKUP_TIMEOUT="
+                f"'{restore_timeout}'. Needs to be a positive integer or 0."
+            )
 
     def env(self, name: str, *, default=UNDEFINED) -> str:
         """

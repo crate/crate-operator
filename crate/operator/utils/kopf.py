@@ -203,9 +203,14 @@ class StateBasedSubHandler(abc.ABC):
 
         Slightly naughty, but there is no better way at the time of writing.
         """
-        # Handler names have dots instead of slashes in annotations
-        normalized_name = handler_name.replace("/", ".")
-        key = f"{KOPF_STATE_STORE_PREFIX}/{normalized_name}"
+        # Use the same procedure as kopf to create the handler name for the
+        # annotations lookup. Important if the handler name exceeds the maximum
+        # allowed length of 63 chars which is likely for @kopf.on.field() handlers
+        # that have the field path in the name.
+        progressor = kopf.AnnotationsProgressStorage(
+            v1=False, prefix=KOPF_STATE_STORE_PREFIX
+        )
+        key = progressor.make_v2_key(handler_name)
         status_str = annotations.get(key)
         if not status_str:
             return False
