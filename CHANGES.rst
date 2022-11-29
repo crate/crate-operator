@@ -5,15 +5,18 @@ Changelog
 Unreleased
 ----------
 
+2.19.0 (2022-11-29)
+-------------------
+
+* Change the value of ``when_unsatisfiable`` in the ``TopologySpreadConstraint`` to
+  ``DoNotSchedule``, this seems to work now. Tested on kubernetes `1.22.12`.
+
 2.18.0 (2022-11-24)
 -------------------
 
 * Cluster backup cronjob schedules can now be updated.
 
 * Fixed the way user passwords are updated to not require the old password anymore.
-
-* Change the value of ``when_unsatisfiable`` in the ``TopologySpreadConstraint`` to
-  ``DoNotSchedule``, this seems to work now. Tested on kubernetes `1.22.12`.
 
 2.17.0 (2022-10-31)
 -------------------
