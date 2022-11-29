@@ -261,7 +261,7 @@ def get_topology_spread(
             V1TopologySpreadConstraint(
                 max_skew=1,
                 topology_key="topology.kubernetes.io/zone",
-                when_unsatisfiable="ScheduleAnyway",
+                when_unsatisfiable="DoNotSchedule",
                 label_selector=V1LabelSelector(
                     match_expressions=[
                         V1LabelSelectorRequirement(
