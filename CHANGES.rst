@@ -12,6 +12,9 @@ Unreleased
 
 * Fixed the way user passwords are updated to not require the old password anymore.
 
+* Change the value of ``when_unsatisfiable`` in the ``TopologySpreadConstraint`` to
+  ``DoNotSchedule``, this seems to work now. Tested on kubernetes `1.22.12`.
+
 2.17.0 (2022-10-31)
 -------------------
 
