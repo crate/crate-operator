@@ -21,7 +21,7 @@
 
 import functools
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import aiopg
 from aiopg import Cursor
@@ -208,7 +208,7 @@ async def set_cluster_setting(
     logger: logging.Logger,
     *,
     setting: str,
-    value: str,
+    value: Union[str, int],
     mode: str = "TRANSIENT",
 ) -> None:
     """

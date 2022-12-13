@@ -29,6 +29,7 @@ from kubernetes_asyncio.client import (
     BatchV1Api,
     BatchV1beta1Api,
     CoreV1Api,
+    CustomObjectsApi,
     V1beta1CronJobList,
     V1JobList,
     V1JobStatus,
@@ -42,12 +43,14 @@ from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.config import config
 from crate.operator.constants import (
+    API_GROUP,
     BACKUP_METRICS_DEPLOYMENT_NAME,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
+    RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import (
     are_snapshots_in_progress,
@@ -227,6 +230,25 @@ async def get_pods_in_deployment(
     return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
 
 
+async def get_cratedb_resource(namespace: str, name: str) -> dict:
+    """
+    Return the CrateDB custom resource.
+
+    :param namespace: The Kubernetes namespace where to look up the CrateDB
+        cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    """
+    async with ApiClient() as api_client:
+        coapi = CustomObjectsApi(api_client)
+        return await coapi.get_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+            name=name,
+        )
+
+
 async def check_all_data_nodes_gone(
     core: CoreV1Api,
     namespace: str,
@@ -404,6 +426,25 @@ async def update_deployment_replicas(
         await apps.patch_namespaced_deployment(
             namespace=namespace, name=name, body=body
         )
+
+
+async def scale_backup_metrics_deployment(
+    namespace: str,
+    name: str,
+    replicas: int,
+):
+    """
+    Update the number of replicas of a backup-metrics deployment in the
+    given namespace.
+
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the backup-metrics deployment to update.
+    :param replicas: The new number of replicas.
+    """
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
+        await update_deployment_replicas(apps, namespace, backup_metrics_name, replicas)
 
 
 async def restart_cluster(
@@ -658,7 +699,6 @@ CRONJOB_NAME = "cronjob_name"
 
 class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
-    @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,

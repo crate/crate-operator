@@ -41,6 +41,7 @@ from crate.operator.handlers.handle_notify_external_ip_changed import (
     external_ip_changed,
 )
 from crate.operator.handlers.handle_ping_cratedb_status import ping_cratedb_status
+from crate.operator.handlers.handle_restore_backup import restore_backup
 from crate.operator.handlers.handle_update_allowed_cidrs import (
     update_service_allowed_cidrs,
 )
@@ -50,6 +51,7 @@ from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
+from crate.operator.restore_backup import is_valid_snapshot
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
@@ -169,6 +171,32 @@ async def secret_update(
     Handles changes to the password for a CrateDB cluster.
     """
     await update_user_password_secret(namespace, name, diff, logger)
+
+
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field="spec.cluster.restoreSnapshot",
+    when=is_valid_snapshot,
+    annotations=annotation_filter(),
+)
+@crate.timeout(timeout=float(config.RESTORE_BACKUP_TIMEOUT))
+async def cluster_restore(
+    namespace: str,
+    name: str,
+    diff: kopf.Diff,
+    new: kopf.Body,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    started: datetime.datetime,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handles field changes which trigger restoring data from a backup.
+    """
+    await restore_backup(namespace, name, diff, new, patch, status, started, logger)
 
 
 @kopf.on.field(
