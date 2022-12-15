@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.20.0 (2022-12-15)
+-------------------
+
 * Added support to restore a snapshot from a backup repository.
 
 2.19.0 (2022-11-29)
