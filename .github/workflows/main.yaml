@@ -5,6 +5,10 @@ on:
     branches:
       - master
 
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
