@@ -7,6 +7,8 @@ Unreleased
 
 * Fixed a bug that lead to sending false succeed webhooks when updating an admin password.
 
+* sql_exporter 0.9.2 has been released.
+
 2.20.0 (2022-12-15)
 -------------------
 
