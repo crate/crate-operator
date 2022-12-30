@@ -110,8 +110,8 @@ async def update_user_password(
             # representation of the exception.
             exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
             raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
-        except TemporaryError as e:
-            raise e
+        except TemporaryError:
+            raise
         except Exception as e:
             exception_logger(
                 "... failed. Unexpected exception was raised. Class: %s. Message: %s",
