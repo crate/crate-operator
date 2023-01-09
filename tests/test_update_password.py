@@ -32,10 +32,10 @@ from kubernetes_asyncio.client import (
     V1Secret,
 )
 from psycopg2 import DatabaseError, OperationalError
-from update_user_password import update_user_password
 
 from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
+from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
     WebhookEvent,
