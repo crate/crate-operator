@@ -38,6 +38,7 @@ from crate.operator.config import config
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB, SYSTEM_USERNAME
 from crate.operator.cratedb import (
     connection_factory,
+    get_cluster_admin_username,
     get_cluster_settings,
     set_cluster_setting,
 )
@@ -55,8 +56,8 @@ from crate.operator.utils.kubeapi import (
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
     WebhookEvent,
-    WebhookFeedbackPayload,
     WebhookOperation,
+    WebhookSnapshotRestoredPayload,
     WebhookStatus,
 )
 
@@ -558,13 +559,22 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
             core = CoreV1Api(api_client)
             password = await get_system_user_password(core, namespace, name)
             password_quoted = QuotedString(password).getquoted().decode()
-            command = (
-                f'ALTER USER "{SYSTEM_USERNAME}" SET (password={password_quoted});'
-            )
+
             cratedb = await get_cratedb_resource(namespace, name)
             pod_name = get_crash_pod_name(cratedb, name)
             scheme = get_crash_scheme(cratedb)
 
+            # Cloning a cluster will result in the destruction of all target cluster
+            # users.
+            # In order for the cluster to operate normally we need to restore the
+            # system user password.
+            # We also want to update the CrateDB CRD with the admin username, if it has
+            # changed.
+
+            # Reset the system user with the password from the CRD
+            command = (
+                f'ALTER USER "{SYSTEM_USERNAME}" SET (password={password_quoted});'
+            )
             result = await run_crash_command(
                 namespace, pod_name, scheme, command, logger
             )
@@ -573,6 +583,51 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
             else:
                 logger.info("... error. %s", result)
                 raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
+            # Determine if the admin username has changed.
+            command = (
+                "SELECT grantee FROM sys.privileges where grantor = 'system' limit 1"
+            )
+            result = await run_crash_command(
+                namespace, pod_name, scheme, command, logger
+            )
+            host = await get_host(core, namespace, name)
+            conn_factory = connection_factory(host, password)
+            admin_username = await get_cluster_admin_username(conn_factory, logger)
+            # If affirmative, we need to use the source cluster username instead.
+            if admin_username and admin_username != SYSTEM_USERNAME:
+                # Write to the Crate CRD the new system username
+                await update_cratedb_admin_username_in_cratedb(
+                    namespace, name, admin_username
+                )
+
+            self.schedule_notification(
+                WebhookEvent.SNAPSHOT_RESTORED,
+                WebhookSnapshotRestoredPayload(admin_username=admin_username),
+                WebhookStatus.SUCCESS,
+            )
+
+
+async def update_cratedb_admin_username_in_cratedb(
+    namespace, cluster_name, new_admin_username
+):
+    async with ApiClient() as api_client:
+        coapi = CustomObjectsApi(api_client)
+
+        await coapi.patch_namespaced_custom_object(
+            namespace=namespace,
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            name=cluster_name,
+            body=[
+                {
+                    "op": "replace",
+                    "path": "/spec/users/0/name",
+                    "value": new_admin_username,
+                },
+            ],
+        )
 
 
 class AfterRestoreBackupSubHandler(StateBasedSubHandler):
@@ -725,38 +780,6 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         self, namespace: str, name: str, logger: logging.Logger
     ):
         await scale_backup_metrics_deployment(namespace, name, 1)
-
-
-class SendSuccessNotificationSubHandler(StateBasedSubHandler):
-    """
-    A handler which depends on all other subhandlers having finished successfully
-    and schedules a success notification of the restore process.
-    """
-
-    @crate.on.error(error_handler=crate.send_update_failed_notification)
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        logger: logging.Logger,
-        **kwargs: Any,
-    ):
-        """
-        Schedule success notification and send it after the cluster
-        has been restored successfully.
-
-        :param namespace: The Kubernetes namespace of the CrateDB cluster.
-        :param name: The CrateDB custom resource name defining the CrateDB cluster.
-        :param logger: the logger on which we're logging
-        """
-        self.schedule_notification(
-            WebhookEvent.FEEDBACK,
-            WebhookFeedbackPayload(
-                message="The snapshot has been restored successfully.",
-                operation=WebhookOperation.UPDATE,
-            ),
-            WebhookStatus.SUCCESS,
-        )
 
 
 class ResetSnapshotSubHandler(StateBasedSubHandler):

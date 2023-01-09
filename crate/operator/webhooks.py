@@ -37,6 +37,7 @@ class WebhookEvent(str, enum.Enum):
     HEALTH = "health"
     FEEDBACK = "feedback"
     BACKUP_SCHEDULE_UPDATE = "backup_schedule_update"
+    SNAPSHOT_RESTORED = "snapshot_restored"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -110,6 +111,10 @@ class WebhookBackupScheduleUpdatePayload(WebhookSubPayload):
     backup_schedule: str
 
 
+class WebhookSnapshotRestoredPayload(WebhookSubPayload):
+    admin_username: Optional[str]
+
+
 class WebhookPayload(TypedDict):
     event: WebhookEvent
     status: WebhookStatus
@@ -123,6 +128,7 @@ class WebhookPayload(TypedDict):
     health_data: Optional[WebhookClusterHealthPayload]
     feedback_data: Optional[WebhookFeedbackPayload]
     backup_schedule_data: Optional[WebhookBackupScheduleUpdatePayload]
+    snapshot_restored_data: Optional[WebhookSnapshotRestoredPayload]
 
 
 class WebhookClient:
@@ -190,6 +196,7 @@ class WebhookClient:
         health_data: Optional[WebhookClusterHealthPayload] = None,
         feedback_data: Optional[WebhookFeedbackPayload] = None,
         backup_schedule_data: Optional[WebhookBackupScheduleUpdatePayload] = None,
+        snapshot_restored_data: Optional[WebhookSnapshotRestoredPayload] = None,
         unsafe: Optional[bool] = False,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
@@ -210,6 +217,7 @@ class WebhookClient:
         :param info_data: Information details payload
         :param backup_schedule_data: Details about the change in the backup
             cronjob schedule.
+        :param snapshot_restored_data: Details about the snapshot restore process.
         :param logger: The logger to use
         :param unsafe: Whether to re-throw exceptions if any are caught.
         """
@@ -235,6 +243,7 @@ class WebhookClient:
             health_data=health_data,
             feedback_data=feedback_data,
             backup_schedule_data=backup_schedule_data,
+            snapshot_restored_data=snapshot_restored_data,
         )
 
         logger.info(
@@ -313,6 +322,8 @@ class WebhookClient:
             kwargs = {"feedback_data": sub_payload}
         elif event == WebhookEvent.BACKUP_SCHEDULE_UPDATE:
             kwargs = {"backup_schedule_data": sub_payload}
+        elif event == WebhookEvent.SNAPSHOT_RESTORED:
+            kwargs = {"snapshot_restored_data": sub_payload}
         else:
             raise ValueError(f"Unknown event '{event}'")
 

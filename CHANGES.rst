@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+- Cluster cloning now restores the original admin username in CrateDB CRD.
+
 2.21.0 (2023-01-09)
 -------------------
 

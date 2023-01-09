@@ -273,3 +273,26 @@ async def get_cluster_settings(cursor: Cursor) -> Dict:
     if row:
         ret_val = row[0]
     return ret_val
+
+
+async def get_cluster_admin_username(conn_factory, logger) -> Optional[str]:
+    """
+    Returns the CrateDB admin username.
+
+    :param cursor: A database cursor to a current and open database connection.
+    :return: Either a string that represents the CrateDB admin username or None
+    """
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            try:
+                # Retrieve the admin username.
+                # It should be the only admin that was created by system.
+                await cursor.execute(
+                    "SELECT grantee FROM sys.privileges"
+                    " where grantor = 'system' limit 1"
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+            except ProgrammingError as e:
+                logger.warning("Failed to run query", exc_info=e)
+                return None
