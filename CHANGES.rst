@@ -9,6 +9,9 @@ Unreleased
 
 * sql_exporter 0.9.2 has been released.
 
+* Downgrade to busybox 1.35.0 for a few containers. Apparently 1.36 was erroneously marked
+  as 'latest' whereas it is unstable -> https://github.com/docker-library/busybox/issues/162
+
 2.20.0 (2022-12-15)
 -------------------
 
