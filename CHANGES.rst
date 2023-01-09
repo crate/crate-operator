@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a bug that lead to sending false succeed webhooks when updating an admin password.
+
 2.20.0 (2022-12-15)
 -------------------
 

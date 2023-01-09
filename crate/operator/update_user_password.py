@@ -84,6 +84,12 @@ async def update_user_password(
                 stdout=True,
                 tty=False,
             )
+            if "ALTER OK" in result:
+                logger.info("... success")
+            else:
+                logger.info("... error. %s", result)
+                raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
             await send_operation_progress_notification(
                 namespace=namespace,
                 name=cluster_id,
@@ -104,9 +110,12 @@ async def update_user_password(
             # representation of the exception.
             exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
             raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
-        else:
-            if "ALTER OK" in result:
-                logger.info("... success")
-            else:
-                logger.info("... error. %s", result)
-                raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+        except TemporaryError:
+            raise
+        except Exception as e:
+            exception_logger(
+                "... failed. Unexpected exception was raised. Class: %s. Message: %s",
+                type(e).__name__,
+                str(e),
+            )
+            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)

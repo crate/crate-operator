@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import logging
 from typing import Any, List, Mapping
 from unittest import mock
 
@@ -34,6 +35,7 @@ from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
+from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
     WebhookEvent,
@@ -174,3 +176,24 @@ async def test_update_cluster_password(
         err_msg="Did not notify user password status success.",
         timeout=DEFAULT_TIMEOUT,
     )
+
+
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+@mock.patch("kubernetes_asyncio.client.CoreV1Api.connect_get_namespaced_pod_exec")
+async def test_update_cluster_password_errors(
+    mock_pod_exec, mock_send_notification: mock.AsyncMock
+):
+    mock_pod_exec.side_effect = Exception("test-exception")
+    with pytest.raises(Exception) as e:
+        await update_user_password(
+            namespace="a-namespace",
+            cluster_id="a-cluster-id",
+            pod_name="a-pod-name",
+            username="a-non-existent-username",
+            new_password=b64encode("a-new-base64-encoded-password"),
+            has_ssl=False,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert e.typename == "TemporaryError"
+    mock_send_notification.assert_not_called()
