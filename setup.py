@@ -70,7 +70,7 @@ setup(
             "Jinja2<3.1",
         ],
         "testing": [
-            "faker==15.3.4",
+            "faker==16.1.0",
             "pytest==7.2.0",
             "pytest-aiohttp==0.3.0",
             "pytest-asyncio==0.20.3",
