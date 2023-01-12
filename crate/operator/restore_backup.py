@@ -585,12 +585,6 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
                 raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
             # Determine if the admin username has changed.
-            command = (
-                "SELECT grantee FROM sys.privileges where grantor = 'system' limit 1"
-            )
-            result = await run_crash_command(
-                namespace, pod_name, scheme, command, logger
-            )
             host = await get_host(core, namespace, name)
             conn_factory = connection_factory(host, password)
             admin_username = await get_cluster_admin_username(conn_factory, logger)
