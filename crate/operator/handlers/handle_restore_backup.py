@@ -40,6 +40,7 @@ from crate.operator.restore_backup import (
     RestoreBackupSubHandler,
     RestoreSystemUserPasswordSubHandler,
     SendSuccessNotificationSubHandler,
+    ValidateRestoreCompleteSubHandler,
     ensure_no_restore_in_progress,
     get_crash_pod_name,
     get_crash_scheme,
@@ -215,6 +216,19 @@ def register_restore_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/restore_system_user_password")
+
+    kopf.register(
+        fn=ValidateRestoreCompleteSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+        )(snapshot=snapshot, tables=tables),
+        id="validate_restore_complete",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/validate_restore_complete")
 
 
 def register_after_restore_handlers(

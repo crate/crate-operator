@@ -283,6 +283,69 @@ async def get_source_backup_repository_data(
     return data
 
 
+async def get_snapshot_tables(
+    cursor: Cursor, snapshot: str, logger: logging.Logger
+) -> List[Any]:
+    """
+    Returns a list of tables included in a snapshot.
+
+    :param cursor: A database cursor to a current and open database connection.
+    :param snapshot: The name of the snapshot where to lookup the tables.
+    :param logger: the logger on which we're logging
+    """
+    try:
+        await cursor.execute(
+            "SELECT tables FROM sys.snapshots WHERE name=%s", (str(snapshot),)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else []
+    except ProgrammingError as e:
+        logger.warning("Failed to get snapshot tables.", exc_info=e)
+        return []
+
+
+async def shards_recovery_in_progress(
+    cursor: Cursor,
+    snapshot: str,
+    tables: List[str],
+    logger: logging.Logger,
+):
+    """
+    Checks if there is at least one shard which has not fully recovered after an
+    operation of type ``SNAPSHOT``.
+
+    :param cursor: A database cursor to a current and open database connection.
+    :param snapshot: The name of the snapshot to restore.
+    :param tables: A list of tables which should be checked for shards that have
+        not been restored completely.
+    :param logger: the logger on which we're logging
+    """
+    if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
+        tables = await get_snapshot_tables(cursor, snapshot, logger)
+    for t in tables:
+        (schema, table_name) = t.rsplit(".", 1)
+        try:
+            await cursor.execute(
+                "SELECT id FROM sys.shards WHERE schema_name=%s "
+                "AND table_name=%s "
+                "AND ((state = 'RECOVERING' AND recovery['type'] = 'SNAPSHOT' "
+                "AND recovery['size']['percent'] < 100) OR (state = 'UNASSIGNED')) "
+                "AND primary = TRUE "
+                "LIMIT 1;",
+                (schema, table_name),
+            )
+            row = await cursor.fetchone()
+            if row:
+                logger.info(f"Shard {row[0]} was not restored successfully.")
+                raise kopf.PermanentError(
+                    "Insufficient disc space. Please either expand storage "
+                    "or scale up the number of nodes."
+                )
+        except DatabaseError as e:
+            logger.warning("DatabaseError in shards_recovery_in_progress", exc_info=e)
+            raise kopf.PermanentError("Shards could not be fetched.")
+
+
 class BeforeRestoreBackupSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
@@ -604,6 +667,29 @@ async def update_cratedb_admin_username_in_cratedb(
                 },
             ],
         )
+
+
+class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        snapshot: str,
+        tables: List[str],
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        async with ApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            password, host = await asyncio.gather(
+                get_system_user_password(core, namespace, name),
+                get_host(core, namespace, name),
+            )
+            conn_factory = connection_factory(host, password)
+            async with conn_factory() as conn:
+                async with conn.cursor() as cursor:
+                    await shards_recovery_in_progress(cursor, snapshot, tables, logger)
 
 
 class AfterRestoreBackupSubHandler(StateBasedSubHandler):
