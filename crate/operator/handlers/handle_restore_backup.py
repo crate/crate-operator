@@ -39,6 +39,7 @@ from crate.operator.restore_backup import (
     ResetSnapshotSubHandler,
     RestoreBackupSubHandler,
     RestoreSystemUserPasswordSubHandler,
+    SendSuccessNotificationSubHandler,
     ensure_no_restore_in_progress,
     get_crash_pod_name,
     get_crash_scheme,
@@ -253,3 +254,18 @@ def register_after_restore_handlers(
         timeout=config.RESTORE_BACKUP_TIMEOUT,
     )
     depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/after_cluster_update")
+
+    # Ensure success notification is only sent after all other handlers
+    # finished successfully.
+    kopf.register(
+        fn=SendSuccessNotificationSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+        )(),
+        id="send_success_notification",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/send_success_notification")

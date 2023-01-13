@@ -28,13 +28,13 @@ from aiohttp.helpers import BasicAuth
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
 from crate.operator.webhooks import (
+    WebhookAdminUsernameChangedPayload,
     WebhookClient,
     WebhookClusterHealthPayload,
     WebhookEvent,
     WebhookInfoChangedPayload,
     WebhookPayload,
     WebhookScalePayload,
-    WebhookSnapshotRestoredPayload,
     WebhookStatus,
     WebhookTemporaryFailurePayload,
     WebhookUpgradePayload,
@@ -60,7 +60,7 @@ def test_payload_serialization_scale():
         health_data=None,
         feedback_data=None,
         backup_schedule_data=None,
-        snapshot_restored_data=None,
+        admin_username_changed_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "scale",
@@ -80,7 +80,7 @@ def test_payload_serialization_scale():
         "health_data": None,
         "feedback_data": None,
         "backup_schedule_data": None,
-        "snapshot_restored_data": None,
+        "admin_username_changed_data": None,
     }
 
 
@@ -100,7 +100,7 @@ def test_payload_serialization_upgrade():
         health_data=None,
         feedback_data=None,
         backup_schedule_data=None,
-        snapshot_restored_data=None,
+        admin_username_changed_data=None,
     )
     assert json.loads(json.dumps(p)) == {
         "event": "upgrade",
@@ -120,7 +120,7 @@ def test_payload_serialization_upgrade():
         "health_data": None,
         "feedback_data": None,
         "backup_schedule_data": None,
-        "snapshot_restored_data": None,
+        "admin_username_changed_data": None,
     }
 
 
@@ -204,7 +204,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "health_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": None,
+                "admin_username_changed_data": None,
             },
         }
 
@@ -243,7 +243,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "health_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": None,
+                "admin_username_changed_data": None,
             },
         }
 
@@ -277,7 +277,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "health_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": None,
+                "admin_username_changed_data": None,
             },
         }
 
@@ -309,17 +309,17 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "health_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": None,
+                "admin_username_changed_data": None,
             },
         }
 
     @unittest_run_loop
-    async def test_send_snapshot_restored_notification(self):
+    async def test_send_admin_username_changed_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
             "my-cluster",
-            WebhookEvent.SNAPSHOT_RESTORED,
-            WebhookSnapshotRestoredPayload(admin_username="admin"),
+            WebhookEvent.ADMIN_USERNAME_CHANGED,
+            WebhookAdminUsernameChangedPayload(admin_username="admin"),
             WebhookStatus.SUCCESS,
             logging.getLogger(__name__),
         )
@@ -329,7 +329,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "username": "itsme",
             "password": "secr3t password",
             "payload": {
-                "event": "snapshot_restored",
+                "event": "admin_username_changed",
                 "status": "success",
                 "namespace": "my-namespace",
                 "cluster": "my-cluster",
@@ -341,7 +341,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "health_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": {"admin_username": "admin"},
+                "admin_username_changed_data": {"admin_username": "admin"},
             },
         }
 
@@ -372,7 +372,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "temporary_failure_data": None,
                 "feedback_data": None,
                 "backup_schedule_data": None,
-                "snapshot_restored_data": None,
+                "admin_username_changed_data": None,
                 "health_data": {"status": "GREEN"},
             },
         }

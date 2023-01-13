@@ -55,9 +55,10 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
+    WebhookAdminUsernameChangedPayload,
     WebhookEvent,
+    WebhookFeedbackPayload,
     WebhookOperation,
-    WebhookSnapshotRestoredPayload,
     WebhookStatus,
 )
 
@@ -568,8 +569,6 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
             # users.
             # In order for the cluster to operate normally we need to restore the
             # system user password.
-            # We also want to update the CrateDB CRD with the admin username, if it has
-            # changed.
 
             # Reset the system user with the password from the CRD
             command = (
@@ -583,23 +582,6 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
             else:
                 logger.info("... error. %s", result)
                 raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
-
-            # Determine if the admin username has changed.
-            host = await get_host(core, namespace, name)
-            conn_factory = connection_factory(host, password)
-            admin_username = await get_cluster_admin_username(conn_factory, logger)
-            # If affirmative, we need to use the source cluster username instead.
-            if admin_username and admin_username != SYSTEM_USERNAME:
-                # Write to the Crate CRD the new system username
-                await update_cratedb_admin_username_in_cratedb(
-                    namespace, name, admin_username
-                )
-
-            self.schedule_notification(
-                WebhookEvent.SNAPSHOT_RESTORED,
-                WebhookSnapshotRestoredPayload(admin_username=admin_username),
-                WebhookStatus.SUCCESS,
-            )
 
 
 async def update_cratedb_admin_username_in_cratedb(
@@ -774,6 +756,64 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         self, namespace: str, name: str, logger: logging.Logger
     ):
         await scale_backup_metrics_deployment(namespace, name, 1)
+
+
+class SendSuccessNotificationSubHandler(StateBasedSubHandler):
+    """
+    A handler which depends on all other subhandlers having finished successfully
+    and schedules a success notification of the restore process.
+    """
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        """
+        Schedule success notification and send it after the cluster
+        has been restored successfully.
+
+        :param namespace: The Kubernetes namespace of the CrateDB cluster.
+        :param name: The CrateDB custom resource name defining the CrateDB cluster.
+        :param logger: the logger on which we're logging
+        """
+
+        # Cloning a cluster will result in the destruction of all target cluster users.
+        # We want to update the CrateDB CRD with the admin username, if it has changed.
+
+        # Determine if the admin username has changed.
+        async with ApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            password = await get_system_user_password(core, namespace, name)
+            host = await get_host(core, namespace, name)
+            conn_factory = connection_factory(host, password)
+
+            admin_username = await get_cluster_admin_username(conn_factory, logger)
+
+            # If affirmative, we need to use the source cluster username instead.
+            if admin_username and admin_username != SYSTEM_USERNAME:
+                # Write to the Crate CRD the new system username
+                await update_cratedb_admin_username_in_cratedb(
+                    namespace, name, admin_username
+                )
+
+        self.schedule_notification(
+            WebhookEvent.ADMIN_USERNAME_CHANGED,
+            WebhookAdminUsernameChangedPayload(admin_username=admin_username),
+            WebhookStatus.SUCCESS,
+        )
+
+        self.schedule_notification(
+            WebhookEvent.FEEDBACK,
+            WebhookFeedbackPayload(
+                message="The snapshot has been restored successfully.",
+                operation=WebhookOperation.UPDATE,
+            ),
+            WebhookStatus.SUCCESS,
+        )
 
 
 class ResetSnapshotSubHandler(StateBasedSubHandler):
