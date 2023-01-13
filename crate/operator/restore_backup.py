@@ -791,20 +791,24 @@ class SendSuccessNotificationSubHandler(StateBasedSubHandler):
             host = await get_host(core, namespace, name)
             conn_factory = connection_factory(host, password)
 
+            # Retrieve admin username from the CrateDB CRD
+            cratedb = await get_cratedb_resource(namespace, name)
+            crd_username = cratedb["spec"]["users"][0]["name"]
+
             admin_username = await get_cluster_admin_username(conn_factory, logger)
 
             # If affirmative, we need to use the source cluster username instead.
-            if admin_username and admin_username != SYSTEM_USERNAME:
+            if admin_username and admin_username != crd_username:
                 # Write to the Crate CRD the new system username
                 await update_cratedb_admin_username_in_cratedb(
                     namespace, name, admin_username
                 )
-
-        self.schedule_notification(
-            WebhookEvent.ADMIN_USERNAME_CHANGED,
-            WebhookAdminUsernameChangedPayload(admin_username=admin_username),
-            WebhookStatus.SUCCESS,
-        )
+                # Notify the API to update the cluster information
+                self.schedule_notification(
+                    WebhookEvent.ADMIN_USERNAME_CHANGED,
+                    WebhookAdminUsernameChangedPayload(admin_username=admin_username),
+                    WebhookStatus.SUCCESS,
+                )
 
         self.schedule_notification(
             WebhookEvent.FEEDBACK,
