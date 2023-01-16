@@ -793,12 +793,13 @@ class SendSuccessNotificationSubHandler(StateBasedSubHandler):
 
             # Retrieve admin username from the CrateDB CRD
             cratedb = await get_cratedb_resource(namespace, name)
-            crd_username = cratedb["spec"]["users"][0]["name"]
+            crd_users = cratedb["spec"].get("users", {})
+            crd_username = crd_users[0]["name"] if len(crd_users) else None
 
             admin_username = await get_cluster_admin_username(conn_factory, logger)
 
             # If affirmative, we need to use the source cluster username instead.
-            if admin_username and admin_username != crd_username:
+            if admin_username and crd_username and admin_username != crd_username:
                 # Write to the Crate CRD the new system username
                 await update_cratedb_admin_username_in_cratedb(
                     namespace, name, admin_username
