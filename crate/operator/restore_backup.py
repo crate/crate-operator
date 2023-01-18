@@ -326,17 +326,28 @@ async def shards_recovery_in_progress(
         (schema, table_name) = t.rsplit(".", 1)
         try:
             await cursor.execute(
-                "SELECT id FROM sys.shards WHERE schema_name=%s "
-                "AND table_name=%s "
-                "AND ((state = 'RECOVERING' AND recovery['type'] = 'SNAPSHOT' "
-                "AND recovery['size']['percent'] < 100) OR (state = 'UNASSIGNED')) "
+                "SELECT id FROM sys.shards WHERE schema_name = %s "
+                "AND table_name = %s "
                 "AND primary = TRUE "
                 "LIMIT 1;",
                 (schema, table_name),
             )
-            row = await cursor.fetchone()
-            if row:
-                logger.info(f"Shard {row[0]} was not restored successfully.")
+            primary_shard_exists = await cursor.fetchone()
+            await cursor.execute(
+                "SELECT id FROM sys.shards WHERE schema_name = %s "
+                "AND table_name = %s "
+                "AND (state = 'RECOVERING' AND recovery['type'] = 'SNAPSHOT' "
+                "AND recovery['size']['percent'] < 100) "
+                "AND primary = TRUE "
+                "LIMIT 1;",
+                (schema, table_name),
+            )
+            shard_in_progress = await cursor.fetchone()
+
+            if not primary_shard_exists or shard_in_progress:
+                logger.info(
+                    f"Table {schema}.{table_name} was not restored successfully."
+                )
                 raise kopf.PermanentError(
                     "Insufficient disc space. Please either expand storage "
                     "or scale up the number of nodes."
