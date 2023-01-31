@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.22.0 (2023-01-31)
+-------------------
+
 * Cluster cloning now restores the original admin username in CrateDB CRD.
 
 * Added a check if all shards have been restored completely after a ``restore snapshot``
