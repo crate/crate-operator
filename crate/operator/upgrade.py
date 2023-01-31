@@ -24,10 +24,11 @@ import logging
 from typing import Any, Dict, List
 
 import kopf
-from kubernetes_asyncio.client import AppsV1Api
+from kubernetes_asyncio.client import AppsV1Api, CustomObjectsApi
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.scale import get_container
 from crate.operator.utils import crate, quorum
@@ -168,6 +169,91 @@ async def upgrade_cluster(
     await asyncio.gather(*updates)
 
 
+class RevertClusterUpgradeSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(
+        self,
+        namespace,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        annotations = kwargs["annotations"]
+        dependency = self.depends_on[0]
+        if self._run_only_on_failed_dependency(annotations, dependency, logger):
+            old_version = old["spec"]["cluster"]["version"]
+            crate_image = body.spec["cluster"]["imageRegistry"] + ":" + old_version
+            data_nodes_count = get_total_nodes_count(body.spec["nodes"], "data")
+
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+
+                updates = []
+                if "master" in body.spec["nodes"]:
+                    updates.append(
+                        update_statefulset(
+                            apps,
+                            namespace,
+                            f"crate-master-{name}",
+                            crate_image,
+                            old_version,
+                            old_version,
+                            data_nodes_count,
+                            logger,
+                        )
+                    )
+                updates.extend(
+                    [
+                        update_statefulset(
+                            apps,
+                            namespace,
+                            f"crate-data-{node_spec['name']}-{name}",
+                            crate_image,
+                            old_version,
+                            old_version,
+                            data_nodes_count,
+                            logger,
+                        )
+                        for node_spec in body.spec["nodes"]["data"]
+                    ]
+                )
+
+                # body to update the cratedbs sts
+                patch_body = [
+                    {
+                        "op": "replace",
+                        "path": "/spec/cluster/version",
+                        "value": old_version,
+                    }
+                ]
+
+                coapi = CustomObjectsApi(api_client)
+
+                await coapi.patch_namespaced_custom_object(
+                    namespace=namespace,
+                    group=API_GROUP,
+                    version="v1",
+                    plural=RESOURCE_CRATEDB,
+                    name=name,
+                    body=patch_body,
+                )
+
+                await asyncio.gather(*updates)
+
+                # self.schedule_notification(
+                #     WebhookEvent.UPGRADE,
+                #     WebhookUpgradePayload(
+                #         old_registry=old["spec"]["cluster"]["imageRegistry"],
+                #         new_registry=body.spec["cluster"]["imageRegistry"],
+                #         old_version=old["spec"]["cluster"]["version"],
+                #         new_version=body.spec["cluster"]["version"],
+                #     ),
+                #     WebhookStatus.FAILURE,
+                # )
+
+
 class UpgradeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
@@ -194,6 +280,8 @@ class UpgradeSubHandler(StateBasedSubHandler):
             ),
             WebhookStatus.IN_PROGRESS,
         )
+
+        raise kopf.PermanentError()
 
 
 class AfterUpgradeSubHandler(StateBasedSubHandler):

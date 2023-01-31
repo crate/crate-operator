@@ -228,6 +228,34 @@ class StateBasedSubHandler(abc.ABC):
 
         return False
 
+    def _run_only_on_failed_dependency(
+        self, annotations: dict, handler_name: str, logger: logging.Logger
+    ) -> bool:
+        """
+        There is no way in kopf to say if a certain handler has failed or not.
+
+        What we are doing instead is peeking into kopf's internal state storage -
+        the annotations on the CrateDB objects to check if the handler has failed.
+
+        Slightly naughty, but there is no better way at the time of writing.
+        """
+        # Use the same procedure as kopf to create the handler name for the
+        # annotations lookup. Important if the handler name exceeds the maximum
+        # allowed length of 63 chars which is likely for @kopf.on.field() handlers
+        # that have the field path in the name.
+        progressor = kopf.AnnotationsProgressStorage(
+            v1=False, prefix=KOPF_STATE_STORE_PREFIX
+        )
+        key = progressor.make_v2_key(handler_name)
+        status_str = annotations.get(key)
+        if not status_str:
+            return False
+        status = json.loads(status_str)
+        if status["failure"]:
+            return True
+        else:
+            return False
+
 
 async def send_webhook_notification(
     namespace: str,

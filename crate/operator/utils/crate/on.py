@@ -58,7 +58,7 @@ async def send_update_failed_notification(*args, **kwargs):
     await send_feedback_notification(
         *args,
         **{
-            **kwargs,
+            "message": "Update failed.",
             "operation": WebhookOperation.UPDATE,
             "status": WebhookStatus.FAILURE,
         },

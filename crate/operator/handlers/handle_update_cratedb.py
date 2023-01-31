@@ -41,7 +41,11 @@ from crate.operator.operations import (
     SuspendClusterSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
-from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.upgrade import (
+    AfterUpgradeSubHandler,
+    RevertClusterUpgradeSubHandler,
+    UpgradeSubHandler,
+)
 from crate.operator.utils.notifications import FlushNotificationsSubHandler
 
 
@@ -157,6 +161,9 @@ async def update_cratedb(
 
     if do_upgrade:
         register_upgrade_handlers(namespace, name, change_hash, context, depends_on)
+        register_revert_failure_upgrade_handlers(
+            namespace, name, change_hash, context, [f"{CLUSTER_UPDATE_ID}/upgrade"]
+        )
 
     if do_change_compute:
         register_change_compute_handlers(
@@ -356,6 +363,24 @@ def register_before_update_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
+
+
+def register_revert_failure_upgrade_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=RevertClusterUpgradeSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=[f"{CLUSTER_UPDATE_ID}/upgrade"],
+            run_on_dep_failures=True,
+        )(),
+        id="revert_failure_upgrade",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/revert_failure_upgrade")
 
 
 def get_backoff() -> int:
