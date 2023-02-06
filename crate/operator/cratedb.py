@@ -126,7 +126,13 @@ async def get_healthiness(cursor: Cursor) -> int:
 
     :param cursor: A database cursor to a current and open database connection.
     """
-    await cursor.execute("SELECT MAX(severity) FROM sys.health")
+    await cursor.execute(
+        "SELECT max(severity) FROM ("
+        "  SELECT MAX(severity) as severity FROM sys.health"
+        "  UNION"
+        '  SELECT 3 as "severity" FROM sys.cluster where master_node is null'
+        ") sub;"
+    )
     row = await cursor.fetchone()
     return row and row[0]
 
