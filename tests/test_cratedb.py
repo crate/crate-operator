@@ -98,7 +98,13 @@ async def test_get_healthiness(healthiness):
     cursor = mock.AsyncMock()
     cursor.fetchone.return_value = (healthiness,) if healthiness is not None else None
     assert (await get_healthiness(cursor)) == healthiness
-    cursor.execute.assert_awaited_once_with("SELECT MAX(severity) FROM sys.health")
+    cursor.execute.assert_awaited_once_with(
+        "SELECT max(severity) FROM ("
+        "  SELECT MAX(severity) as severity FROM sys.health"
+        "  UNION"
+        '  SELECT 3 as "severity" FROM sys.cluster where master_node is null'
+        ") sub;"
+    )
     cursor.fetchone.assert_awaited_once()
 
 
