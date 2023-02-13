@@ -100,9 +100,10 @@ async def test_get_healthiness(healthiness):
     assert (await get_healthiness(cursor)) == healthiness
     cursor.execute.assert_awaited_once_with(
         "SELECT max(severity) FROM ("
-        "  SELECT MAX(severity) as severity FROM sys.health"
-        "  UNION"
-        '  SELECT 3 as "severity" FROM sys.cluster where master_node is null'
+        "  SELECT CAST(max(severity) as integer) as severity FROM sys.health"
+        "  UNION ALL"
+        "  SELECT CAST(3 as integer) as severity FROM sys.cluster"
+        "    WHERE master_node is null"
         ") sub;"
     )
     cursor.fetchone.assert_awaited_once()

@@ -128,9 +128,10 @@ async def get_healthiness(cursor: Cursor) -> int:
     """
     await cursor.execute(
         "SELECT max(severity) FROM ("
-        "  SELECT MAX(severity) as severity FROM sys.health"
-        "  UNION"
-        '  SELECT 3 as "severity" FROM sys.cluster where master_node is null'
+        "  SELECT CAST(max(severity) as integer) as severity FROM sys.health"
+        "  UNION ALL"
+        "  SELECT CAST(3 as integer) as severity FROM sys.cluster"
+        "    WHERE master_node is null"
         ") sub;"
     )
     row = await cursor.fetchone()
