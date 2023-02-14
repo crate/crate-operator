@@ -5,7 +5,9 @@ Changelog
 Unreleased
 ----------
 
-* Include ``sys.node_checks`` for checking cluster healthiness.
+* Fix failing operator tests.
+
+* Include ``sys.cluster`` for checking cluster healthiness.
 
 2.22.0 (2023-01-31)
 -------------------
