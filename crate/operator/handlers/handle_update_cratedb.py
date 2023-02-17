@@ -134,6 +134,9 @@ async def update_cratedb(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
                     do_expand_volume = True
+                    if config.NO_DOWNTIME_STORAGE_EXPANSION:
+                        do_before_update = False
+                        do_after_update = False
                 elif has_compute_changed(old_spec, new_spec):
                     do_change_compute = True
                     # pod resources won't change until each pod is recreated

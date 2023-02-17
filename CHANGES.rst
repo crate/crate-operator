@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Do not perform cluster pre-flights checks when expanding disk.
+
 * Fix failing operator tests.
 
 * Include ``sys.cluster`` for checking cluster healthiness.
