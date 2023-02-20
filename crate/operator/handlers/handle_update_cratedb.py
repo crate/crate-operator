@@ -130,6 +130,10 @@ async def update_cratedb(
                     # When suspending the cluster do not register after_update
                     elif new_spec.get("replicas") == 0:
                         do_after_update = False
+                    # When scaling up the cluster do not register before_update
+                    elif new_spec.get("replicas") > old_spec.get("replicas"):
+                        do_before_update = False
+                        do_after_update = False
                 elif old_spec.get("resources", {}).get("disk", {}).get(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):

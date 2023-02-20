@@ -316,14 +316,14 @@ async def test_scale_cluster_while_create_snapshot_running(
 
     await create_fake_cronjob(api_client, name, namespace.metadata.name)
 
-    host, password = await start_cluster(name, namespace, core, coapi, 1)
+    host, password = await start_cluster(name, namespace, core, coapi, 2)
 
     conn_factory = connection_factory(host, password)
     await create_test_sys_jobs_table(conn_factory)
     await insert_test_snapshot_job(conn_factory)
 
     # When
-    await _scale_cluster(coapi, name, namespace, 2)
+    await _scale_cluster(coapi, name, namespace, 1)
 
     # Then
     await assert_wait_for(
@@ -352,7 +352,7 @@ async def test_scale_cluster_while_create_snapshot_running(
         True,
         is_cluster_healthy,
         connection_factory(host, password),
-        2,
+        1,
         err_msg="Cluster wasn't healthy after 2 minutes.",
         timeout=DEFAULT_TIMEOUT * 2,
     )
@@ -388,14 +388,14 @@ async def test_scale_cluster_while_k8s_snapshot_job_running(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    host, password = await start_cluster(name, namespace, core, coapi, 1)
+    host, password = await start_cluster(name, namespace, core, coapi, 2)
 
     conn_factory = connection_factory(host, password)
     await create_test_sys_jobs_table(conn_factory)
     await create_fake_snapshot_job(api_client, name, namespace.metadata.name)
 
     # When
-    await _scale_cluster(coapi, name, namespace, 2)
+    await _scale_cluster(coapi, name, namespace, 1)
 
     # Then
     await assert_wait_for(
@@ -415,9 +415,9 @@ async def test_scale_cluster_while_k8s_snapshot_job_running(
         True,
         is_cluster_healthy,
         connection_factory(host, password),
-        2,
-        err_msg="Cluster wasn't healthy after 3 minutes.",
-        timeout=DEFAULT_TIMEOUT * 3,
+        1,
+        err_msg="Cluster wasn't healthy after 6 minutes.",
+        timeout=DEFAULT_TIMEOUT * 6,
     )
 
     await assert_wait_for(
