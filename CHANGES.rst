@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.23.0 (2023-02-28)
+-------------------
+
 * Do not perform cluster pre-flights checks when expanding disk.
 
 * Fix failing operator tests.
