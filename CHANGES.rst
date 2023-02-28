@@ -14,6 +14,8 @@ Unreleased
 
 * Include ``sys.cluster`` for checking cluster healthiness.
 
+* Revert ``spec.cluster.version`` on upgrade failures.
+
 2.22.0 (2023-01-31)
 -------------------
 

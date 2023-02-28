@@ -358,6 +358,9 @@ spec:
                   version:
                     description: CrateDB version
                     type: string
+                  lastUpdatedAt:
+                    description: Timestamp of the last CrateDB update
+                    type: string
                 required:
                 - imageRegistry
                 - name

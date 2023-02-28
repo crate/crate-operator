@@ -28,7 +28,7 @@ from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
-from crate.operator.operations import get_total_nodes_count
+from crate.operator.operations import get_total_nodes_count, refresh_last_updated_at
 from crate.operator.scale import get_container
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -170,6 +170,7 @@ async def upgrade_cluster(
 
 class UpgradeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -194,6 +195,68 @@ class UpgradeSubHandler(StateBasedSubHandler):
             ),
             WebhookStatus.IN_PROGRESS,
         )
+
+
+class RevertClusterUpgradeSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
+    async def handle(
+        self,
+        namespace,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        patch: kopf.Patch,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        annotations = kwargs["annotations"]
+        dependencies = self.depends_on
+        # check if any of our dependencies failed and rollback version in the
+        # CRD and StatefulSet
+        if self._run_only_on_failed_dependency(annotations, dependencies, logger):
+            old_version = old["spec"]["cluster"]["version"]
+            crate_image = old["spec"]["cluster"]["imageRegistry"] + ":" + old_version
+            data_nodes_count = get_total_nodes_count(body.spec["nodes"], "data")
+
+            async with ApiClient() as api_client:
+                apps = AppsV1Api(api_client)
+
+                updates = []
+                if "master" in body.spec["nodes"]:
+                    updates.append(
+                        update_statefulset(
+                            apps,
+                            namespace,
+                            f"crate-master-{name}",
+                            crate_image,
+                            old_version,
+                            old_version,
+                            data_nodes_count,
+                            logger,
+                        )
+                    )
+                updates.extend(
+                    [
+                        update_statefulset(
+                            apps,
+                            namespace,
+                            f"crate-data-{node_spec['name']}-{name}",
+                            crate_image,
+                            old_version,
+                            old_version,
+                            data_nodes_count,
+                            logger,
+                        )
+                        for node_spec in body.spec["nodes"]["data"]
+                    ]
+                )
+                await asyncio.gather(*updates)
+                logger.info("Rollback version to %s", old_version)
+                patch.setdefault("spec", {}).setdefault("cluster", {})[
+                    "version"
+                ] = old_version
+                refresh_last_updated_at(patch)
 
 
 class AfterUpgradeSubHandler(StateBasedSubHandler):

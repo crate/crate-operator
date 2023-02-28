@@ -21,6 +21,7 @@
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
@@ -673,6 +674,12 @@ async def suspend_or_start_cluster(
                 await check_all_data_nodes_gone(core, namespace, name, old)
 
 
+def refresh_last_updated_at(patch: kopf.Patch):
+    patch.setdefault("spec", {}).setdefault("cluster", {})["lastUpdatedAt"] = str(
+        int(datetime.utcnow().timestamp())
+    )
+
+
 class RestartSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.ROLLING_RESTART_TIMEOUT))
@@ -699,6 +706,7 @@ CRONJOB_NAME = "cronjob_name"
 
 class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -852,6 +860,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
 class AfterClusterUpdateSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -1019,3 +1028,12 @@ class SuspendClusterSubHandler(StateBasedSubHandler):
                     False,
                     logger,
                 )
+
+
+class FinalizeOperationSubHandler(StateBasedSubHandler):
+    async def handle(  # type: ignore
+        self,
+        patch: kopf.Patch,
+        **kwargs: Any,
+    ):
+        refresh_last_updated_at(patch)

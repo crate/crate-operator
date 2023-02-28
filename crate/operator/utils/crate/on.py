@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
+from datetime import datetime
 from typing import Callable
 
 import kopf
@@ -88,7 +89,26 @@ def timeout(*, timeout: float) -> Callable:
     def decorator(fn: Callable) -> Callable:
         @wrapt.decorator
         async def _async_timeout(wrapped, instance, args, kwargs):
-            if kwargs["runtime"].total_seconds() >= timeout:
+            def _handler_has_timed_out_working(instance, timeout, kwargs) -> bool:
+                """
+                This checks the runtime of StateBasedSubHandlers based on the
+                real start time stored in `status.subhandlerStartedAt`.
+                """
+                if instance:
+                    now = int(datetime.utcnow().timestamp())
+                    runtime = 0
+                    status = (
+                        kwargs["status"]
+                        .get("subhandlerStartedAt", {})
+                        .get(instance.__class__.__name__)
+                    )
+                    if status and status.get("started"):
+                        runtime = now - status["started"]
+                    return runtime >= timeout
+                else:
+                    return kwargs["runtime"].total_seconds() >= timeout
+
+            if _handler_has_timed_out_working(instance, timeout, kwargs):
                 _handler = (
                     f"{instance.__class__.__name__}.{wrapped.__name__}"
                     if instance

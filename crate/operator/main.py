@@ -138,7 +138,6 @@ async def cluster_create(
     annotations=annotation_filter(),
 )
 @crate.on.error(error_handler=crate.send_update_failed_notification)
-@crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
 async def cluster_update(
     namespace: str,
     name: str,

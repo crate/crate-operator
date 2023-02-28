@@ -36,12 +36,17 @@ from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
+    FinalizeOperationSubHandler,
     RestartSubHandler,
     StartClusterSubHandler,
     SuspendClusterSubHandler,
 )
 from crate.operator.scale import ScaleSubHandler
-from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.upgrade import (
+    AfterUpgradeSubHandler,
+    RevertClusterUpgradeSubHandler,
+    UpgradeSubHandler,
+)
 from crate.operator.utils.notifications import FlushNotificationsSubHandler
 
 
@@ -190,8 +195,6 @@ async def update_cratedb(
             namespace, name, change_hash, context, depends_on
         )
 
-    patch.status[CLUSTER_UPDATE_ID] = context
-
     # Ensure all success notifications are only sent at the very end of the handler
     kopf.register(
         fn=FlushNotificationsSubHandler(
@@ -205,6 +208,26 @@ async def update_cratedb(
         id="notify_success_update",
         backoff=get_backoff(),
     )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/notify_success_update")
+    if do_upgrade:
+        register_revert_failure_upgrade_handlers(
+            namespace, name, change_hash, context, depends_on
+        )
+
+    kopf.register(
+        fn=FinalizeOperationSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(),
+        id="finalize_operation",
+        backoff=get_backoff(),
+    )
+
+    patch.status[CLUSTER_UPDATE_ID] = context
 
 
 def register_storage_expansion_handlers(
@@ -330,6 +353,24 @@ def register_upgrade_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_UPDATE_ID}/upgrade")
+
+
+def register_revert_failure_upgrade_handlers(
+    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+):
+    kopf.register(
+        fn=RevertClusterUpgradeSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(),
+        id="revert_failure_upgrade",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/revert_failure_upgrade")
 
 
 def register_after_update_handlers(
