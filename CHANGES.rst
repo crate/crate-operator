@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a missing permission that was causing a warning on kopf startup.
+
 2.23.0 (2023-02-28)
 -------------------
 
