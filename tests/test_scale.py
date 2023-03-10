@@ -26,7 +26,7 @@ from unittest import mock
 import pytest
 from kubernetes_asyncio.client import (
     AppsV1Api,
-    BatchV1beta1Api,
+    BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1Namespace,
@@ -457,7 +457,7 @@ async def _is_blocked_on_running_snapshot(
 
 
 async def _backup_cronjob_is_suspended(api_client, namespace: str):
-    batch = BatchV1beta1Api(api_client)
+    batch = BatchV1Api(api_client)
     jobs = await batch.list_namespaced_cron_job(namespace)
 
     for job in jobs.items:

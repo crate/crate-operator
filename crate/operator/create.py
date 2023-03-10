@@ -30,10 +30,8 @@ import yaml
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
-    PolicyV1beta1Api,
+    PolicyV1Api,
     V1Affinity,
-    V1beta1PodDisruptionBudget,
-    V1beta1PodDisruptionBudgetSpec,
     V1ConfigMap,
     V1ConfigMapVolumeSource,
     V1Container,
@@ -56,6 +54,8 @@ from kubernetes_asyncio.client import (
     V1PersistentVolumeClaimSpec,
     V1PodAffinityTerm,
     V1PodAntiAffinity,
+    V1PodDisruptionBudget,
+    V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
     V1Probe,
@@ -836,13 +836,13 @@ async def create_statefulset(
                 logger,
             ),
         )
-        policy = PolicyV1beta1Api(api_client)
-        pdb = V1beta1PodDisruptionBudget(
+        policy = PolicyV1Api(api_client)
+        pdb = V1PodDisruptionBudget(
             metadata=V1ObjectMeta(
                 name=f"crate-{name}",
                 owner_references=owner_references,
             ),
-            spec=V1beta1PodDisruptionBudgetSpec(
+            spec=V1PodDisruptionBudgetSpec(
                 max_unavailable=1,
                 selector=V1LabelSelector(
                     match_labels={

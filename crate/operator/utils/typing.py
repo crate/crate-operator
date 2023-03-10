@@ -22,8 +22,8 @@
 from typing import Dict, TypedDict, TypeVar
 
 from kubernetes_asyncio.client.models import (
-    V1beta1CronJob,
     V1ConfigMap,
+    V1CronJob,
     V1Deployment,
     V1PersistentVolume,
     V1PersistentVolumeClaim,
@@ -35,7 +35,7 @@ from kubernetes_asyncio.client.models import (
 LabelType = Dict[str, str]
 K8sModel = TypeVar(
     "K8sModel",
-    V1beta1CronJob,
+    V1CronJob,
     V1ConfigMap,
     V1Deployment,
     V1PersistentVolume,

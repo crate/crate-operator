@@ -27,10 +27,9 @@ import kopf
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
-    BatchV1beta1Api,
     CoreV1Api,
     CustomObjectsApi,
-    V1beta1CronJobList,
+    V1CronJobList,
     V1JobList,
     V1JobStatus,
     V1PersistentVolumeClaimList,
@@ -738,9 +737,9 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         namespace: str, name: str, logger: logging.Logger
     ) -> Optional[Dict]:
         async with ApiClient() as api_client:
-            batch = BatchV1beta1Api(api_client)
+            batch = BatchV1Api(api_client)
 
-            jobs: V1beta1CronJobList = await batch.list_namespaced_cron_job(namespace)
+            jobs: V1CronJobList = await batch.list_namespaced_cron_job(namespace)
 
             for job in jobs.items:
                 job_name = job.metadata.name
@@ -895,9 +894,9 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             job_name = disabler_job_status[CRONJOB_NAME]
 
-            batch = BatchV1beta1Api(api_client)
+            batch = BatchV1Api(api_client)
 
-            jobs: V1beta1CronJobList = await batch.list_namespaced_cron_job(namespace)
+            jobs: V1CronJobList = await batch.list_namespaced_cron_job(namespace)
 
             for job in jobs.items:
                 if job.metadata.name == job_name:
