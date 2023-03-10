@@ -30,7 +30,6 @@ import psycopg2
 from aiopg import Connection
 from kubernetes_asyncio.client import (
     BatchV1Api,
-    BatchV1beta1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1Namespace,
@@ -361,9 +360,9 @@ async def create_fake_cronjob(api_client, name, namespace):
 
     This can be used in tests to check for cronjobs existing, and their statuses.
     """
-    batch = BatchV1beta1Api(api_client)
+    batch = BatchV1Api(api_client)
     body = {
-        "apiVersion": "batch/v1beta1",
+        "apiVersion": "batch/v1",
         "kind": "CronJob",
         "metadata": {
             "name": f"create-snapshot-{name}",

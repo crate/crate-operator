@@ -24,17 +24,16 @@ from typing import Any, Dict, List, Optional
 
 from kubernetes_asyncio.client import (
     AppsV1Api,
-    BatchV1beta1Api,
-    V1beta1CronJob,
-    V1beta1CronJobSpec,
-    V1beta1JobTemplateSpec,
     V1Container,
     V1ContainerPort,
+    V1CronJob,
+    V1CronJobSpec,
     V1Deployment,
     V1DeploymentSpec,
     V1EnvVar,
     V1EnvVarSource,
     V1JobSpec,
+    V1JobTemplateSpec,
     V1LabelSelector,
     V1LocalObjectReference,
     V1ObjectFieldSelector,
@@ -131,7 +130,7 @@ def get_backup_cronjob(
     backup_aws: Dict[str, Any],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     has_ssl: bool,
-) -> V1beta1CronJob:
+) -> V1CronJob:
     env = (
         [
             V1EnvVar(
@@ -174,16 +173,16 @@ def get_backup_cronjob(
             )
         )
 
-    return V1beta1CronJob(
+    return V1CronJob(
         metadata=V1ObjectMeta(
             name=f"create-snapshot-{name}",
             labels=labels,
             owner_references=owner_references,
         ),
-        spec=V1beta1CronJobSpec(
+        spec=V1CronJobSpec(
             concurrency_policy="Forbid",
             failed_jobs_history_limit=1,
-            job_template=V1beta1JobTemplateSpec(
+            job_template=V1JobTemplateSpec(
                 metadata=V1ObjectMeta(labels=labels, name=f"create-snapshot-{name}"),
                 spec=V1JobSpec(
                     template=V1PodTemplateSpec(
@@ -284,10 +283,10 @@ async def create_backups(
     backup_aws = backups.get("aws")
     async with ApiClient() as api_client:
         apps = AppsV1Api(api_client)
-        batchv1_beta1 = BatchV1beta1Api(api_client)
+        batch = BatchV1Api(api_client)
         if backup_aws:
             await call_kubeapi(
-                batchv1_beta1.create_namespaced_cron_job,
+                batch.create_namespaced_cron_job,
                 logger,
                 continue_on_conflict=True,
                 namespace=namespace,
