@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.24.0 (2023-03-21)
+-------------------
+
 * Remove ``beta1`` from `PodDisruptionBudget` and ``Cronjob/Batch`` API version.
 
 * Fixed a missing permission that was causing a warning on kopf startup.
