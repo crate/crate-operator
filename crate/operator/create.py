@@ -572,6 +572,13 @@ def get_statefulset_crate_volume_mounts(
 
 
 def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
+    heapdump_cmd = (
+        "mkdir -pv /resource/heapdump ; chown -R crate:crate /resource"  # noqa
+    )
+    # Ignore failures on AWS, where we are likely using EFS (which do not permit chown)
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        heapdump_cmd = f"{heapdump_cmd} || true"
+
     return [
         V1Container(
             # We need to do this in an init container because of the required
@@ -599,7 +606,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             command=[
                 "sh",
                 "-c",
-                "mkdir -pv /resource/heapdump ; chown -R crate:crate /resource",
+                heapdump_cmd,
             ],
             image=crate_image,
             image_pull_policy="IfNotPresent",

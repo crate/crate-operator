@@ -790,6 +790,19 @@ class TestStatefulSetInitContainers:
         assert c_heapdump.name == "mkdir-heapdump"
 
 
+class TestStatefulSetInitContainerChownTrue:
+    @pytest.mark.parametrize("provider", [None, "aws", "azure"])
+    def test(self, provider):
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            _, _, c_heapdump = get_statefulset_init_containers("foo/bar:1.2.3")
+        assert c_heapdump.name == "mkdir-heapdump"
+        chown_ignore_rc = "|| true"
+        if provider == "aws":
+            assert chown_ignore_rc in c_heapdump.command[2]
+        if provider in {"azure", None}:
+            assert chown_ignore_rc not in c_heapdump.command[2]
+
+
 class TestStatefulSetPVC:
     def test(self, faker):
         count = faker.pyint(min_value=1, max_value=5)

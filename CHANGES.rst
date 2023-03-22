@@ -9,6 +9,8 @@ Unreleased
   services. This is useful when, i.e., wanting to override the type of load balancer
   to be used.
 
+* Ignore failed chown operation on AWS efs volumes.
+
 2.24.0 (2023-03-21)
 -------------------
 
