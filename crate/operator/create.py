@@ -875,11 +875,11 @@ def get_data_service(
     postgres_port: int,
     dns_record: Optional[str],
     source_ranges: Optional[List[str]] = None,
-    prefix: str = None,
+    additional_annotations: Optional[Dict] = None,
 ) -> V1Service:
-    annotations = {}
+    res_annotations = {}
     if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        annotations.update(
+        res_annotations.update(
             {
                 # https://kubernetes.io/docs/concepts/services-networking/service/#connection-draining-on-aws
                 "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled": "true",  # noqa
@@ -892,7 +892,7 @@ def get_data_service(
     elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
         # https://docs.microsoft.com/en-us/azure/aks/load-balancer-standard#additional-customizations-via-kubernetes-annotations
         # https://docs.microsoft.com/en-us/azure/load-balancer/load-balancer-tcp-reset
-        annotations.update(
+        res_annotations.update(
             {
                 "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset": "false",  # noqa
                 "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout": "30",  # noqa
@@ -900,13 +900,18 @@ def get_data_service(
         )
 
     if dns_record:
-        annotations.update({"external-dns.alpha.kubernetes.io/hostname": dns_record})
+        res_annotations.update(
+            {"external-dns.alpha.kubernetes.io/hostname": dns_record}
+        )
 
-    service_name = f"crate-{prefix}-{name}" if prefix else f"crate-{name}"
+    if additional_annotations:
+        res_annotations.update(additional_annotations)
+
+    service_name = f"crate-{name}"
 
     return V1Service(
         metadata=V1ObjectMeta(
-            annotations=annotations,
+            annotations=res_annotations,
             labels=labels,
             name=service_name,
             owner_references=owner_references,
@@ -966,6 +971,7 @@ async def create_services(
     dns_record: Optional[str],
     logger: logging.Logger,
     source_ranges: Optional[List[str]] = None,
+    additional_annotations: Optional[Dict] = None,
 ) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -982,6 +988,7 @@ async def create_services(
                 postgres_port,
                 dns_record,
                 source_ranges,
+                additional_annotations=additional_annotations,
             ),
         )
         await call_kubeapi(
@@ -1118,6 +1125,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
         dns_record: Optional[str],
         logger: logging.Logger,
         source_ranges: Optional[List[str]] = None,
+        additional_annotations: Optional[Dict] = None,
         **kwargs: Any,
     ):
         await create_services(
@@ -1131,6 +1139,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
             dns_record,
             logger,
             source_ranges,
+            additional_annotations,
         )
 
 

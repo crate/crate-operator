@@ -128,6 +128,9 @@ async def create_cratedb(
             transport_port=transport_port,
             dns_record=spec.get("cluster", {}).get("externalDNS"),
             source_ranges=source_ranges,
+            additional_annotations=spec.get("cluster", {})
+            .get("service", {})
+            .get("annotations", {}),
         ),
         id="services",
     )

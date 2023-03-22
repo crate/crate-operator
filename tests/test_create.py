@@ -983,9 +983,21 @@ class TestServices:
         services = await core.list_namespaced_service(namespace)
         return expected.issubset({s.metadata.name for s in services.items})
 
-    async def test_create(self, faker, namespace, api_client):
+    @pytest.mark.parametrize(
+        "annotations",
+        [
+            None,
+            {"some/annotation.id": "what"},
+            {
+                "some/annotation.id": "what",
+                "external-dns.alpha.kubernetes.io/hostname": "override",
+            },
+        ],
+    )
+    async def test_create(self, faker, namespace, api_client, annotations):
         core = CoreV1Api(api_client)
         name = faker.domain_word()
+        host = faker.domain_name()
         await create_services(
             None,
             namespace.metadata.name,
@@ -994,9 +1006,14 @@ class TestServices:
             1,
             2,
             3,
-            faker.domain_name(),
+            host,
             logging.getLogger(__name__),
+            additional_annotations=annotations,
         )
+
+        expected_annotations = {"external-dns.alpha.kubernetes.io/hostname": host}
+        if annotations:
+            expected_annotations.update(annotations)
 
         await assert_wait_for(
             True,
@@ -1009,6 +1026,7 @@ class TestServices:
             f"crate-{name}", namespace.metadata.name
         )
         assert service.spec.load_balancer_source_ranges is None
+        assert service.metadata.annotations == expected_annotations
 
     async def test_create_with_source_ranges(self, faker, namespace, api_client):
         core = CoreV1Api(api_client)
@@ -1082,6 +1100,12 @@ class TestCreateCustomResource:
         stss = await apps.list_namespaced_stateful_set(namespace=namespace)
         return name in (s.metadata.name for s in stss.items)
 
+    async def do_services_exist(
+        self, core: CoreV1Api, namespace: str, expected: Set[str]
+    ) -> bool:
+        services = await core.list_namespaced_service(namespace)
+        return expected.issubset({s.metadata.name for s in services.items})
+
     async def test_create_minimal(self, faker, namespace, kopf_runner, api_client):
         apps = AppsV1Api(api_client)
         coapi = CustomObjectsApi(api_client)
@@ -1103,6 +1127,36 @@ class TestCreateCustomResource:
             namespace.metadata.name,
             {f"crate-data-hot-{name}-0"},
         )
+
+    async def test_create_with_svc_annotations(
+        self, faker, namespace, kopf_runner, api_client
+    ):
+        coapi = CustomObjectsApi(api_client)
+        core = CoreV1Api(api_client)
+        name = faker.domain_word()
+
+        await start_cluster(
+            name,
+            namespace,
+            core,
+            coapi,
+            1,
+            wait_for_healthy=False,
+            additional_cluster_spec={
+                "service": {"annotations": {"some/annotation": "some.value"}}
+            },
+        )
+        await assert_wait_for(
+            True,
+            self.do_services_exist,
+            core,
+            namespace.metadata.name,
+            {f"crate-{name}"},
+        )
+        service = await core.read_namespaced_service(
+            f"crate-{name}", namespace.metadata.name
+        )
+        assert service.metadata.annotations["some/annotation"] == "some.value"
 
     async def test_preserve_unknown_object_keys(
         self, faker, namespace, cratedb_crd, api_client
