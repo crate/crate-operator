@@ -38,6 +38,7 @@ from crate.operator.cratedb import get_connection
 from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookFeedbackPayload,
     WebhookOperation,
@@ -114,6 +115,7 @@ async def test_update_cluster_password(
             WebhookFeedbackPayload(
                 message="The cluster has been created successfully.",
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,
@@ -141,6 +143,7 @@ async def test_update_cluster_password(
             WebhookFeedbackPayload(
                 message="Updating password.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.PASSWORD_UPDATE,
             ),
             WebhookStatus.IN_PROGRESS,
             mock.ANY,
@@ -169,6 +172,7 @@ async def test_update_cluster_password(
             WebhookFeedbackPayload(
                 message="Password updated successfully.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.PASSWORD_UPDATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,

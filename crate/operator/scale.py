@@ -46,6 +46,7 @@ from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookOperation,
     WebhookScaleNodePayload,
@@ -212,6 +213,9 @@ async def check_nodes_present_or_gone(
                         logger=logger,
                         status=WebhookStatus.IN_PROGRESS,
                         operation=WebhookOperation.UPDATE,
+                        action=WebhookAction.SUSPEND
+                        if old_replicas == 0
+                        else WebhookAction.SCALE,
                     )
 
                     raise kopf.TemporaryError(
@@ -230,6 +234,9 @@ async def check_nodes_present_or_gone(
                         logger=logger,
                         status=WebhookStatus.IN_PROGRESS,
                         operation=WebhookOperation.UPDATE,
+                        action=WebhookAction.SUSPEND
+                        if new_replicas == 0
+                        else WebhookAction.SCALE,
                     )
                     raise kopf.TemporaryError(
                         f"Waiting for nodes {excess_nodes} to be gone.", delay=15

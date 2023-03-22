@@ -30,7 +30,7 @@ from psycopg2.extensions import QuotedString
 from crate.operator.config import config
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.notifications import send_operation_progress_notification
-from crate.operator.webhooks import WebhookOperation, WebhookStatus
+from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
 # update_user_password(host, username, old_password, new_password)
@@ -97,6 +97,7 @@ async def update_user_password(
                 logger=logger,
                 status=WebhookStatus.SUCCESS,
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.PASSWORD_UPDATE,
             )
         except ApiException as e:
             # We don't use `logger.exception()` to not accidentally include the

@@ -31,7 +31,7 @@ from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.notifications import send_operation_progress_notification
-from crate.operator.webhooks import WebhookOperation, WebhookStatus
+from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
 async def update_user_password_secret(
@@ -51,6 +51,7 @@ async def update_user_password_secret(
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.UPDATE,
+        action=WebhookAction.PASSWORD_UPDATE,
     )
     async with ApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)

@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added the type of operation to the feedback webhooks payload.
+
 2.25.0 (2023-03-23)
 -------------------
 

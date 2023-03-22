@@ -41,7 +41,12 @@ from crate.operator.restore_backup import (
     RESTORE_MAX_BYTES_PER_SEC,
 )
 from crate.operator.utils.formatting import b64encode
-from crate.operator.webhooks import WebhookEvent, WebhookOperation, WebhookStatus
+from crate.operator.webhooks import (
+    WebhookAction,
+    WebhookEvent,
+    WebhookOperation,
+    WebhookStatus,
+)
 from tests.utils import (
     DEFAULT_TIMEOUT,
     assert_wait_for,
@@ -142,6 +147,7 @@ async def test_restore_backup(
             feedback_data={
                 "message": "Preparing to restore data from snapshot.",
                 "operation": WebhookOperation.UPDATE.value,
+                "action": WebhookAction.RESTORE_SNAPSHOT.value,
             },
             unsafe=mock.ANY,
             logger=mock.ANY,
@@ -251,6 +257,7 @@ async def test_restore_backup(
             feedback_data={
                 "message": "The snapshot has been restored successfully.",
                 "operation": WebhookOperation.UPDATE.value,
+                "action": WebhookAction.RESTORE_SNAPSHOT.value,
             },
             unsafe=mock.ANY,
             logger=mock.ANY,
@@ -352,6 +359,7 @@ async def test_restore_backup_create_repo_fails(
             feedback_data={
                 "message": "Preparing to restore data from snapshot.",
                 "operation": WebhookOperation.UPDATE.value,
+                "action": WebhookAction.RESTORE_SNAPSHOT.value,
             },
             unsafe=mock.ANY,
             logger=mock.ANY,
@@ -373,6 +381,7 @@ async def test_restore_backup_create_repo_fails(
                     "Backup repository is not accessible with the given credentials."
                 ),
                 "operation": WebhookOperation.UPDATE.value,
+                "action": WebhookAction.RESTORE_SNAPSHOT.value,
             },
             unsafe=mock.ANY,
             logger=mock.ANY,

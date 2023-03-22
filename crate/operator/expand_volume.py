@@ -34,6 +34,7 @@ from crate.operator.utils.formatting import convert_to_bytes
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookFeedbackPayload,
     WebhookOperation,
@@ -68,6 +69,7 @@ async def expand_volume(
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.UPDATE,
+        action=WebhookAction.EXPAND_STORAGE,
     )
 
     for pvc in all_pvcs:
@@ -185,6 +187,7 @@ class ExpandVolumeSubHandler(StateBasedSubHandler):
             WebhookFeedbackPayload(
                 message="The cluster storage has been resized successfully.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.EXPAND_STORAGE,
             ),
             WebhookStatus.SUCCESS,
         )

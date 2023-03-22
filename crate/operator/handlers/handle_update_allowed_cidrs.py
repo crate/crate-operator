@@ -27,7 +27,7 @@ from kubernetes_asyncio.client import CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.utils.notifications import send_operation_progress_notification
-from crate.operator.webhooks import WebhookOperation, WebhookStatus
+from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
 async def update_service_allowed_cidrs(
@@ -46,6 +46,7 @@ async def update_service_allowed_cidrs(
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.UPDATE,
+        action=WebhookAction.ALLOWED_CIDR_UPDATE,
     )
 
     async with ApiClient() as api_client:
@@ -73,4 +74,5 @@ async def update_service_allowed_cidrs(
         logger=logger,
         status=WebhookStatus.SUCCESS,
         operation=WebhookOperation.UPDATE,
+        action=WebhookAction.ALLOWED_CIDR_UPDATE,
     )

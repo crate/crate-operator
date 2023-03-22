@@ -28,7 +28,6 @@ import kopf
 from crate.operator.change_compute import (
     AfterChangeComputeSubHandler,
     ChangeComputeSubHandler,
-    has_compute_changed,
 )
 from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID
@@ -42,7 +41,9 @@ from crate.operator.operations import (
 )
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.utils.crd import has_compute_changed
 from crate.operator.utils.notifications import FlushNotificationsSubHandler
+from crate.operator.webhooks import WebhookAction
 
 
 async def update_cratedb(
@@ -265,7 +266,7 @@ def register_restart_handlers(
     kopf.register(
         fn=RestartSubHandler(
             namespace, name, change_hash, context, depends_on=depends_on.copy()
-        )(),
+        )(action=WebhookAction.UPGRADE if do_upgrade else WebhookAction.CHANGE_COMPUTE),
         id="restart",
         backoff=get_backoff(),
     )

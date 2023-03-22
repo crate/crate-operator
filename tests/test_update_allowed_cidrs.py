@@ -32,6 +32,7 @@ from crate.operator.constants import (
 )
 from crate.operator.utils.kubeapi import get_service_public_hostname
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookFeedbackPayload,
     WebhookOperation,
@@ -98,6 +99,7 @@ async def test_update_cidrs(
             WebhookFeedbackPayload(
                 message="The cluster has been created successfully.",
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,
@@ -132,6 +134,7 @@ async def test_update_cidrs(
             WebhookFeedbackPayload(
                 message="Updating IP Network Whitelist.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.ALLOWED_CIDR_UPDATE,
             ),
             WebhookStatus.IN_PROGRESS,
             mock.ANY,
@@ -173,6 +176,7 @@ async def test_update_cidrs(
             WebhookFeedbackPayload(
                 message="IP Network Whitelist updated successfully.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.ALLOWED_CIDR_UPDATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,
