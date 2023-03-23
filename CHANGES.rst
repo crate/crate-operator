@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.25.0 (2023-03-23)
+-------------------
+
 * Added an ability to specify additional annotations for the created LoadBalancer
   services. This is useful when, i.e., wanting to override the type of load balancer
   to be used.
