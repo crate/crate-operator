@@ -42,7 +42,7 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.utils.typing import SecretKeyRefContainer
-from crate.operator.webhooks import WebhookOperation, WebhookStatus
+from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
 async def bootstrap_license(
@@ -348,6 +348,7 @@ async def bootstrap_cluster(
         logger=logger,
         status=WebhookStatus.IN_PROGRESS,
         operation=WebhookOperation.CREATE,
+        action=WebhookAction.CREATE,
     )
     if license:
         await bootstrap_license(
@@ -388,4 +389,5 @@ class BootstrapClusterSubHandler(StateBasedSubHandler):
             logger=logger,
             status=WebhookStatus.SUCCESS,
             operation=WebhookOperation.CREATE,
+            action=WebhookAction.CREATE,
         )

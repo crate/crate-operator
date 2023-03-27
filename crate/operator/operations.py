@@ -67,6 +67,7 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookOperation,
     WebhookStatus,
@@ -454,6 +455,7 @@ async def restart_cluster(
     logger: logging.Logger,
     patch: kopf.Patch,
     status: kopf.Status,
+    action: WebhookAction,
 ) -> None:
     """
     Perform a rolling restart of the CrateDB cluster ``name`` in ``namespace``.
@@ -502,6 +504,7 @@ async def restart_cluster(
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
+            action=action,
         )
         # Trigger deletion of Pod.
         # This may take a while as it tries to gracefully stop the containers
@@ -523,6 +526,7 @@ async def restart_cluster(
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
+            action=action,
         )
         password, host = await asyncio.gather(
             get_system_user_password(core, namespace, name),
@@ -621,6 +625,9 @@ async def suspend_or_start_cluster(
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
+                    action=WebhookAction.SUSPEND
+                    if old_replicas == 0
+                    else WebhookAction.SCALE,
                 )
                 await check_all_data_nodes_present(
                     conn_factory,
@@ -662,6 +669,9 @@ async def suspend_or_start_cluster(
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
+                    action=WebhookAction.SUSPEND
+                    if new_replicas == 0
+                    else WebhookAction.SCALE,
                 )
                 if scale_backup_metrics:
                     await check_backup_metrics_pod_gone(
@@ -683,11 +693,14 @@ class RestartSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         patch: kopf.Patch,
         status: kopf.Status,
+        action: WebhookAction,
         **kwargs: Any,
     ):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
-            await restart_cluster(core, namespace, name, old, logger, patch, status)
+            await restart_cluster(
+                core, namespace, name, old, logger, patch, status, action
+            )
 
 
 DISABLE_CRONJOB_HANDLER_ID = "disable_cronjob"

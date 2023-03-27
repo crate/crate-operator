@@ -24,7 +24,10 @@ import logging
 from typing import List, Optional, TypedDict
 
 import aiohttp
+import kopf
 from pkg_resources import get_distribution
+
+from crate.operator.utils.crd import has_compute_changed
 
 
 class WebhookEvent(str, enum.Enum):
@@ -50,6 +53,63 @@ class WebhookStatus(str, enum.Enum):
 class WebhookOperation(str, enum.Enum):
     CREATE = "create"
     UPDATE = "update"
+
+
+class WebhookAction(str, enum.Enum):
+    UPGRADE = "upgrade"
+    SCALE = "scale"
+    CREATE = "create"
+    ALLOWED_CIDR_UPDATE = "allowed_cidr_update"
+    PASSWORD_UPDATE = "password_update"
+    EXPAND_STORAGE = "expand_storage"
+    SUSPEND = "suspend"
+    CHANGE_COMPUTE = "change_compute"
+    BACKUP_SCHEDULE_UPDATE = "backup_schedule_update"
+    RESTORE_SNAPSHOT = "restore_snapshot"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def for_diff(cls, diff: kopf.Diff):
+        """
+        Returns the performed type of operation based on the ``kopf.Diff`` of the
+        current change.
+
+        :param diff: The diff between the old and new resource body.
+        """
+        op: kopf.DiffItem = diff[0]
+
+        if op.operation == kopf.DiffOperation.ADD:
+            if not op.field and op.new.get("snapshot"):
+                return cls.RESTORE_SNAPSHOT
+            elif not op.field and op.new.get("spec", {}).get("cluster", {}).get("name"):
+                return cls.CREATE
+        elif op.operation == kopf.DiffOperation.CHANGE:
+            if op.field in {
+                ("spec", "cluster", "imageRegistry"),
+                ("spec", "cluster", "version"),
+            }:
+                return cls.UPGRADE
+            elif op.field == ("spec", "nodes", "master", "replicas"):
+                return cls.SCALE
+            elif op.field == ("spec", "nodes", "data"):
+                for node_spec_idx in range(len(op.old)):
+                    old_spec = op.old[node_spec_idx]
+                    new_spec = op.new[node_spec_idx]
+
+                    if old_spec.get("replicas") != new_spec.get("replicas"):
+                        if (
+                            old_spec.get("replicas") == 0
+                            or new_spec.get("replicas") == 0
+                        ):
+                            return cls.SUSPEND
+                        return cls.SCALE
+                    elif old_spec.get("resources", {}).get("disk", {}).get(
+                        "size"
+                    ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
+                        return cls.EXPAND_STORAGE
+                    elif has_compute_changed(old_spec, new_spec):
+                        return cls.CHANGE_COMPUTE
+        return cls.UNKNOWN
 
 
 class WebhookSubPayload(TypedDict):
@@ -105,6 +165,7 @@ class WebhookClusterHealthPayload(WebhookSubPayload):
 class WebhookFeedbackPayload(WebhookSubPayload):
     message: str
     operation: WebhookOperation
+    action: WebhookAction
 
 
 class WebhookBackupScheduleUpdatePayload(WebhookSubPayload):

@@ -26,6 +26,7 @@ import kopf
 import wrapt
 
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookFeedbackPayload,
     WebhookOperation,
@@ -42,13 +43,14 @@ async def send_feedback_notification(
     operation: WebhookOperation,
     status: WebhookStatus,
     logger: logging.Logger,
+    action: WebhookAction = WebhookAction.UNKNOWN,
     **kwargs,
 ) -> None:
     await webhook_client.send_notification(
         namespace,
         name,
         WebhookEvent.FEEDBACK,
-        WebhookFeedbackPayload(message=message, operation=operation),
+        WebhookFeedbackPayload(message=message, operation=operation, action=action),
         status,
         logger,
     )
@@ -72,6 +74,7 @@ async def send_create_failed_notification(*args, **kwargs):
             **kwargs,
             "operation": WebhookOperation.CREATE,
             "status": WebhookStatus.FAILURE,
+            "action": WebhookAction.CREATE,
         },
     )
 
@@ -130,12 +133,14 @@ def error(*, error_handler: Callable) -> Callable:
                     and _namespace
                     and _name
                 ):
+                    action: WebhookAction = WebhookAction.for_diff(kwargs["diff"])
                     try:
                         await error_handler(
                             namespace=_namespace,
                             name=_name,
                             message=str(e),
                             logger=kwargs["logger"],
+                            action=action,
                         )
                     except Exception:
                         pass

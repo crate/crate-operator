@@ -55,6 +55,7 @@ from crate.operator.utils.kubeapi import (
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookAdminUsernameChangedPayload,
     WebhookEvent,
     WebhookFeedbackPayload,
@@ -237,6 +238,7 @@ async def ensure_no_restore_in_progress(
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
+            action=WebhookAction.RESTORE_SNAPSHOT,
         )
         raise kopf.TemporaryError(
             "A snapshot restore is currently in progress "
@@ -374,6 +376,7 @@ class BeforeRestoreBackupSubHandler(StateBasedSubHandler):
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
+            action=WebhookAction.RESTORE_SNAPSHOT,
         )
         kopf.register(
             fn=subhandler_partial(
@@ -913,6 +916,7 @@ class SendSuccessNotificationSubHandler(StateBasedSubHandler):
             WebhookFeedbackPayload(
                 message="The snapshot has been restored successfully.",
                 operation=WebhookOperation.UPDATE,
+                action=WebhookAction.RESTORE_SNAPSHOT,
             ),
             WebhookStatus.SUCCESS,
         )

@@ -27,7 +27,7 @@ import kopf
 
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
-from crate.operator.webhooks import WebhookOperation, WebhookStatus
+from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
 async def send_operation_progress_notification(
@@ -38,6 +38,7 @@ async def send_operation_progress_notification(
     logger: logging.Logger,
     status: WebhookStatus,
     operation: WebhookOperation,
+    action: WebhookAction,
 ):
     await crate.send_feedback_notification(
         namespace=namespace,
@@ -46,6 +47,7 @@ async def send_operation_progress_notification(
         operation=operation,
         status=status,
         logger=logger,
+        action=action,
     )
 
 

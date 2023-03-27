@@ -37,6 +37,7 @@ from crate.operator.constants import LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
+    WebhookAction,
     WebhookEvent,
     WebhookFeedbackPayload,
     WebhookOperation,
@@ -140,6 +141,7 @@ async def test_bootstrap_license(
                     "created and creating other required resources."
                 ),
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.IN_PROGRESS,
             mock.ANY,
@@ -158,6 +160,7 @@ async def test_bootstrap_license(
             WebhookFeedbackPayload(
                 message="The cluster has been created successfully.",
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,
@@ -241,6 +244,7 @@ async def test_bootstrap_users(
                     "created and creating other required resources."
                 ),
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.IN_PROGRESS,
             mock.ANY,
@@ -259,6 +263,7 @@ async def test_bootstrap_users(
             WebhookFeedbackPayload(
                 message="The cluster has been created successfully.",
                 operation=WebhookOperation.CREATE,
+                action=WebhookAction.CREATE,
             ),
             WebhookStatus.SUCCESS,
             mock.ANY,
