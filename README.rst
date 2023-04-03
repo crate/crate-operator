@@ -49,7 +49,7 @@ A minimal custom resource for a 3 node CrateDB cluster may look like this:
      cluster:
        imageRegistry: crate
        name: crate-dev
-       version: 4.3.1
+       version: 5.2.5
      nodes:
        data:
        - name: hot
@@ -73,6 +73,11 @@ A minimal custom resource for a 3 node CrateDB cluster may look like this:
    NAMESPACE   NAME         AGE
    dev         my-cluster   36s
 
+
+Please note that the minimum version of CrateDB that the operator supports is **4.5**.
+Previous versions might work, but the operator will not attempt to set a license.
+
+
 🎉 Features
 ==========
 
@@ -87,7 +92,7 @@ A minimal custom resource for a 3 node CrateDB cluster may look like this:
 - region/zone awareness for AWS and Azure
 
 💽 Installation
-==============
+===============
 
 Installation with Helm
 ----------------------

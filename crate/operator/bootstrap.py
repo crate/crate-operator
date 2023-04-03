@@ -41,83 +41,7 @@ from crate.operator.utils.kubeapi import (
     resolve_secret_key_ref,
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
-from crate.operator.utils.typing import SecretKeyRefContainer
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
-
-
-async def bootstrap_license(
-    core: CoreV1Api,
-    namespace: str,
-    master_node_pod: str,
-    has_ssl: bool,
-    license: SecretKeyRefContainer,
-    logger: logging.Logger,
-) -> None:
-    """
-    Set a license key on a CrateDB cluster.
-
-    When starting up a cluster, the operator doesn't have a system user yet
-    that it could use. The operator will therefore ``exec`` into the ``crate``
-    container in the ``master_node_pod`` and attempt to set a license key.
-
-    :param core: An instance of the Kubernetes Core V1 API.
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param master_node_pod: The pod name of one of the eligible master nodes in
-        the cluster. Used to ``exec`` into.
-    :param has_ssl: When ``True``, ``crash`` will establish a connection to
-        the CrateDB cluster from inside the ``crate`` container using SSL/TLS.
-        This must match how the cluster is configured, otherwise ``crash``
-        won't be able to connect, since non-encrypted connections are forbidden
-        when SSL/TLS is enabled, and encrypted connections aren't possible when
-        no SSL/TLS is configured.
-    :param license: A ``secretKeyRef`` to the Kubernetes secret that holds the
-        CrateDB license key.
-    """
-    scheme = "https" if has_ssl else "http"
-    license_key = await resolve_secret_key_ref(core, namespace, license["secretKeyRef"])
-    license_key_quoted = QuotedString(license_key).getquoted().decode()
-    command = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        f"SET LICENSE {license_key_quoted};",
-    ]
-
-    exception_logger = logger.exception if config.TESTING else logger.error
-
-    async with WsApiClient() as ws_api_client:
-        core_ws = CoreV1Api(ws_api_client)
-        try:
-            logger.info("Trying to set license ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-        except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # license key in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise _temporary_error()
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # license key in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise _temporary_error()
-        else:
-            if "SET OK" in result:
-                logger.info("... success")
-            else:
-                logger.info("... error. %s", result)
-                raise _temporary_error()
 
 
 async def bootstrap_system_user(
@@ -306,19 +230,17 @@ async def bootstrap_users(
                 await create_user(cursor, username, password)
 
 
-async def bootstrap_cluster(
+async def create_users(
     core: CoreV1Api,
     namespace: str,
     name: str,
     master_node_pod: str,
-    license: Optional[SecretKeyRefContainer],
     has_ssl: bool,
     users: Optional[List[Dict[str, Any]]],
     logger: logging.Logger,
 ):
     """
-    Bootstrap an entire cluster, including license, system user, and additional
-    users.
+    Create the system user, and any additional configured users.
 
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
@@ -326,8 +248,6 @@ async def bootstrap_cluster(
         the password for the system user created during deployment.
     :param master_node_pod: The pod name of one of the eligible master nodes in
         the cluster. Used to ``exec`` into.
-    :param license: An optional ``secretKeyRef`` to the Kubernetes secret that
-        holds the CrateDB license key.
     :param has_ssl: When ``True``, ``crash`` will establish a connection to
         the CrateDB cluster from inside the ``crate`` container using SSL/TLS.
         This must match how the cluster is configured, otherwise ``crash``
@@ -337,9 +257,6 @@ async def bootstrap_cluster(
     :param users: An optional list of user definitions containing the username
         and the secret key reference to their password.
     """
-    # We first need to set the license, in case the CrateDB cluster
-    # contains more nodes than available in the free license.
-
     await send_operation_progress_notification(
         namespace=namespace,
         name=name,
@@ -350,10 +267,6 @@ async def bootstrap_cluster(
         operation=WebhookOperation.CREATE,
         action=WebhookAction.CREATE,
     )
-    if license:
-        await bootstrap_license(
-            core, namespace, master_node_pod, has_ssl, license, logger
-        )
     await bootstrap_system_user(core, namespace, name, master_node_pod, has_ssl, logger)
     if users:
         await bootstrap_users(core, namespace, name, users)
@@ -363,7 +276,7 @@ def _temporary_error():
     return TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
 
-class BootstrapClusterSubHandler(StateBasedSubHandler):
+class CreateUsersSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_create_failed_notification)
     @crate.timeout(timeout=float(config.BOOTSTRAP_TIMEOUT))
     async def handle(  # type: ignore
@@ -371,7 +284,6 @@ class BootstrapClusterSubHandler(StateBasedSubHandler):
         namespace: str,
         name: str,
         master_node_pod: str,
-        license: Optional[SecretKeyRefContainer],
         has_ssl: bool,
         users: Optional[List[Dict[str, Any]]],
         logger: logging.Logger,
@@ -379,8 +291,8 @@ class BootstrapClusterSubHandler(StateBasedSubHandler):
     ):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
-            await bootstrap_cluster(
-                core, namespace, name, master_node_pod, license, has_ssl, users, logger
+            await create_users(
+                core, namespace, name, master_node_pod, has_ssl, users, logger
             )
         await send_operation_progress_notification(
             namespace=namespace,

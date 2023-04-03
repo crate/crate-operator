@@ -26,7 +26,7 @@ import kopf
 from kubernetes_asyncio.client import V1LocalObjectReference, V1OwnerReference
 
 from crate.operator.backup import CreateBackupsSubHandler
-from crate.operator.bootstrap import BootstrapClusterSubHandler
+from crate.operator.bootstrap import CreateUsersSubHandler
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
@@ -199,9 +199,8 @@ async def create_cratedb(
         master_node_pod = f"crate-data-{node_name}-{name}-0"
 
     kopf.register(
-        fn=BootstrapClusterSubHandler(namespace, name, hash, context)(
+        fn=CreateUsersSubHandler(namespace, name, hash, context)(
             master_node_pod=master_node_pod,
-            license=spec["cluster"].get("license"),
             has_ssl="ssl" in spec["cluster"],
             users=spec.get("users"),
         ),
