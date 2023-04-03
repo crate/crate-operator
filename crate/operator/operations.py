@@ -24,7 +24,6 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
-from create import create_lb_service
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -63,6 +62,7 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
+from crate.operator.create import create_lb_service
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
