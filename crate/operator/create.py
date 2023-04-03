@@ -79,10 +79,13 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import (
+    API_GROUP,
     DATA_PVC_NAME_PREFIX,
     LABEL_COMPONENT,
+    LABEL_MANAGED_BY,
     LABEL_NAME,
     LABEL_NODE_NAME,
+    LABEL_PART_OF,
     SHARED_NODE_SELECTOR_KEY,
     SHARED_NODE_SELECTOR_VALUE,
     SHARED_NODE_TOLERATION_EFFECT,
@@ -982,22 +985,20 @@ async def create_services(
 ) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        await call_kubeapi(
-            core.create_namespaced_service,
+        await create_data_service(
+            owner_references,
+            namespace,
+            name,
+            labels,
+            http_port,
+            postgres_port,
+            transport_port,
+            dns_record,
             logger,
-            continue_on_conflict=True,
-            namespace=namespace,
-            body=get_data_service(
-                owner_references,
-                name,
-                labels,
-                http_port,
-                postgres_port,
-                dns_record,
-                source_ranges,
-                additional_annotations=additional_annotations,
-            ),
+            source_ranges,
+            additional_annotations=additional_annotations,
         )
+
         await call_kubeapi(
             core.create_namespaced_service,
             logger,
@@ -1007,6 +1008,98 @@ async def create_services(
                 owner_references, name, labels, transport_port, http_port, postgres_port
             ),
         )
+
+
+async def create_data_service(
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
+    http_port: int,
+    postgres_port: int,
+    transport_port: int,
+    dns_record: Optional[str],
+    logger: logging.Logger,
+    source_ranges: Optional[List[str]] = None,
+    additional_annotations: Optional[Dict] = None,
+) -> None:
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        svc = get_data_service(
+            owner_references,
+            name,
+            labels,
+            http_port,
+            postgres_port,
+            dns_record,
+            source_ranges,
+            additional_annotations=additional_annotations,
+        )
+
+        try:
+            await call_kubeapi(
+                core.create_namespaced_service,
+                logger,
+                continue_on_conflict=True,
+                namespace=namespace,
+                body=svc,
+            )
+        except Exception as e:
+            raise e
+
+
+async def create_lb_service(
+    namespace: str,
+    name: str,
+    spec,
+    meta,
+    logger: logging.Logger,
+):
+
+    ports_spec = spec.get("ports", {})
+    http_port = ports_spec.get("http", Port.HTTP.value)
+    postgres_port = ports_spec.get("postgres", Port.POSTGRES.value)
+    transport_port = ports_spec.get("transport", Port.TRANSPORT.value)
+
+    base_labels = {
+        LABEL_MANAGED_BY: "crate-operator",
+        LABEL_NAME: name,
+        LABEL_PART_OF: "cratedb",
+    }
+    cratedb_labels = base_labels.copy()
+    cratedb_labels[LABEL_COMPONENT] = "cratedb"
+    cratedb_labels.update(meta.get("labels", {}))
+
+    owner_references = [
+        V1OwnerReference(
+            api_version=f"{API_GROUP}/v1",
+            block_owner_deletion=True,
+            controller=True,
+            kind="CrateDB",
+            name=name,
+            uid=meta["uid"],
+        )
+    ]
+    source_ranges = spec["cluster"].get("allowedCIDRs", None)
+
+    additional_annotations = (
+        spec.get("cluster", {}).get("service", {}).get("annotations", {})
+    )
+    dns_record = spec.get("cluster", {}).get("externalDNS", None)
+
+    await create_data_service(
+        owner_references,
+        namespace,
+        name,
+        cratedb_labels,
+        http_port,
+        postgres_port,
+        transport_port,
+        dns_record,
+        logger,
+        source_ranges,
+        additional_annotations,
+    )
 
 
 def get_system_user_secret(

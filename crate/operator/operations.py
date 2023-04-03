@@ -24,6 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+from create import create_lb_service
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -34,10 +35,14 @@ from kubernetes_asyncio.client import (
     V1JobStatus,
     V1PersistentVolumeClaimList,
     V1PodList,
+    V1Service,
+    V1ServiceList,
     V1StatefulSet,
     V1StatefulSetList,
+    V1Status,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
+from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
 from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.config import config
@@ -629,6 +634,14 @@ async def suspend_or_start_cluster(
                     if old_replicas == 0
                     else WebhookAction.SCALE,
                 )
+
+                # Check if service is present, re-create it if not
+                if not await is_lb_service_present(core, namespace, name):
+                    cratedb = await get_cratedb_resource(namespace, name)
+                    await create_lb_service(
+                        namespace, name, cratedb["spec"], cratedb["metadata"], logger
+                    )
+
                 await check_all_data_nodes_present(
                     conn_factory,
                     old_replicas,
@@ -680,6 +693,46 @@ async def suspend_or_start_cluster(
                         name,
                     )
                 await check_all_data_nodes_gone(core, namespace, name, old)
+                # Try to delete the load balancing service if present
+                await delete_lb_service(core, namespace, name)
+
+
+async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
+    svc: V1Service = await get_lb_service(core, namespace, name)
+
+    if svc:
+        svc_name = f"crate-{name}"
+        resp: V1Status = await core.delete_namespaced_service(
+            name=svc_name, namespace=namespace, body=V1DeleteOptions()
+        )
+
+        if resp.status != "Success":
+            raise Exception("Could not delete the load balancer")
+
+    # If the Load balancer service was already not present or was deleted successfully
+    # we consider the operation a success
+    return True
+
+
+async def is_lb_service_present(core: CoreV1Api, namespace: str, name: str) -> bool:
+    return await get_lb_service(core, namespace, name) is not None
+
+
+async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Service:
+    """
+    Returns true if the load balancer service related to a StatefulSet exists.
+    Returns false otherwise.
+    """
+    svc_name = f"crate-{name}"
+    selector = f"metadata.name={svc_name}"
+    svc_list: V1ServiceList = await core.list_namespaced_service(
+        namespace=namespace, field_selector=selector
+    )
+
+    if len(svc_list.items) == 1:
+        return svc_list.items[0]
+    else:
+        return None
 
 
 class RestartSubHandler(StateBasedSubHandler):
