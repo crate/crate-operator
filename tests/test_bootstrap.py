@@ -20,7 +20,6 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
-import base64
 from typing import Any, List, Mapping
 from unittest import mock
 
@@ -63,111 +62,6 @@ async def does_user_exist(host: str, password: str, username: str) -> bool:
                 return bool(row and row[0] == 1)
     except (DatabaseError, OperationalError, asyncio.exceptions.TimeoutError):
         return False
-
-
-async def was_license_set(
-    mock_obj: mock.AsyncMock, core, namespace, master_node_pod, has_ssl, license
-):
-    try:
-        mock_obj.assert_awaited_once_with(
-            core, namespace, master_node_pod, has_ssl, license, mock.ANY
-        )
-    except AssertionError:
-        return False
-    else:
-        return True
-
-
-@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
-@mock.patch("crate.operator.bootstrap.bootstrap_license")
-@mock.patch("crate.operator.bootstrap.bootstrap_system_user")
-async def test_bootstrap_license(
-    _bootstrap_system_user: mock.AsyncMock,
-    bootstrap_license_mock: mock.AsyncMock,
-    mock_send_notification: mock.AsyncMock,
-    faker,
-    namespace,
-    kopf_runner,
-    api_client,
-):
-    coapi = CustomObjectsApi(api_client)
-    core = CoreV1Api(api_client)
-    name = faker.domain_word()
-    license = base64.b64encode(faker.binary(64)).decode()
-
-    await core.create_namespaced_secret(
-        namespace=namespace.metadata.name,
-        body=V1Secret(
-            data={"license": b64encode(license)},
-            metadata=V1ObjectMeta(name=f"license-{name}"),
-            type="Opaque",
-        ),
-    )
-    await start_cluster(
-        name,
-        namespace,
-        core,
-        coapi,
-        1,
-        wait_for_healthy=False,
-        additional_cluster_spec={
-            "license": {
-                "secretKeyRef": {"key": "license", "name": f"license-{name}"},
-            },
-        },
-    )
-    await assert_wait_for(
-        True,
-        was_license_set,
-        bootstrap_license_mock,
-        mock.ANY,
-        namespace.metadata.name,
-        f"crate-data-hot-{name}-0",
-        False,
-        {"secretKeyRef": {"key": "license", "name": f"license-{name}"}},
-        timeout=DEFAULT_TIMEOUT * 3,
-    )
-    await assert_wait_for(
-        True,
-        was_notification_sent,
-        mock_send_notification,
-        mock.call(
-            namespace.metadata.name,
-            name,
-            WebhookEvent.FEEDBACK,
-            WebhookFeedbackPayload(
-                message=(
-                    "Cluster creation started. Waiting for the node(s) to be "
-                    "created and creating other required resources."
-                ),
-                operation=WebhookOperation.CREATE,
-                action=WebhookAction.CREATE,
-            ),
-            WebhookStatus.IN_PROGRESS,
-            mock.ANY,
-        ),
-        err_msg="Did not notify cluster creation status update.",
-        timeout=DEFAULT_TIMEOUT,
-    )
-    await assert_wait_for(
-        True,
-        was_notification_sent,
-        mock_send_notification,
-        mock.call(
-            namespace.metadata.name,
-            name,
-            WebhookEvent.FEEDBACK,
-            WebhookFeedbackPayload(
-                message="The cluster has been created successfully.",
-                operation=WebhookOperation.CREATE,
-                action=WebhookAction.CREATE,
-            ),
-            WebhookStatus.SUCCESS,
-            mock.ANY,
-        ),
-        err_msg="Did not notify cluster creation status update.",
-        timeout=DEFAULT_TIMEOUT,
-    )
 
 
 @pytest.mark.parametrize("allowed_cidrs", [None, ["1.1.1.1/32"]])

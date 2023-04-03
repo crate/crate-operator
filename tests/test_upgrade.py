@@ -30,6 +30,7 @@ from crate.operator.upgrade import upgrade_command
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
+    CRATE_VERSION,
     DEFAULT_TIMEOUT,
     assert_wait_for,
     cluster_routing_allocation_enable_equals,
@@ -49,8 +50,8 @@ from .utils import (
 async def test_upgrade_cluster(
     mock_send_notification, faker, namespace, kopf_runner, api_client
 ):
-    version_from = "4.6.1"
-    version_to = "4.6.4"
+    version_from = "5.0.0"
+    version_to = CRATE_VERSION
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
     name = faker.domain_word()

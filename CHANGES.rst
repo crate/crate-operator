@@ -7,6 +7,9 @@ Unreleased
 
 * Added the type of operation to the feedback webhooks payload.
 
+* Removed handling of licenses. The operator will no longer attempt to set a license,
+  even if one is configured in the CRD. Licenses are deprecated since CrateDB 4.5.
+
 2.25.0 (2023-03-23)
 -------------------
 
