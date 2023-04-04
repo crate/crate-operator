@@ -707,7 +707,9 @@ async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
         )
 
         if resp.status != "Success":
-            raise Exception("Could not delete the load balancer")
+            raise Exception(
+                f"Could not delete the load balancer. " f"Message: {resp.message}"
+            )
 
     # If the Load balancer service was already not present or was deleted successfully
     # we consider the operation a success
@@ -729,7 +731,7 @@ async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Servic
         namespace=namespace, field_selector=selector
     )
 
-    if len(svc_list.items) == 1:
+    if len(svc_list.items) >= 1:
         return svc_list.items[0]
     else:
         return None
