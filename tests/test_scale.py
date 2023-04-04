@@ -41,7 +41,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
-from crate.operator.operations import get_pods_in_statefulset
+from crate.operator.operations import get_pods_in_statefulset, is_lb_service_present
 from crate.operator.scale import parse_replicas, patch_command
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from tests.utils import (
@@ -235,6 +235,16 @@ async def test_suspend_resume_cluster(
         BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
     )
 
+    await assert_wait_for(
+        True,
+        is_lb_service_present,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Load balancer check timed out",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
     # Request the cluster to be suspended
     await _scale_cluster(coapi, name, namespace, 0)
 
@@ -270,6 +280,16 @@ async def test_suspend_resume_cluster(
         timeout=DEFAULT_TIMEOUT,
     )
 
+    await assert_wait_for(
+        False,
+        is_lb_service_present,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Load balancer check 2 timed out",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
     # Request the cluster to be resumed
     await _scale_cluster(coapi, name, namespace, 1)
 
@@ -300,6 +320,16 @@ async def test_suspend_resume_cluster(
         name,
         namespace.metadata.name,
         err_msg="Backup metrics has not been scaled up.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        is_lb_service_present,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Load balancer check 3 timed out",
         timeout=DEFAULT_TIMEOUT,
     )
 
