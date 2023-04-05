@@ -985,20 +985,27 @@ async def create_services(
 ) -> None:
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
-        await create_data_service(
+
+        # Create the load balancer service
+        svc = get_data_service(
             owner_references,
-            namespace,
             name,
             labels,
             http_port,
             postgres_port,
-            transport_port,
             dns_record,
-            logger,
             source_ranges,
             additional_annotations=additional_annotations,
         )
+        await call_kubeapi(
+            core.create_namespaced_service,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=svc,
+        )
 
+        # Create the discovery service
         await call_kubeapi(
             core.create_namespaced_service,
             logger,
@@ -1010,45 +1017,7 @@ async def create_services(
         )
 
 
-async def create_data_service(
-    owner_references: Optional[List[V1OwnerReference]],
-    namespace: str,
-    name: str,
-    labels: LabelType,
-    http_port: int,
-    postgres_port: int,
-    transport_port: int,
-    dns_record: Optional[str],
-    logger: logging.Logger,
-    source_ranges: Optional[List[str]] = None,
-    additional_annotations: Optional[Dict] = None,
-) -> None:
-    async with ApiClient() as api_client:
-        core = CoreV1Api(api_client)
-        svc = get_data_service(
-            owner_references,
-            name,
-            labels,
-            http_port,
-            postgres_port,
-            dns_record,
-            source_ranges,
-            additional_annotations=additional_annotations,
-        )
-
-        try:
-            await call_kubeapi(
-                core.create_namespaced_service,
-                logger,
-                continue_on_conflict=True,
-                namespace=namespace,
-                body=svc,
-            )
-        except Exception as e:
-            raise e
-
-
-async def create_lb_service(
+async def recreate_services(
     namespace: str,
     name: str,
     spec,
@@ -1087,7 +1056,7 @@ async def create_lb_service(
     )
     dns_record = spec.get("cluster", {}).get("externalDNS", None)
 
-    await create_data_service(
+    await create_services(
         owner_references,
         namespace,
         name,

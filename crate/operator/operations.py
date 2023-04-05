@@ -62,7 +62,7 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
-from crate.operator.create import create_lb_service
+from crate.operator.create import recreate_services
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
@@ -596,7 +596,7 @@ async def suspend_or_start_cluster(
                 # Check if service is present, re-create it if not
                 if not await is_lb_service_present(core, namespace, name):
                     cratedb = await get_cratedb_resource(namespace, name)
-                    await create_lb_service(
+                    await recreate_services(
                         namespace, name, cratedb["spec"], cratedb["metadata"], logger
                     )
 
