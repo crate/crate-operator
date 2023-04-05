@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.26.0 (2023-04-05)
+-------------------
+
 * Added the type of operation to the feedback webhooks payload.
 
 * Removed handling of licenses. The operator will no longer attempt to set a license,
