@@ -639,9 +639,7 @@ async def suspend_or_start_cluster(
                     else WebhookAction.SCALE,
                 )
 
-                host = await get_host(core, namespace, name)
-                password = await get_system_user_password(core, namespace, name)
-                conn_factory = connection_factory(host, password)
+                conn_factory = _get_connection_factory(core, namespace, name)
 
                 await check_all_data_nodes_present(
                     conn_factory,
@@ -654,9 +652,7 @@ async def suspend_or_start_cluster(
                 # suspend the cluster -> scale down to 0 replicas
                 # First check if the cluster is healthy at all,
                 # and prevent scaling down if not.
-                host = await get_host(core, namespace, name)
-                password = await get_system_user_password(core, namespace, name)
-                conn_factory = connection_factory(host, password)
+                conn_factory = _get_connection_factory(core, namespace, name)
                 await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
@@ -700,6 +696,17 @@ async def suspend_or_start_cluster(
 
                 # Try to delete the load balancing service if present
                 await delete_lb_service(core, namespace, name)
+
+
+async def _get_connection_factory(core, namespace: str, name: str):
+    """
+    Returns a connection factory.
+    Requires the load balancer to be ready.
+    """
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(core, namespace, name)
+    conn_factory = connection_factory(host, password)
+    return conn_factory
 
 
 async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
@@ -850,9 +857,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = _get_connection_factory(core, namespace, name)
 
             snapshots_in_progress, statement = await are_snapshots_in_progress(
                 conn_factory, logger
@@ -909,9 +914,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = _get_connection_factory(core, namespace, name)
 
             await set_cluster_setting(
                 conn_factory,
@@ -983,9 +986,7 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = _get_connection_factory(core, namespace, name)
 
             await reset_cluster_setting(
                 conn_factory,
