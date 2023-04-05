@@ -149,7 +149,7 @@ async def get_service_public_hostname(
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
     """
-    for second in range(0, 60):
+    for second in range(0, 300):
         try:
             service = await core.read_namespaced_service(
                 namespace=namespace, name=f"crate-{name}"
