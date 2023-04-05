@@ -2,6 +2,23 @@ apiVersion: v1
 entries:
   crate-operator:
   - apiVersion: v2
+    appVersion: 2.26.0
+    created: "2023-04-05T12:13:46.275045748Z"
+    dependencies:
+    - condition: crate-operator-crds.enabled
+      name: crate-operator-crds
+      repository: file://../crate-operator-crds
+      version: 2.26.0
+    description: Crate Operator - Helm chart for installing and upgrading Crate Operator.
+    digest: b958cb64ed8c7bca98a81388e33e02c738d47fd3a01d009b108e68386ea237b1
+    maintainers:
+    - name: Crate.io
+    name: crate-operator
+    type: application
+    urls:
+    - https://github.com/crate/crate-operator/releases/download/crate-operator-2.26.0/crate-operator-2.26.0.tgz
+    version: 2.26.0
+  - apiVersion: v2
     appVersion: 2.25.0
     created: "2023-03-23T11:44:24.371891024Z"
     dependencies:
@@ -190,6 +207,19 @@ entries:
     version: 2.14.0
   crate-operator-crds:
   - apiVersion: v2
+    appVersion: 2.26.0
+    created: "2023-04-05T12:13:46.431815842Z"
+    description: Crate Operator CRDs - Helm chart for installing and upgrading Custom
+      Resource Definitions (CRDs) for the Crate Operator.
+    digest: d34c2bf6ce3fc8aa7c1798ac9884593a7f0dc0bb5d4ed5f3f5a0992af466c80d
+    maintainers:
+    - name: Crate.io
+    name: crate-operator-crds
+    type: application
+    urls:
+    - https://github.com/crate/crate-operator/releases/download/crate-operator-crds-2.26.0/crate-operator-crds-2.26.0.tgz
+    version: 2.26.0
+  - apiVersion: v2
     appVersion: 2.25.0
     created: "2023-03-23T11:44:24.586188942Z"
     description: Crate Operator CRDs - Helm chart for installing and upgrading Custom
@@ -332,4 +362,4 @@ entries:
     urls:
     - https://github.com/crate/crate-operator/releases/download/crate-operator-crds-2.14.0/crate-operator-crds-2.14.0.tgz
     version: 2.14.0
-generated: "2023-03-23T11:44:24.586728653Z"
+generated: "2023-04-05T12:13:46.431921544Z"
