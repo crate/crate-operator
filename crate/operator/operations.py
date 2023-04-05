@@ -588,14 +588,18 @@ async def suspend_or_start_cluster(
     """
     spec = old["spec"]
 
-    host = await get_host(core, namespace, name)
-    password = await get_system_user_password(core, namespace, name)
-    conn_factory = connection_factory(host, password)
-
     if data_diff_items:
         for _, field_path, old_replicas, new_replicas in data_diff_items:
             if old_replicas < new_replicas:
                 # scale the cluster back up
+
+                # Check if service is present, re-create it if not
+                if not await is_lb_service_present(core, namespace, name):
+                    cratedb = await get_cratedb_resource(namespace, name)
+                    await create_lb_service(
+                        namespace, name, cratedb["spec"], cratedb["metadata"], logger
+                    )
+
                 index_path, *_ = field_path
                 index = int(index_path)
                 node_spec = spec["nodes"]["data"][index]
@@ -635,12 +639,9 @@ async def suspend_or_start_cluster(
                     else WebhookAction.SCALE,
                 )
 
-                # Check if service is present, re-create it if not
-                if not await is_lb_service_present(core, namespace, name):
-                    cratedb = await get_cratedb_resource(namespace, name)
-                    await create_lb_service(
-                        namespace, name, cratedb["spec"], cratedb["metadata"], logger
-                    )
+                host = await get_host(core, namespace, name)
+                password = await get_system_user_password(core, namespace, name)
+                conn_factory = connection_factory(host, password)
 
                 await check_all_data_nodes_present(
                     conn_factory,
@@ -653,6 +654,9 @@ async def suspend_or_start_cluster(
                 # suspend the cluster -> scale down to 0 replicas
                 # First check if the cluster is healthy at all,
                 # and prevent scaling down if not.
+                host = await get_host(core, namespace, name)
+                password = await get_system_user_password(core, namespace, name)
+                conn_factory = connection_factory(host, password)
                 await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
@@ -693,6 +697,7 @@ async def suspend_or_start_cluster(
                         name,
                     )
                 await check_all_data_nodes_gone(core, namespace, name, old)
+
                 # Try to delete the load balancing service if present
                 await delete_lb_service(core, namespace, name)
 
