@@ -639,7 +639,7 @@ async def suspend_or_start_cluster(
                     else WebhookAction.SCALE,
                 )
 
-                conn_factory = _get_connection_factory(core, namespace, name)
+                conn_factory = await _get_connection_factory(core, namespace, name)
 
                 await check_all_data_nodes_present(
                     conn_factory,
@@ -652,7 +652,7 @@ async def suspend_or_start_cluster(
                 # suspend the cluster -> scale down to 0 replicas
                 # First check if the cluster is healthy at all,
                 # and prevent scaling down if not.
-                conn_factory = _get_connection_factory(core, namespace, name)
+                conn_factory = await _get_connection_factory(core, namespace, name)
                 await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
@@ -857,7 +857,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            conn_factory = _get_connection_factory(core, namespace, name)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             snapshots_in_progress, statement = await are_snapshots_in_progress(
                 conn_factory, logger
@@ -914,7 +914,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            conn_factory = _get_connection_factory(core, namespace, name)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             await set_cluster_setting(
                 conn_factory,
@@ -986,7 +986,7 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            conn_factory = _get_connection_factory(core, namespace, name)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             await reset_cluster_setting(
                 conn_factory,
