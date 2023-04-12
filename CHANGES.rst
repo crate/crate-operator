@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added a build of the linux/arm64 platform when pushing to docker hub.
+
 2.26.0 (2023-04-05)
 -------------------
 
