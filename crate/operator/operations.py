@@ -24,6 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+from kopf import TemporaryError
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -719,7 +720,7 @@ async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
         )
 
         if resp.status != "Success":
-            raise Exception(
+            raise TemporaryError(
                 f"Could not delete the load balancer. " f"Message: {resp.message}"
             )
 
