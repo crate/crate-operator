@@ -43,6 +43,7 @@ from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.operations import get_pods_in_statefulset, is_lb_service_present
 from crate.operator.scale import parse_replicas, patch_command
+from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from tests.utils import (
     DEFAULT_TIMEOUT,
@@ -303,7 +304,7 @@ async def test_suspend_resume_cluster(
         err_msg="Scaling up has not finished",
         timeout=DEFAULT_TIMEOUT * 2,
     )
-
+    host = await get_host(core, namespace.metadata.name, name)
     await assert_wait_for(
         True,
         is_cluster_healthy,

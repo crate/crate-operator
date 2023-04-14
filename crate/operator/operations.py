@@ -24,7 +24,6 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
-from kopf import TemporaryError
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -39,7 +38,6 @@ from kubernetes_asyncio.client import (
     V1ServiceList,
     V1StatefulSet,
     V1StatefulSetList,
-    V1Status,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
@@ -715,17 +713,12 @@ async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
 
     if svc:
         svc_name = f"crate-{name}"
-        resp: V1Status = await core.delete_namespaced_service(
+        await core.delete_namespaced_service(
             name=svc_name, namespace=namespace, body=V1DeleteOptions()
         )
 
-        if resp.status != "Success":
-            raise TemporaryError(
-                f"Could not delete the load balancer. " f"Message: {resp.message}"
-            )
-
-    # If the Load balancer service was already not present or was deleted successfully
-    # we consider the operation a success
+    # If the Load balancer service was already not present or a delete call did not
+    # trigger an exception we consider the operation a success
     return True
 
 
