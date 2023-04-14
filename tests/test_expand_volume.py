@@ -28,7 +28,6 @@ from kubernetes_asyncio.client import (
     StorageV1Api,
     V1Namespace,
 )
-from operations import is_lb_service_present
 
 from crate.operator.constants import (
     API_GROUP,
@@ -37,6 +36,7 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
+from crate.operator.operations import is_lb_service_present
 from crate.operator.utils.formatting import convert_to_bytes
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
