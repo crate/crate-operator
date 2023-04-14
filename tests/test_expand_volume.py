@@ -28,6 +28,7 @@ from kubernetes_asyncio.client import (
     StorageV1Api,
     V1Namespace,
 )
+from operations import is_lb_service_present
 
 from crate.operator.constants import (
     API_GROUP,
@@ -37,6 +38,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.utils.formatting import convert_to_bytes
+from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
@@ -115,6 +117,17 @@ async def test_expand_cluster_storage(
 
     await _expand_volume(coapi, name, namespace, "32Gi")
 
+    # Make sure we wait for the cluster to be suspended
+    await assert_wait_for(
+        False,
+        is_lb_service_present,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Load balancer check 3 timed out",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
     # we just check if the PVC has been patched with the correct new disk size. We
     # do not wait for the PVC to be really resized because there is no guarantee
     # it is supported.
@@ -127,6 +140,11 @@ async def test_expand_cluster_storage(
         err_msg="Volume expansion has not finished.",
         timeout=DEFAULT_TIMEOUT * 3,
     )
+
+    # The host needs to be retrieved again because the IP address has changed.
+    # This is due to suspending and resuming the cluster recreates the load balancer.
+    # Make sure we wait for the cluster to be suspended.
+    host = await get_host(core, namespace.metadata.name, name)
 
     # assert the cluster has been scaled up again to the initial number of nodes
     await assert_wait_for(
