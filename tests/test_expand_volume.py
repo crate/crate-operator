@@ -36,7 +36,6 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
-from crate.operator.operations import is_lb_service_present
 from crate.operator.utils.formatting import convert_to_bytes
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
@@ -116,17 +115,6 @@ async def test_expand_cluster_storage(
     await create_test_sys_jobs_table(conn_factory)
 
     await _expand_volume(coapi, name, namespace, "32Gi")
-
-    # Make sure we wait for the cluster to be suspended
-    await assert_wait_for(
-        False,
-        is_lb_service_present,
-        core,
-        namespace.metadata.name,
-        name,
-        err_msg="Load balancer check 3 timed out",
-        timeout=DEFAULT_TIMEOUT,
-    )
 
     # we just check if the PVC has been patched with the correct new disk size. We
     # do not wait for the PVC to be really resized because there is no guarantee

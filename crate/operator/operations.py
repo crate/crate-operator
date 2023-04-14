@@ -24,6 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+from kopf import TemporaryError
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -598,6 +599,8 @@ async def suspend_or_start_cluster(
                     await recreate_services(
                         namespace, name, cratedb["spec"], cratedb["metadata"], logger
                     )
+                if not await is_lb_service_ready(core, namespace, name):
+                    raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
                 index_path, *_ = field_path
                 index = int(index_path)
@@ -724,6 +727,24 @@ async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
 
 async def is_lb_service_present(core: CoreV1Api, namespace: str, name: str) -> bool:
     return await get_lb_service(core, namespace, name) is not None
+
+
+async def is_lb_service_ready(core: CoreV1Api, namespace: str, name: str) -> bool:
+    lb = await get_lb_service(core, namespace, name)
+    if (
+        not lb
+        or not lb.status
+        or not lb.status.load_balancer
+        or not lb.status.load_balancer.ingress
+        or not lb.status.load_balancer.ingress[0]
+        or (
+            not lb.status.load_balancer.ingress[0].ip
+            and not lb.status.load_balancer.ingress[0].hostname
+        )
+    ):
+        return False
+    else:
+        return True
 
 
 async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Service:
