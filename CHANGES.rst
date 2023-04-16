@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Upgraded sql_exporter with arm64 support
+
 2.26.1 (2023-04-12)
 -------------------
 
