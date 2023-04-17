@@ -257,7 +257,7 @@ async def test_suspend_resume_cluster(
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Scaling down has not finished",
-        timeout=DEFAULT_TIMEOUT * 5,
+        timeout=DEFAULT_TIMEOUT * 2,
     )
 
     await assert_wait_for(
