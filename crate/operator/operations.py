@@ -720,10 +720,6 @@ async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
             name=svc_name, namespace=namespace, body=V1DeleteOptions()
         )
 
-    # If the Load balancer service was already not present or a delete call did not
-    # trigger an exception we consider the operation a success
-    return True
-
 
 async def is_lb_service_present(core: CoreV1Api, namespace: str, name: str) -> bool:
     return await get_lb_service(core, namespace, name) is not None
