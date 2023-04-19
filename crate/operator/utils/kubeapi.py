@@ -149,7 +149,7 @@ async def get_service_public_hostname(
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
     """
-    while True:
+    for second in range(0, 300):
         try:
             service = await core.read_namespaced_service(
                 namespace=namespace, name=f"crate-{name}"
@@ -168,7 +168,8 @@ async def get_service_public_hostname(
         except ApiException:
             pass
 
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(1.0)
+    raise Exception("Could not find the load balancer")
 
 
 async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:

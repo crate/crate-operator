@@ -24,6 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+from kopf import TemporaryError
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
@@ -34,10 +35,13 @@ from kubernetes_asyncio.client import (
     V1JobStatus,
     V1PersistentVolumeClaimList,
     V1PodList,
+    V1Service,
+    V1ServiceList,
     V1StatefulSet,
     V1StatefulSetList,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
+from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
 from psycopg2 import DatabaseError, OperationalError
 
 from crate.operator.config import config
@@ -58,6 +62,7 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
+from crate.operator.create import recreate_services
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
@@ -583,14 +588,20 @@ async def suspend_or_start_cluster(
     """
     spec = old["spec"]
 
-    host = await get_host(core, namespace, name)
-    password = await get_system_user_password(core, namespace, name)
-    conn_factory = connection_factory(host, password)
-
     if data_diff_items:
         for _, field_path, old_replicas, new_replicas in data_diff_items:
             if old_replicas < new_replicas:
                 # scale the cluster back up
+
+                # Check if service is present, re-create it if not
+                if not await is_lb_service_present(core, namespace, name):
+                    cratedb = await get_cratedb_resource(namespace, name)
+                    await recreate_services(
+                        namespace, name, cratedb["spec"], cratedb["metadata"], logger
+                    )
+                if not await is_lb_service_ready(core, namespace, name):
+                    raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
                 index_path, *_ = field_path
                 index = int(index_path)
                 node_spec = spec["nodes"]["data"][index]
@@ -629,6 +640,9 @@ async def suspend_or_start_cluster(
                     if old_replicas == 0
                     else WebhookAction.SCALE,
                 )
+
+                conn_factory = await _get_connection_factory(core, namespace, name)
+
                 await check_all_data_nodes_present(
                     conn_factory,
                     old_replicas,
@@ -640,6 +654,7 @@ async def suspend_or_start_cluster(
                 # suspend the cluster -> scale down to 0 replicas
                 # First check if the cluster is healthy at all,
                 # and prevent scaling down if not.
+                conn_factory = await _get_connection_factory(core, namespace, name)
                 await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
@@ -680,6 +695,69 @@ async def suspend_or_start_cluster(
                         name,
                     )
                 await check_all_data_nodes_gone(core, namespace, name, old)
+
+                # Try to delete the load balancing service if present
+                await delete_lb_service(core, namespace, name)
+
+
+async def _get_connection_factory(core, namespace: str, name: str):
+    """
+    Returns a connection factory.
+    Requires the load balancer to be ready.
+    """
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(core, namespace, name)
+    conn_factory = connection_factory(host, password)
+    return conn_factory
+
+
+async def delete_lb_service(core: CoreV1Api, namespace: str, name: str):
+    svc: V1Service = await get_lb_service(core, namespace, name)
+
+    if svc:
+        svc_name = f"crate-{name}"
+        await core.delete_namespaced_service(
+            name=svc_name, namespace=namespace, body=V1DeleteOptions()
+        )
+
+
+async def is_lb_service_present(core: CoreV1Api, namespace: str, name: str) -> bool:
+    return await get_lb_service(core, namespace, name) is not None
+
+
+async def is_lb_service_ready(core: CoreV1Api, namespace: str, name: str) -> bool:
+    lb = await get_lb_service(core, namespace, name)
+    if (
+        not lb
+        or not lb.status
+        or not lb.status.load_balancer
+        or not lb.status.load_balancer.ingress
+        or not lb.status.load_balancer.ingress[0]
+        or (
+            not lb.status.load_balancer.ingress[0].ip
+            and not lb.status.load_balancer.ingress[0].hostname
+        )
+    ):
+        return False
+    else:
+        return True
+
+
+async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Service:
+    """
+    Returns true if the load balancer service related to a StatefulSet exists.
+    Returns false otherwise.
+    """
+    svc_name = f"crate-{name}"
+    selector = f"metadata.name={svc_name}"
+    svc_list: V1ServiceList = await core.list_namespaced_service(
+        namespace=namespace, field_selector=selector
+    )
+
+    if len(svc_list.items) >= 1:
+        return svc_list.items[0]
+    else:
+        return None
 
 
 class RestartSubHandler(StateBasedSubHandler):
@@ -790,9 +868,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             snapshots_in_progress, statement = await are_snapshots_in_progress(
                 conn_factory, logger
@@ -849,9 +925,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             await set_cluster_setting(
                 conn_factory,
@@ -923,9 +997,7 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
         async with ApiClient() as api_client:
             core = CoreV1Api(api_client)
 
-            host = await get_host(core, namespace, name)
-            password = await get_system_user_password(core, namespace, name)
-            conn_factory = connection_factory(host, password)
+            conn_factory = await _get_connection_factory(core, namespace, name)
 
             await reset_cluster_setting(
                 conn_factory,

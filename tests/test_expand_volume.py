@@ -37,6 +37,7 @@ from crate.operator.constants import (
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.utils.formatting import convert_to_bytes
+from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
@@ -127,6 +128,11 @@ async def test_expand_cluster_storage(
         err_msg="Volume expansion has not finished.",
         timeout=DEFAULT_TIMEOUT * 3,
     )
+
+    # The host needs to be retrieved again because the IP address has changed.
+    # This is due to suspending and resuming the cluster recreates the load balancer.
+    # Make sure we wait for the cluster to be suspended.
+    host = await get_host(core, namespace.metadata.name, name)
 
     # assert the cluster has been scaled up again to the initial number of nodes
     await assert_wait_for(
