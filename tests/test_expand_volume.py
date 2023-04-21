@@ -136,7 +136,7 @@ async def test_expand_cluster_storage(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
-        err_msg="Scaling up has not finished",
+        err_msg="Cluster update has not finished",
         timeout=DEFAULT_TIMEOUT * 2,
     )
 
