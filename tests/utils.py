@@ -62,7 +62,7 @@ from crate.operator.utils.kubeapi import (
 
 logger = logging.getLogger(__name__)
 
-CRATE_VERSION = "5.2.5"
+CRATE_VERSION = "5.2.6"
 DEFAULT_TIMEOUT = 60
 
 
@@ -294,7 +294,8 @@ async def create_test_sys_jobs_table(conn_factory):
             table_name = config.JOBS_TABLE
             logger.info(f"Creating {table_name}")
             await cursor.execute(
-                f"CREATE TABLE {table_name} (id INTEGER, stmt VARCHAR)"
+                f"CREATE TABLE {table_name} (id INTEGER, stmt VARCHAR) "
+                "WITH (number_of_replicas='0-all')"
             )
 
 
