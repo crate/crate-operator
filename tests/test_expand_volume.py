@@ -129,6 +129,17 @@ async def test_expand_cluster_storage(
         timeout=DEFAULT_TIMEOUT * 3,
     )
 
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        err_msg="Scaling up has not finished",
+        timeout=DEFAULT_TIMEOUT * 2,
+    )
+
     # The host needs to be retrieved again because the IP address has changed.
     # This is due to suspending and resuming the cluster recreates the load balancer.
     # Make sure we wait for the cluster to be suspended.
@@ -141,17 +152,6 @@ async def test_expand_cluster_storage(
         connection_factory(host, password),
         number_of_nodes,
         err_msg="Cluster wasn't back up again after 5 minutes.",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    await assert_wait_for(
-        True,
-        is_kopf_handler_finished,
-        coapi,
-        name,
-        namespace.metadata.name,
-        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
-        err_msg="Volume Expansion handler has not finished.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
 

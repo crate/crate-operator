@@ -10,6 +10,8 @@ Unreleased
 * Suspending a cluster now deletes the load balancer.
   Resuming the cluster re-creates it.
 
+* Fixed PVC resize tests. They were impacted by the fact that we're not deleting the load balancer.
+
 2.26.1 (2023-04-12)
 -------------------
 
