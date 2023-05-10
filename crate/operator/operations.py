@@ -21,15 +21,19 @@
 
 import asyncio
 import logging
+import pkgutil
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
+import yaml
 from kopf import TemporaryError
 from kubernetes_asyncio.client import (
     AppsV1Api,
     BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
+    V1ConfigMap,
     V1CronJobList,
     V1JobList,
     V1JobStatus,
@@ -54,6 +58,7 @@ from crate.operator.constants import (
     LABEL_NODE_NAME,
     LABEL_PART_OF,
     RESOURCE_CRATEDB,
+    SQL_EXPORTER_CONFIGMAP_PREFIX,
 )
 from crate.operator.cratedb import (
     are_snapshots_in_progress,
@@ -758,6 +763,94 @@ async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Servic
         return svc_list.items[0]
     else:
         return None
+
+
+def get_sql_exporter_collectors(sql_exporter_config) -> list:
+    # Parse the config yaml file to get the defined collectors and load them
+    parsed_sql_exporter_config = yaml.load(
+        sql_exporter_config.decode(), Loader=yaml.FullLoader
+    )
+    return parsed_sql_exporter_config["target"]["collectors"]
+
+
+def add_sql_exporter_collectors_to_configmap(
+    config_map: V1ConfigMap, collectors: list
+) -> V1ConfigMap:
+    # Add the yaml collectors to the configmap dynamically
+    for collector in collectors:
+        # Remove the `_collector` suffix from the collector name if present
+        if collector.endswith("_collector"):
+            collector = collector[:-10]
+        yaml_filename = f"{collector}-collector.yaml"  # Notice the `-` instead of `_`!
+        collector_config = pkgutil.get_data("crate.operator", f"data/{yaml_filename}")
+
+        if collector_config is None:
+            raise FileNotFoundError(f"Could not load config for collector {collector}")
+        config_map.data[yaml_filename] = collector_config.decode()
+
+    return config_map
+
+
+def _has_sql_exporter_config_changed(
+    old_config_map: V1ConfigMap, new_collectors: list
+) -> bool:
+    for collector in new_collectors:
+        if collector.endswith("_collector"):
+            collector = collector[:-10]
+        yaml_filename = f"{collector}-collector.yaml"
+        if yaml_filename not in old_config_map.data.keys():
+            return True
+    return False
+
+
+async def update_sql_exporter_configmap(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    if not name.startswith(SQL_EXPORTER_CONFIGMAP_PREFIX):
+        return
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+
+        config_map: V1ConfigMap = await core.read_namespaced_config_map(
+            namespace=namespace, name=name
+        )
+
+        sql_exporter_config = pkgutil.get_data(
+            "crate.operator", "data/sql-exporter.yaml"
+        )
+
+        if sql_exporter_config:
+            collectors = get_sql_exporter_collectors(sql_exporter_config)
+
+            # check if configmap is already up-to-date
+            if not _has_sql_exporter_config_changed(config_map, collectors):
+                logger.info(
+                    "sql-exporter configmap %s in namespace %s is already up-to-date",
+                    name,
+                    namespace,
+                )
+                return
+
+            config_map.data["sql-exporter.yaml"] = sql_exporter_config.decode()
+            config_map = add_sql_exporter_collectors_to_configmap(
+                config_map, collectors
+            )
+            logger.info(
+                "updating sql-exporter configmap %s in namespace %s", name, namespace
+            )
+
+            await call_kubeapi(
+                core.patch_namespaced_config_map,
+                logger,
+                name=name,
+                namespace=namespace,
+                body=config_map,
+            )
+        else:
+            warnings.warn("Cannot load or missing SQL Exporter Collector config!")
 
 
 class RestartSubHandler(StateBasedSubHandler):

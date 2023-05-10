@@ -22,6 +22,7 @@
 import enum
 
 API_GROUP = "cloud.crate.io"
+RESOURCE_CONFIGMAP = "configmaps"
 RESOURCE_CRATEDB = "cratedbs"
 
 LABEL_COMPONENT = "app.kubernetes.io/component"
@@ -43,6 +44,7 @@ CLUSTER_CREATE_ID = "cluster_create"
 BACKUP_METRICS_DEPLOYMENT_NAME = "backup-metrics-{name}"
 DATA_NODE_NAME = "hot"
 DATA_PVC_NAME_PREFIX = "data"
+SQL_EXPORTER_CONFIGMAP_PREFIX = "crate-sql-exporter"
 
 SHARED_NODE_SELECTOR_KEY = "cratedb"
 SHARED_NODE_SELECTOR_VALUE = "shared"

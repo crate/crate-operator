@@ -1,0 +1,19 @@
+---
+collector_name: cratedb_unreplicated_tables_collector
+# This metric is intended to know if there are (partitioned) tables
+# with 0 replicas in the cluster. It is used to remind the customer to
+# configure replicas, which is strongly advised.
+metrics:
+- help: "Indicates tables with 0 replicas. Does not return if there are no unreplicated tables."
+  key_labels: [table_name]
+  metric_name: cratedb_unreplicated_tables
+  query: |
+    SELECT concat(table_schema,'.', table_name) as table_name, number_of_replicas
+    FROM information_schema.table_partitions
+    WHERE table_schema NOT IN ('information_schema', 'sys', 'pg_catalog') AND number_of_replicas = 0
+    UNION DISTINCT
+    SELECT concat(table_schema,'.', table_name) as table_name, number_of_replicas
+    FROM information_schema.tables
+    WHERE table_schema NOT IN ('information_schema', 'sys', 'pg_catalog') AND number_of_replicas = 0;
+  type: gauge
+  values: [number_of_replicas]
