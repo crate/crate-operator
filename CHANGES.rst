@@ -2,6 +2,11 @@
 Changelog
 =========
 
+Unreleased
+----------
+
+* Added ``cratedb_unreplicated_tables`` metric to the sql exporter.
+
 2.27.0 (2023-05-08)
 -------------------
 
