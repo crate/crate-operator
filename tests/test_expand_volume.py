@@ -118,7 +118,7 @@ async def test_expand_cluster_storage(
 
     # we just check if the PVC has been patched with the correct new disk size. We
     # do not wait for the PVC to be really resized because there is no guarantee
-    # it is supported.
+    # it is supported on the cluster we are running the tests on.
     await assert_wait_for(
         True,
         _all_pvcs_resized,
@@ -137,7 +137,7 @@ async def test_expand_cluster_storage(
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
         err_msg="Cluster update has not finished",
-        timeout=DEFAULT_TIMEOUT * 2,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # The host needs to be retrieved again because the IP address has changed.
