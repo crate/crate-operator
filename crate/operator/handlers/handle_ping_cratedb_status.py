@@ -76,7 +76,7 @@ async def ping_cratedb_status(
             logger.warning("Failed to ping cluster.", exc_info=e)
             status = PrometheusClusterStatus.UNREACHABLE
 
-        report_cluster_status(name, status)
+        report_cluster_status(name, namespace, status)
         patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
 
         await webhook_client.send_notification(
