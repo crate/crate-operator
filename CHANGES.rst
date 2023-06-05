@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Changed the metrics to also export the namespace as a label.
+
 2.28.0 (2023-06-05)
 -------------------
 

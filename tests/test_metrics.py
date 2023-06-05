@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 def test_will_report_metrics_for_clusters():
     last_reported = int(time.time())
-    report_cluster_status("id", PrometheusClusterStatus.GREEN, last_reported)
+    report_cluster_status("id", "ns1", PrometheusClusterStatus.GREEN, last_reported)
     metrics = list(REGISTRY.collect())
     cloud_clusters_health = next(
         filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
@@ -60,11 +60,13 @@ def test_will_report_metrics_for_clusters():
     )
     assert cloud_clusters_health_sample.value == 0
     assert cloud_clusters_last_seen.value == last_reported
+    assert cloud_clusters_health_sample.labels["exported_namespace"] == "ns1"
+    assert cloud_clusters_last_seen.labels["exported_namespace"] == "ns1"
 
 
 def test_will_expire_clusters_that_have_not_reported_for_a_while():
     last_reported = int(time.time()) - 100000
-    report_cluster_status("id", PrometheusClusterStatus.GREEN, last_reported)
+    report_cluster_status("id", "ns1", PrometheusClusterStatus.GREEN, last_reported)
     metrics = list(REGISTRY.collect())
     cloud_clusters_health = next(
         filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
@@ -87,7 +89,7 @@ def test_will_expire_clusters_that_have_not_reported_for_a_while():
 
 
 def test_will_not_report_last_seen_for_unreachable_clusters():
-    report_cluster_status("id", PrometheusClusterStatus.UNREACHABLE)
+    report_cluster_status("id", "ns1", PrometheusClusterStatus.UNREACHABLE)
     metrics = list(REGISTRY.collect())
     cloud_clusters_health = next(
         filter(lambda metric: metric.name == "cloud_clusters_health", metrics), None
@@ -108,6 +110,7 @@ def test_will_not_report_last_seen_for_unreachable_clusters():
     assert (
         cloud_clusters_health_sample.value == PrometheusClusterStatus.UNREACHABLE.value
     )
+    assert cloud_clusters_health_sample.labels["exported_namespace"] == "ns1"
     assert cloud_clusters_last_seen_sample is None
 
 

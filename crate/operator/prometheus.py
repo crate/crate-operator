@@ -51,10 +51,12 @@ class PrometheusClusterStatus(enum.Enum):
 
 def report_cluster_status(
     cluster_id: str,
+    namespace: str,
     status: PrometheusClusterStatus,
     last_reported: Optional[int] = None,
 ):
     CLUSTER_METRICS[cluster_id] = {
+        "namespace": namespace,
         "status": status,
         "last_reported": last_reported if last_reported else int(time.time()),
     }
@@ -66,19 +68,21 @@ class ClusterCollector:
         cloud_clusters_health = GaugeMetricFamily(
             "cloud_clusters_health",
             "0->GREEN, 1->YELLOW, 2->RED, 3->UNREACHABLE",
-            labels=["cluster_id"],
+            labels=["cluster_id", "exported_namespace"],
         )
         cloud_clusters_last_seen = GaugeMetricFamily(
             "cloud_clusters_last_seen",
             "Unix timestamp of when a cluster was last seen (not unreachable).",
-            labels=["cluster_id"],
+            labels=["cluster_id", "exported_namespace"],
         )
         for cluster_id, metrics in CLUSTER_METRICS.items():
             if now - metrics["last_reported"] < LAST_SEEN_THRESHOLD:
-                cloud_clusters_health.add_metric([cluster_id], metrics["status"].value)
+                cloud_clusters_health.add_metric(
+                    [cluster_id, metrics["namespace"]], metrics["status"].value
+                )
                 if metrics["status"] != PrometheusClusterStatus.UNREACHABLE:
                     cloud_clusters_last_seen.add_metric(
-                        [cluster_id], metrics["last_reported"]
+                        [cluster_id, metrics["namespace"]], metrics["last_reported"]
                     )
 
         yield cloud_clusters_health
