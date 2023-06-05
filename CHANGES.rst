@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.28.0 (2023-06-05)
+-------------------
+
 * Increased ``max_restore_bytes_per_sec`` when creating a repository for a backup restore operation.
 
 * Added ``cratedb_unreplicated_tables`` metric to the sql exporter.
