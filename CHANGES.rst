@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.29.0 (2023-06-07)
+-------------------
+
 * Changed the metrics to also export the namespace as a label.
 
 * Fixed a bug that prevented snapshots from being restored.
