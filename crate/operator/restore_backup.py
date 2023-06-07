@@ -525,7 +525,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         await cursor.execute(
                             f"CREATE REPOSITORY {repository_ident} type s3 with "
                             "(access_key = %s, secret_key = %s, bucket = %s, "
-                            "base_path = %s, readonly=true,",
+                            "base_path = %s, readonly=true,"
                             "max_restore_bytes_per_sec = '240mb')",
                             (
                                 data["accessKeyId"],
