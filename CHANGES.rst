@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Changed the metrics to also export the cluster name as a label.
+
 2.29.0 (2023-06-07)
 -------------------
 

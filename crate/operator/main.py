@@ -275,9 +275,14 @@ async def service_backup_schedule_update(
     annotations=annotation_filter(),
 )
 async def ping_cratedb(
-    namespace: str, name: str, patch: kopf.Patch, logger: logging.Logger, **kwargs
+    namespace: str,
+    name: str,
+    spec: kopf.Spec,
+    patch: kopf.Patch,
+    logger: logging.Logger,
+    **_kwargs,
 ):
-    await ping_cratedb_status(namespace, name, patch, logger)
+    await ping_cratedb_status(namespace, name, spec["cluster"]["name"], patch, logger)
 
 
 @kopf.on.resume(
