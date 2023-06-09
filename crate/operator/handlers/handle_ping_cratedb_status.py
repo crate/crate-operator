@@ -48,6 +48,7 @@ CLUSTER_STATUS_KEY = "crateDBStatus"
 async def ping_cratedb_status(
     namespace: str,
     name: str,
+    cluster_name: str,
     patch: kopf.Patch,
     logger: logging.Logger,
 ) -> None:
@@ -76,7 +77,7 @@ async def ping_cratedb_status(
             logger.warning("Failed to ping cluster.", exc_info=e)
             status = PrometheusClusterStatus.UNREACHABLE
 
-        report_cluster_status(name, namespace, status)
+        report_cluster_status(name, cluster_name, namespace, status)
         patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
 
         await webhook_client.send_notification(
