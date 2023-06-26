@@ -138,8 +138,17 @@ class StateBasedSubHandler(abc.ABC):
                 f"Waiting for '{wt}'.", delay=5 if config.TESTING else 30
             )
 
-        res = await self.handle(**kwargs)
-        return {"success": True, "ref": self.ref, "result": res}
+        try:
+            res = await self.handle(**kwargs)
+            return {"success": True, "ref": self.ref, "result": res}
+        except Exception as e:
+            if isinstance(e, kopf.TemporaryError) or isinstance(e, kopf.PermanentError):
+                raise
+            # The message gets sent to the k8s event log, and exc_info is found in
+            # the main log of the operator. It's useful to have the message in
+            # the event log too, as that one is easier to follow.
+            logger.exception(f"Uncaught exception in handler: {e}", exc_info=e)
+            raise
 
     @abc.abstractmethod
     async def handle(self, **kwargs: Any):

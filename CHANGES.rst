@@ -7,6 +7,8 @@ Unreleased
 
 * Changed the metrics to also export the cluster name as a label.
 
+* Print exception details if an exception happens in a sub handler.
+
 2.29.0 (2023-06-07)
 -------------------
 
