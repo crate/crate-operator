@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bump sql_exporter to 0.11.1
+
 2.30.0 (2023-06-27)
 -------------------
 
