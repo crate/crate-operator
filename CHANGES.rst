@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.30.1 (2023-07-06)
+-------------------
+
 * Bump sql_exporter to 0.11.1
 
 * Fixed patching of sql exporter configmap.
