@@ -847,7 +847,7 @@ async def update_sql_exporter_configmap(
                 logger,
                 name=name,
                 namespace=namespace,
-                body=config_map,
+                body={"data": config_map.data},
             )
         else:
             warnings.warn("Cannot load or missing SQL Exporter Collector config!")
