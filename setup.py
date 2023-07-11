@@ -56,7 +56,7 @@ setup(
         # and results in various "permission denied" errors.
         "kubernetes-asyncio==21.7.1",
         "PyYAML<7.0",
-        "prometheus_client==0.17.0",
+        "prometheus_client==0.17.1",
         # Versions 3.8+ incompatible with pytest-aiohttp.
         "aiohttp<=3.7.4",
         "wrapt==1.15.0",
