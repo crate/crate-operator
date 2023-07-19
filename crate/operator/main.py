@@ -52,7 +52,10 @@ from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
-from crate.operator.operations import update_sql_exporter_configmap
+from crate.operator.operations import (
+    is_namespace_terminating,
+    update_sql_exporter_configmap,
+)
 from crate.operator.restore_backup import is_valid_snapshot
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
@@ -198,6 +201,13 @@ async def cluster_restore(
     """
     Handles field changes which trigger restoring data from a backup.
     """
+
+    # Ensure the namespace is not terminating. Otherwise end with a permanent error.
+    if await is_namespace_terminating(namespace):
+        raise kopf.PermanentError(
+            "The namespace for the target operation is terminating"
+        )
+
     await restore_backup(namespace, name, diff, new, patch, status, started, logger)
 
 

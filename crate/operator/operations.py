@@ -37,6 +37,7 @@ from kubernetes_asyncio.client import (
     V1CronJobList,
     V1JobList,
     V1JobStatus,
+    V1Namespace,
     V1PersistentVolumeClaimList,
     V1PodList,
     V1Service,
@@ -238,6 +239,26 @@ async def get_pods_in_deployment(
         namespace=namespace, label_selector=label_selector
     )
     return [{"uid": p.metadata.uid, "name": p.metadata.name} for p in all_pods.items]
+
+
+async def get_namespace_resource(namespace_name: str) -> V1Namespace:
+    """
+    Return the CrateDB custom resource.
+
+    :param namespace_ am e: The Kubernetes namespace name to look up.
+    """
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        namespaces = await core.list_namespace()
+        for ns in namespaces.items:
+            if ns.metadata.name == namespace_name:
+                return ns
+        return None
+
+
+async def is_namespace_terminating(namespace_name: str) -> bool:
+    namespace_obj = await get_namespace_resource(namespace_name)
+    return namespace_obj and namespace_obj.status.phase == "Terminating"
 
 
 async def get_cratedb_resource(namespace: str, name: str) -> dict:
