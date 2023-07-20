@@ -243,9 +243,9 @@ async def get_pods_in_deployment(
 
 async def get_namespace_resource(namespace_name: str) -> V1Namespace:
     """
-    Return the CrateDB custom resource.
+    Return the namespace for the given name.
 
-    :param namespace_ am e: The Kubernetes namespace name to look up.
+    :param namespace_name: The Kubernetes namespace name to look up.
     """
     async with ApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -257,6 +257,11 @@ async def get_namespace_resource(namespace_name: str) -> V1Namespace:
 
 
 async def is_namespace_terminating(namespace_name: str) -> bool:
+    """
+    Determines if the namespace identified by the given name is terminating or not.
+
+    :param namespace_name: The Kubernetes namespace name to look up.
+    """
     namespace_obj = await get_namespace_resource(namespace_name)
     return namespace_obj and namespace_obj.status.phase == "Terminating"
 
