@@ -52,12 +52,23 @@ from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
-from crate.operator.operations import update_sql_exporter_configmap
+from crate.operator.operations import (
+    is_namespace_terminating,
+    update_sql_exporter_configmap,
+)
 from crate.operator.restore_backup import is_valid_snapshot
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
 NO_VALUE = object()
+
+
+async def raise_on_namespace_terminating(namespace: str):
+    # Ensure the namespace is not terminating. Otherwise end with a permanent error.
+    if await is_namespace_terminating(namespace):
+        raise kopf.PermanentError(
+            "The namespace for the target operation is terminating"
+        )
 
 
 @kopf.on.startup()
@@ -129,6 +140,7 @@ async def cluster_create(
     """
     Handles creation of CrateDB Clusters.
     """
+    await raise_on_namespace_terminating(namespace)
     await create_cratedb(namespace, meta, spec, patch, status, logger)
 
 
@@ -153,6 +165,7 @@ async def cluster_update(
     """
     Handles updates to the CrateDB resource.
     """
+    await raise_on_namespace_terminating(namespace)
     await update_cratedb(namespace, name, patch, status, diff, started)
 
 
@@ -172,6 +185,7 @@ async def secret_update(
     """
     Handles changes to the password for a CrateDB cluster.
     """
+    await raise_on_namespace_terminating(namespace)
     await update_user_password_secret(namespace, name, diff, logger)
 
 
@@ -198,6 +212,8 @@ async def cluster_restore(
     """
     Handles field changes which trigger restoring data from a backup.
     """
+
+    await raise_on_namespace_terminating(namespace)
     await restore_backup(namespace, name, diff, new, patch, status, started, logger)
 
 
@@ -218,6 +234,7 @@ async def service_cidr_changes(
     """
     Handles updates to the list of allowed CIDRs, and updates the relevant k8s Service.
     """
+    await raise_on_namespace_terminating(namespace)
     await update_service_allowed_cidrs(namespace, name, diff, logger)
 
 
@@ -243,6 +260,7 @@ async def service_external_ip_update(
     This gets posted to the backend for further handling as a webhook
     (if webhooks are enabled).
     """
+    await raise_on_namespace_terminating(namespace)
     await external_ip_changed(namespace, diff, meta, logger)
 
 
@@ -263,6 +281,7 @@ async def service_backup_schedule_update(
     """
     Handles updates to the backup schedule for AWS s3 backups.
     """
+    await raise_on_namespace_terminating(namespace)
     await update_backup_schedule(namespace, name, diff, logger)
 
 
@@ -282,6 +301,7 @@ async def ping_cratedb(
     logger: logging.Logger,
     **_kwargs,
 ):
+    await raise_on_namespace_terminating(namespace)
     await ping_cratedb_status(namespace, name, spec["cluster"]["name"], patch, logger)
 
 
@@ -301,4 +321,5 @@ async def resume_sql_exporter_configmap(
     """
     Updates sql-exporter configmap in all namespaces to latest.
     """
+    await raise_on_namespace_terminating(namespace)
     await update_sql_exporter_configmap(namespace, name, logger)

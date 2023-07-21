@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a bug that lead to the namespace not being deleted after deleting a cluster
+  that had a snapshot restore/clone operation in progress.
+
 2.30.1 (2023-07-06)
 -------------------
 
