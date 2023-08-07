@@ -34,11 +34,13 @@ from crate.operator.constants import (
     API_GROUP,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
+    SnapshotRestoreType,
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.restore_backup import (
     RESTORE_CLUSTER_CONCURRENT_REBALANCE,
     RESTORE_MAX_BYTES_PER_SEC,
+    RestoreType,
 )
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
@@ -217,13 +219,7 @@ async def test_restore_backup(
         True,
         mocked_coro_func_called_with,
         mock_start_restore_snapshot,
-        mock.call(
-            mock.ANY,
-            mock.ANY,
-            snapshot,
-            ["all"],
-            mock.ANY,
-        ),
+        mock.call(mock.ANY, mock.ANY, snapshot, "all", mock.ANY, [], [], []),
         err_msg="Did not call start restore snapshot.",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -420,6 +416,49 @@ async def test_restore_backup_create_repo_fails(
     )
 
 
+@pytest.mark.parametrize(
+    "restore_type, expected_keyword, params",
+    [
+        (SnapshotRestoreType.ALL, "ALL", None),
+        (SnapshotRestoreType.METADATA, "METADATA", None),
+        (
+            SnapshotRestoreType.SECTIONS,
+            "TABLES,USERS,PRIVILEGES",
+            ("tables", "users", "privileges"),
+        ),
+        (SnapshotRestoreType.TABLES, "TABLE table1,table2", ("table1", "table2")),
+        (
+            SnapshotRestoreType.PARTITIONS,
+            (
+                "TABLE table1 PARTITION (col1=val1,col2=val2),"
+                "TABLE table2 PARTITION (col3=val3)"
+            ),
+            [
+                {
+                    "table_ident": "table1",
+                    "columns": [
+                        {"name": "col1", "value": "val1"},
+                        {"name": "col2", "value": "val2"},
+                    ],
+                },
+                {
+                    "table_ident": "table2",
+                    "columns": [{"name": "col3", "value": "val3"}],
+                },
+            ],
+        ),
+    ],
+)
+def test_get_restore_type_keyword(restore_type, expected_keyword, params):
+    func_kwargs = {}
+    if params:
+        func_kwargs[restore_type.value] = params
+    restore_keyword = RestoreType.create(
+        restore_type.value, **func_kwargs
+    ).get_restore_keyword()
+    assert restore_keyword == expected_keyword
+
+
 async def patch_cluster_spec(
     coapi: CustomObjectsApi, namespace: str, name: str, snapshot: str, faker
 ):
@@ -449,7 +488,7 @@ async def patch_cluster_spec(
             },
         },
         "snapshot": snapshot,
-        "tables": ["all"],
+        "type": "all",
     }
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,

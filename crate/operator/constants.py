@@ -64,3 +64,11 @@ class Port(enum.Enum):
     PROMETHEUS = 7071
     POSTGRES = 5432
     TRANSPORT = 4300
+
+
+class SnapshotRestoreType(enum.Enum):
+    ALL = "all"
+    METADATA = "metadata"
+    TABLES = "tables"
+    SECTIONS = "sections"
+    PARTITIONS = "partitions"

@@ -19,10 +19,11 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import abc
 import asyncio
 import logging
 import re
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 import kopf
 from aiohttp.client_exceptions import WSServerHandshakeError
@@ -35,7 +36,12 @@ from psycopg2.errors import DuplicateTable
 from psycopg2.extensions import AsIs, QuotedString, quote_ident
 
 from crate.operator.config import config
-from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB, SYSTEM_USERNAME
+from crate.operator.constants import (
+    API_GROUP,
+    RESOURCE_CRATEDB,
+    SYSTEM_USERNAME,
+    SnapshotRestoreType,
+)
 from crate.operator.cratedb import (
     connection_factory,
     get_cluster_admin_username,
@@ -369,6 +375,140 @@ async def shards_recovery_in_progress(
             raise kopf.PermanentError("Shards could not be fetched.")
 
 
+class RestoreType(abc.ABC):
+    """
+    Base class for the different types of restore operations. New subclasses
+    are identified by their ``restore_type`` and can be added dynamically by
+    using the ``register_subclass`` decorator.
+    """
+
+    subclasses: Dict[str, Any] = {}
+
+    def __init__(
+        self,
+        *,
+        tables: Optional[List[str]] = None,
+        sections: Optional[List[str]] = None,
+        partitions: Optional[List[Dict]] = None,
+        **_kwargs,
+    ):
+        self.tables = tables
+        self.sections = sections
+        self.partitions = partitions
+
+    @classmethod
+    def register_subclass(cls, restore_type: str):
+        def decorator(subclass):
+            cls.subclasses[restore_type] = subclass
+            return subclass
+
+        return decorator
+
+    @classmethod
+    def create(cls, restore_type: str, *args, **kwargs):
+        if restore_type not in cls.subclasses:
+            raise kopf.PermanentError(f"Unknown restore type {restore_type}")
+
+        return cls.subclasses[restore_type](*args, **kwargs)
+
+    @abc.abstractmethod
+    def get_restore_keyword(self):
+        """
+        Each subclass needs to return the keyword to be used in the
+        ``RESTORE SNAPSHOT`` command based on the type of restore operation.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        """
+        Each subclass needs to define a method which indicates that the restore
+        operation has been completed successfully. Or raise a ``kopf.TemporaryError``
+        in case the operation is still in progress.
+        """
+        raise NotImplementedError()
+
+
+@RestoreType.register_subclass(SnapshotRestoreType.TABLES.value)
+class RestoreTables(RestoreType):
+    def get_restore_keyword(self):
+        tables = self.tables or []
+        # keep this check for backwards compatibility
+        if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
+            return "ALL"
+
+        return f'TABLE {",".join(tables)}'
+
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        tables = self.tables or []
+        await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+
+
+@RestoreType.register_subclass(SnapshotRestoreType.METADATA.value)
+class RestoreMetadata(RestoreType):
+    def get_restore_keyword(self):
+        return "METADATA"
+
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        return True
+
+
+@RestoreType.register_subclass(SnapshotRestoreType.ALL.value)
+class RestoreAll(RestoreType):
+    def get_restore_keyword(self):
+        return "ALL"
+
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        tables = self.tables or []
+        await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+
+
+@RestoreType.register_subclass(SnapshotRestoreType.SECTIONS.value)
+class RestoreDataSections(RestoreType):
+    DATA_SECTION_TABLES: str = "tables"
+
+    def get_restore_keyword(self):
+        sections = self.sections or []
+        sections = [s.upper() for s in sections]
+        return ",".join(sections)
+
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        sections = self.sections or []
+        if any(section.lower() == self.DATA_SECTION_TABLES for section in sections):
+            tables = self.tables or []
+            await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+
+
+@RestoreType.register_subclass(SnapshotRestoreType.PARTITIONS.value)
+class RestorePartitions(RestoreType):
+    def get_restore_keyword(self):
+        partitions = self.partitions or []
+        table_idents = []
+        for partition in partitions:
+            columns = [f"{col['name']}={col['value']}" for col in partition["columns"]]
+            table_idents.append(
+                f"TABLE {partition['table_ident']} PARTITION ({','.join(columns)})"
+            )
+
+        return ",".join(table_idents)
+
+    async def validate_restore_complete(
+        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+    ):
+        # TODO: verify all partitions have been restored successfully
+        return True
+
+
 class BeforeRestoreBackupSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
@@ -478,7 +618,10 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         name: str,
         repository: str,
         snapshot: str,
-        tables: List,
+        restore_type: str,
+        tables: List[str],
+        partitions: List[Dict],
+        sections: List[str],
         logger: logging.Logger,
         **kwargs: Any,
     ):
@@ -503,7 +646,14 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
             )
 
             await self._start_restore_snapshot(
-                conn_factory, repository, snapshot, tables, logger
+                conn_factory,
+                repository,
+                snapshot,
+                restore_type,
+                logger,
+                tables,
+                partitions,
+                sections,
             )
 
     @staticmethod
@@ -590,8 +740,11 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         conn_factory,
         repository: str,
         snapshot: str,
-        tables: List,
+        restore_type: str,
         logger: logging.Logger,
+        tables: Optional[List[str]] = None,
+        partitions: Optional[List[Dict]] = None,
+        sections: Optional[List[str]] = None,
     ):
         """
         Run the ``RESTORE SNAPSHOT`` command to start the restore operation in the
@@ -601,13 +754,16 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
             the CrateDB cluster used for SQL queries.
         :param repository: The name of the repository.
         :param snapshot: The name of the snapshot to restore.
-        :param tables: The list of tables that should be restored.
+        :param restore_type: The type of restore operation that should be performed.
         :param logger: the logger on which we're logging
+        :param tables: The list of tables that should be restored.
+        :param partitions: The list of partitions that should be restored.
+        :param sections: The list of sections that should be restored.
         """
-        if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
-            tables_str = "all"
-        else:
-            tables_str = f'TABLE {",".join(tables)}'
+        restore_keyword = RestoreType.create(
+            restore_type, tables=tables, sections=sections, partitions=partitions
+        ).get_restore_keyword()
+
         try:
             async with conn_factory() as conn:
                 async with conn.cursor() as cursor:
@@ -616,7 +772,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
 
                     await cursor.execute(
                         f"RESTORE SNAPSHOT {repository_ident}.{snapshot_ident} "
-                        f"{AsIs(tables_str)} with (wait_for_completion=false)"
+                        f"{AsIs(restore_keyword)} with (wait_for_completion=false)"
                     )
         except DuplicateTable as e:
             logger.warning("Relation already exists.", exc_info=e)
@@ -701,7 +857,10 @@ class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
         namespace: str,
         name: str,
         snapshot: str,
+        restore_type: str,
         tables: List[str],
+        partitions: List[Dict],
+        sections: List[str],
         logger: logging.Logger,
         **kwargs: Any,
     ):
@@ -714,7 +873,14 @@ class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
             conn_factory = connection_factory(host, password)
             async with conn_factory() as conn:
                 async with conn.cursor() as cursor:
-                    await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+                    await RestoreType.create(
+                        restore_type,
+                        tables=tables,
+                        sections=sections,
+                        partitions=partitions,
+                    ).validate_restore_complete(
+                        cursor=cursor, snapshot=snapshot, logger=logger
+                    )
 
 
 class AfterRestoreBackupSubHandler(StateBasedSubHandler):
@@ -953,17 +1119,27 @@ class ResetSnapshotSubHandler(StateBasedSubHandler):
         """
         async with ApiClient() as api_client:
             coapi = CustomObjectsApi(api_client)
+            body = [
+                {
+                    "op": "replace",
+                    "path": "/spec/cluster/restoreSnapshot/snapshot",
+                    "value": "",
+                }
+            ]
+            cratedb = await get_cratedb_resource(namespace, name)
+            for key in ["type", "tables", "sections", "partitions"]:
+                if key in cratedb["spec"]["cluster"]["restoreSnapshot"]:
+                    body.append(
+                        {
+                            "op": "remove",
+                            "path": f"/spec/cluster/restoreSnapshot/{key}",
+                        }
+                    )
             await coapi.patch_namespaced_custom_object(
                 group=API_GROUP,
                 version="v1",
                 plural=RESOURCE_CRATEDB,
                 namespace=namespace,
                 name=name,
-                body=[
-                    {
-                        "op": "replace",
-                        "path": "/spec/cluster/restoreSnapshot/snapshot",
-                        "value": "",
-                    }
-                ],
+                body=body,
             )

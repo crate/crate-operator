@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Added support for performing different types of restore operations, e.g. only
+  metadata, users or tables.
+
 2.30.3 (2023-08-29)
 -------------------
 
