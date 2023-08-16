@@ -330,6 +330,13 @@ async def shards_recovery_in_progress(
             await cursor.execute(
                 "SELECT id FROM sys.shards WHERE schema_name = %s "
                 "AND table_name = %s "
+                "LIMIT 1;",
+                (schema, table_name),
+            )
+            any_shard_exists = await cursor.fetchone()
+            await cursor.execute(
+                "SELECT id FROM sys.shards WHERE schema_name = %s "
+                "AND table_name = %s "
                 "AND primary = TRUE "
                 "LIMIT 1;",
                 (schema, table_name),
@@ -346,7 +353,7 @@ async def shards_recovery_in_progress(
             )
             shard_in_progress = await cursor.fetchone()
 
-            if not primary_shard_exists or shard_in_progress:
+            if any_shard_exists and (not primary_shard_exists or shard_in_progress):
                 logger.info(
                     f"Table {schema}.{table_name} was not restored successfully."
                 )
