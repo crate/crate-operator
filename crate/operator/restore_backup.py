@@ -327,6 +327,9 @@ async def shards_recovery_in_progress(
     for t in tables:
         (schema, table_name) = t.rsplit(".", 1)
         try:
+            # If there is at least one shard, the table is not empty.
+            # We need to check that to ensure the operation does not fail while
+            # restoring empty partitioned tables.
             await cursor.execute(
                 "SELECT id FROM sys.shards WHERE schema_name = %s "
                 "AND table_name = %s "
