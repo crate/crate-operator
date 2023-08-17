@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fixed a bug that made cloning/restoring an empty partitioned table report a failure
+  regardless of whether it succeeded or not.
+
 2.30.2 (2023-08-10)
 -------------------
 

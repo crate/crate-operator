@@ -327,6 +327,16 @@ async def shards_recovery_in_progress(
     for t in tables:
         (schema, table_name) = t.rsplit(".", 1)
         try:
+            # If there is at least one shard, the table is not empty.
+            # We need to check that to ensure the operation does not fail while
+            # restoring empty partitioned tables.
+            await cursor.execute(
+                "SELECT id FROM sys.shards WHERE schema_name = %s "
+                "AND table_name = %s "
+                "LIMIT 1;",
+                (schema, table_name),
+            )
+            any_shard_exists = await cursor.fetchone()
             await cursor.execute(
                 "SELECT id FROM sys.shards WHERE schema_name = %s "
                 "AND table_name = %s "
@@ -346,7 +356,7 @@ async def shards_recovery_in_progress(
             )
             shard_in_progress = await cursor.fetchone()
 
-            if not primary_shard_exists or shard_in_progress:
+            if any_shard_exists and (not primary_shard_exists or shard_in_progress):
                 logger.info(
                     f"Table {schema}.{table_name} was not restored successfully."
                 )
