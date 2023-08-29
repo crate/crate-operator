@@ -27,6 +27,7 @@ from typing import List
 import kopf
 
 from crate.operator.config import config
+from crate.operator.constants import SnapshotRestoreType
 from crate.operator.handlers.handle_update_cratedb import get_backoff
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
@@ -70,7 +71,10 @@ async def restore_backup(
 
     cratedb = await get_cratedb_resource(namespace, name)
     snapshot = new["snapshot"]
-    tables = new.get("tables", ["all"])
+    restore_type = new.get("type", SnapshotRestoreType.TABLES.value)
+    tables = new.get("tables", [])
+    partitions = new.get("partitions", [])
+    sections = new.get("sections", [])
 
     scheme = get_crash_scheme(cratedb)
     pod_name = get_crash_pod_name(cratedb, name)
@@ -96,7 +100,10 @@ async def restore_backup(
         depends_on,
         repository,
         snapshot,
+        restore_type,
         tables,
+        partitions,
+        sections,
     )
 
     register_after_restore_handlers(
@@ -149,7 +156,6 @@ def register_before_restore_handlers(
     context: dict,
     depends_on: list,
 ):
-
     kopf.register(
         fn=BeforeClusterUpdateSubHandler(
             namespace, name, change_hash, context, depends_on=depends_on.copy()
@@ -184,7 +190,10 @@ def register_restore_handlers(
     depends_on: list,
     repository: str,
     snapshot: str,
+    restore_type: str,
     tables: list,
+    partitions: list,
+    sections: list,
 ):
     kopf.register(
         fn=RestoreBackupSubHandler(
@@ -196,7 +205,10 @@ def register_restore_handlers(
         )(
             repository=repository,
             snapshot=snapshot,
+            restore_type=restore_type,
             tables=tables,
+            partitions=partitions,
+            sections=sections,
         ),
         id="restore_backup_data",
         backoff=get_backoff(),
@@ -224,7 +236,13 @@ def register_restore_handlers(
             change_hash,
             context,
             depends_on=depends_on.copy(),
-        )(snapshot=snapshot, tables=tables),
+        )(
+            snapshot=snapshot,
+            restore_type=restore_type,
+            tables=tables,
+            partitions=partitions,
+            sections=sections,
+        ),
         id="validate_restore_complete",
         backoff=get_backoff(),
     )
