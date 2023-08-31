@@ -8,6 +8,9 @@ Unreleased
 * Added support for performing different types of restore operations, e.g. only
   metadata, users or tables.
 
+* Increased the timeout for querying ``sys.snapshots`` table when verifying backup
+  repository.
+
 2.30.3 (2023-08-29)
 -------------------
 

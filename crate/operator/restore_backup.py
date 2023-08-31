@@ -292,28 +292,31 @@ async def get_source_backup_repository_data(
 
 
 async def get_snapshot_tables(
-    cursor: Cursor, snapshot: str, logger: logging.Logger
+    conn_factory, snapshot: str, logger: logging.Logger
 ) -> List[Any]:
     """
     Returns a list of tables included in a snapshot.
 
-    :param cursor: A database cursor to a current and open database connection.
+    :param conn_factory: A function that establishes a database connection to
+        the CrateDB cluster used for SQL queries.
     :param snapshot: The name of the snapshot where to lookup the tables.
     :param logger: the logger on which we're logging
     """
     try:
-        await cursor.execute(
-            "SELECT tables FROM sys.snapshots WHERE name=%s", (str(snapshot),)
-        )
-        row = await cursor.fetchone()
-        return row[0] if row else []
+        async with conn_factory() as conn:
+            async with conn.cursor(timeout=120) as cursor:
+                await cursor.execute(
+                    "SELECT tables FROM sys.snapshots WHERE name=%s", (str(snapshot),)
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else []
     except ProgrammingError as e:
         logger.warning("Failed to get snapshot tables.", exc_info=e)
         return []
 
 
 async def shards_recovery_in_progress(
-    cursor: Cursor,
+    conn_factory,
     snapshot: str,
     tables: List[str],
     logger: logging.Logger,
@@ -322,54 +325,59 @@ async def shards_recovery_in_progress(
     Checks if there is at least one shard which has not fully recovered after an
     operation of type ``SNAPSHOT``.
 
-    :param cursor: A database cursor to a current and open database connection.
+    :param conn_factory: A function that establishes a database connection to
+        the CrateDB cluster used for SQL queries.
     :param snapshot: The name of the snapshot to restore.
     :param tables: A list of tables which should be checked for shards that have
         not been restored completely.
     :param logger: the logger on which we're logging
     """
     if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
-        tables = await get_snapshot_tables(cursor, snapshot, logger)
+        tables = await get_snapshot_tables(conn_factory, snapshot, logger)
     for t in tables:
         (schema, table_name) = t.rsplit(".", 1)
         try:
             # If there is at least one shard, the table is not empty.
             # We need to check that to ensure the operation does not fail while
             # restoring empty partitioned tables.
-            await cursor.execute(
-                "SELECT id FROM sys.shards WHERE schema_name = %s "
-                "AND table_name = %s "
-                "LIMIT 1;",
-                (schema, table_name),
-            )
-            any_shard_exists = await cursor.fetchone()
-            await cursor.execute(
-                "SELECT id FROM sys.shards WHERE schema_name = %s "
-                "AND table_name = %s "
-                "AND primary = TRUE "
-                "LIMIT 1;",
-                (schema, table_name),
-            )
-            primary_shard_exists = await cursor.fetchone()
-            await cursor.execute(
-                "SELECT id FROM sys.shards WHERE schema_name = %s "
-                "AND table_name = %s "
-                "AND (state = 'RECOVERING' AND recovery['type'] = 'SNAPSHOT' "
-                "AND recovery['size']['percent'] < 100) "
-                "AND primary = TRUE "
-                "LIMIT 1;",
-                (schema, table_name),
-            )
-            shard_in_progress = await cursor.fetchone()
+            async with conn_factory() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute(
+                        "SELECT id FROM sys.shards WHERE schema_name = %s "
+                        "AND table_name = %s "
+                        "LIMIT 1;",
+                        (schema, table_name),
+                    )
+                    any_shard_exists = await cursor.fetchone()
+                    await cursor.execute(
+                        "SELECT id FROM sys.shards WHERE schema_name = %s "
+                        "AND table_name = %s "
+                        "AND primary = TRUE "
+                        "LIMIT 1;",
+                        (schema, table_name),
+                    )
+                    primary_shard_exists = await cursor.fetchone()
+                    await cursor.execute(
+                        "SELECT id FROM sys.shards WHERE schema_name = %s "
+                        "AND table_name = %s "
+                        "AND (state = 'RECOVERING' AND recovery['type'] = 'SNAPSHOT' "
+                        "AND recovery['size']['percent'] < 100) "
+                        "AND primary = TRUE "
+                        "LIMIT 1;",
+                        (schema, table_name),
+                    )
+                    shard_in_progress = await cursor.fetchone()
 
-            if any_shard_exists and (not primary_shard_exists or shard_in_progress):
-                logger.info(
-                    f"Table {schema}.{table_name} was not restored successfully."
-                )
-                raise kopf.PermanentError(
-                    "Insufficient disc space. Please either expand storage "
-                    "or scale up the number of nodes."
-                )
+                    if any_shard_exists and (
+                        not primary_shard_exists or shard_in_progress
+                    ):
+                        logger.info(
+                            f"Table {schema}.{table_name} not restored successfully."
+                        )
+                        raise kopf.PermanentError(
+                            "Insufficient disc space. Please either expand storage "
+                            "or scale up the number of nodes."
+                        )
         except DatabaseError as e:
             logger.warning("DatabaseError in shards_recovery_in_progress", exc_info=e)
             raise kopf.PermanentError("Shards could not be fetched.")
@@ -421,7 +429,7 @@ class RestoreType(abc.ABC):
 
     @abc.abstractmethod
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         """
         Each subclass needs to define a method which indicates that the restore
@@ -442,10 +450,10 @@ class RestoreTables(RestoreType):
         return f'TABLE {",".join(tables)}'
 
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         tables = self.tables or []
-        await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+        await shards_recovery_in_progress(conn_factory, snapshot, tables, logger)
 
 
 @RestoreType.register_subclass(SnapshotRestoreType.METADATA.value)
@@ -454,7 +462,7 @@ class RestoreMetadata(RestoreType):
         return "METADATA"
 
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         return True
 
@@ -465,10 +473,10 @@ class RestoreAll(RestoreType):
         return "ALL"
 
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         tables = self.tables or []
-        await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+        await shards_recovery_in_progress(conn_factory, snapshot, tables, logger)
 
 
 @RestoreType.register_subclass(SnapshotRestoreType.SECTIONS.value)
@@ -481,12 +489,12 @@ class RestoreDataSections(RestoreType):
         return ",".join(sections)
 
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         sections = self.sections or []
         if any(section.lower() == self.DATA_SECTION_TABLES for section in sections):
             tables = self.tables or []
-            await shards_recovery_in_progress(cursor, snapshot, tables, logger)
+            await shards_recovery_in_progress(conn_factory, snapshot, tables, logger)
 
 
 @RestoreType.register_subclass(SnapshotRestoreType.PARTITIONS.value)
@@ -503,7 +511,7 @@ class RestorePartitions(RestoreType):
         return ",".join(table_idents)
 
     async def validate_restore_complete(
-        self, *, cursor: Cursor, snapshot: str, logger: logging.Logger, **_kwargs
+        self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
     ):
         # TODO: verify all partitions have been restored successfully
         return True
@@ -716,7 +724,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         """
         try:
             async with conn_factory() as conn:
-                async with conn.cursor() as cursor:
+                async with conn.cursor(timeout=120) as cursor:
                     await cursor.execute(
                         "SELECT * FROM sys.snapshots WHERE repository=%s "
                         "AND name=%s LIMIT 1;",
@@ -871,16 +879,15 @@ class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
                 get_host(core, namespace, name),
             )
             conn_factory = connection_factory(host, password)
-            async with conn_factory() as conn:
-                async with conn.cursor() as cursor:
-                    await RestoreType.create(
-                        restore_type,
-                        tables=tables,
-                        sections=sections,
-                        partitions=partitions,
-                    ).validate_restore_complete(
-                        cursor=cursor, snapshot=snapshot, logger=logger
-                    )
+
+            await RestoreType.create(
+                restore_type,
+                tables=tables,
+                sections=sections,
+                partitions=partitions,
+            ).validate_restore_complete(
+                conn_factory=conn_factory, snapshot=snapshot, logger=logger
+            )
 
 
 class AfterRestoreBackupSubHandler(StateBasedSubHandler):
