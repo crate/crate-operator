@@ -1059,7 +1059,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                 ):
                     await kopf.execute(
                         fns={
-                            "notify_backup_running": subhandler_partial(
+                            "notify_backup_running": subhandler_partial(  # type: ignore[dict-item]  # noqa: E501
                                 self._notify_backup_running, logger
                             )
                         }

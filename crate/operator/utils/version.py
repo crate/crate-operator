@@ -21,7 +21,7 @@
 
 import re
 from distutils.version import Version
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, cast
 
 
 class CrateVersion(Version):
@@ -63,9 +63,9 @@ class CrateVersion(Version):
 
     version: Optional[Tuple[int, int, int]]
 
-    major: int
-    minor: int
-    hotfix: int
+    major: Union[int, None]
+    minor: Union[int, None]
+    hotfix: Union[int, None]
 
     stable: bool
     snapshot: bool
@@ -130,7 +130,7 @@ class CrateVersion(Version):
 
     def __str__(self):
         if self.stable:
-            return ".".join(map(str, self.version))
+            return ".".join(map(str, cast(list, self.version)))
 
         if self.nightly:
             vstring = "nightly"
@@ -250,14 +250,15 @@ class CrateVersion(Version):
         )
 
         if hotfix:
-            self.version = tuple(map(int, [major, minor, hotfix]))
+            self.version = tuple(map(int, [major, minor, hotfix]))  # type: ignore[assignment]  # noqa: E501
         else:
-            self.version = tuple(map(int, [major, minor])) + (0,)
+            self.version = tuple(map(int, [major, minor])) + (0,)  # type: ignore[assignment]  # noqa: E501
 
         self.stable = False if snapshot else True
         self.nightly = False
         self.snapshot = True if snapshot else False
-        self.major, self.minor, self.hotfix = self.version
+        if self.version is not None:
+            self.major, self.minor, self.hotfix = self.version
 
     def _parse_nightly(self, vstring):
         match = self.nightly_version_re.match(vstring)
@@ -270,7 +271,7 @@ class CrateVersion(Version):
 
         if has_version:
             self.major, self.minor, self.hotfix = int(major), int(minor), int(hotfix)
-            self.version = tuple(map(int, [self.major, self.minor, self.hotfix]))
+            self.version = tuple(map(int, [self.major, self.minor, self.hotfix]))  # type: ignore[assignment]  # noqa: E501
         else:
             self.major, self.minor, self.hotfix = None, None, None
             self.version = None
