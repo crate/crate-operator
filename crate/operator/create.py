@@ -587,7 +587,17 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             # We need to do this in an init container because of the required
             # security context. We don't want to run CrateDB with that context,
             # thus doing it before.
-            command=["sysctl", "-w", "vm.max_map_count=262144"],
+            command=[
+                "sysctl",
+                "-w",
+                # CrateDB requirement due to the number of open file descriptors
+                "vm.max_map_count=262144",
+                # Certain load balancers (i.e. AWS NLB) terminate idle connections.
+                # We set explicit TCP keepalives so that this does not happen.
+                "net.ipv4.tcp_keepalive_time=120",
+                "net.ipv4.tcp_keepalive_intvl=30",
+                "net.ipv4.tcp_keepalive_probes=6",
+            ],
             image="busybox:1.35.0",
             image_pull_policy="IfNotPresent",
             name="init-sysctl",
