@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Maintenance: Update to Python 3.11
+
 2.39.0 (2024-05-22)
 -------------------
 
