@@ -19,6 +19,9 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+# Sphinx configuration file does not need type checking.
+# type: ignore
+
 import asyncio
 import os
 import pathlib
