@@ -19,6 +19,8 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+# mypy: disable-error-code="arg-type, attr-defined, list-item, operator"
+
 import enum
 import time
 from datetime import datetime

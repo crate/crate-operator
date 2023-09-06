@@ -5,3 +5,21 @@ target-version = ['py38']
 requires = ["setuptools>=58", "wheel", "setuptools_scm>=6.2"]
 
 [tool.setuptools_scm]
+
+[tool.mypy]
+packages = ["crate", "tests"]
+check_untyped_defs = true
+explicit_package_bases = true
+ignore_missing_imports = true
+implicit_optional = false
+install_types = true
+namespace_packages = true
+non_interactive = true
+show_error_codes = true
+strict_equality = true
+warn_unused_ignores = false
+warn_redundant_casts = false
+
+[[tool.mypy.overrides]]
+module = "crate.operator.main"
+ignore_errors = true
