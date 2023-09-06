@@ -123,6 +123,8 @@ class TestStatefulSetAffinity:
         with mock.patch("crate.operator.create.config.TESTING", False):
             affinity = get_statefulset_affinity(name, logging.getLogger(__name__), {})
 
+        assert affinity, "`affinity` is None or empty"
+
         apa = affinity.pod_anti_affinity
         terms = apa.required_during_scheduling_ignored_during_execution[0]
         expressions = terms.label_selector.match_expressions
@@ -168,6 +170,8 @@ class TestStatefulSetAffinity:
                 name, logging.getLogger(__name__), node_spec
             )
 
+        assert affinity, "`affinity` is None or empty"
+
         apa = affinity.pod_anti_affinity
         terms = apa.required_during_scheduling_ignored_during_execution[0]
         expressions = terms.label_selector.match_expressions
@@ -202,6 +206,8 @@ class TestStatefulSetAffinity:
                 name, logging.getLogger(__name__), node_spec
             )
 
+        assert affinity, "`affinity` is None or empty"
+
         na = affinity.node_affinity
         selector = na.required_during_scheduling_ignored_during_execution
         terms = selector.node_selector_terms[0]
@@ -222,6 +228,8 @@ class TestStatefulSetAffinity:
                 "crate.operator.create.config.CLOUD_PROVIDER", provider.value
             ):
                 topospread = get_topology_spread(name, logging.getLogger(__name__))
+
+        assert topospread, "`topospread` is None or empty"
 
         terms = topospread[0]
         expressions = terms.label_selector.match_expressions
@@ -274,6 +282,8 @@ class TestTolerations:
         with mock.patch("crate.operator.create.config.TESTING", False):
             tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
 
+        assert tolerations, "`tolerations` is None or empty"
+
         assert len(tolerations) == 1
         assert tolerations[0].to_dict() == {
             "effect": "NoSchedule",
@@ -301,6 +311,8 @@ class TestTolerations:
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):
             tolerations = get_tolerations(name, logging.getLogger(__name__), node_spec)
+
+        assert tolerations, "`tolerations` is None or empty"
 
         toleration = tolerations[0]
         expected = {
@@ -1009,7 +1021,7 @@ class TestServiceModels:
         http = faker.port_number()
         psql = faker.port_number()
         with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
-            service = get_data_service(None, name, None, http, psql, dns)
+            service = get_data_service(None, name, {}, http, psql, dns)
         annotation_keys = service.metadata.annotations.keys()
         if provider == "aws":
             assert (
@@ -1442,7 +1454,7 @@ class TestCreateCustomResource:
 
 
 def test_sql_exporter_config():
-    result = get_sql_exporter_config(None, "test-name", None)
+    result = get_sql_exporter_config(None, "test-name", {})
     assert result.metadata.name == "crate-sql-exporter-test-name"
 
     _, _, filenames = next(walk("crate/operator/data"))

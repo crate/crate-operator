@@ -77,7 +77,7 @@ async def create_user(
     name: str,
     username: str,
     password: str,
-    privileges: List[str] = None,
+    privileges: Optional[List[str]] = None,
 ) -> None:
     """
     Create user ``username`` and grant it given privileges.
