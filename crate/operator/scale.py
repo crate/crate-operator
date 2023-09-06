@@ -515,8 +515,8 @@ async def scale_cluster(
                 total_number_of_nodes = (
                     total_number_of_nodes + new_replicas - old_replicas
                 )
-                index, *_ = field_path
-                index = int(index)
+                index_raw, *_ = field_path
+                index = int(index_raw)
                 node_spec = spec["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
@@ -559,8 +559,8 @@ async def scale_cluster(
                 total_number_of_nodes = (
                     total_number_of_nodes + new_replicas - old_replicas
                 )
-                index, *_ = field_path
-                index = int(index)
+                index_raw, *_ = field_path
+                index = int(index_raw)
                 node_spec = spec["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
