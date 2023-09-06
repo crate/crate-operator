@@ -11,6 +11,8 @@ Unreleased
 * Increased the timeout for querying ``sys.snapshots`` table when verifying backup
   repository.
 
+* Maintenance: Update to Python 3.11, and modernize dependencies
+
 2.30.3 (2023-08-29)
 -------------------
 
