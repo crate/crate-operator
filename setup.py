@@ -49,17 +49,16 @@ setup(
     package_data={"crate.operator": ["data/*"]},
     setup_requires=["setuptools>=58", "setuptools_scm>=6.2"],
     install_requires=[
-        "aiopg==1.4.0",
-        "bitmath==1.3.3.1",
-        "kopf==1.35.6",
+        "aiopg<1.5",
+        "bitmath<1.4",
+        "kopf<1.37",
         # Careful with 22+ - it is currently not compatible
         # and results in various "permission denied" errors.
-        "kubernetes-asyncio==21.7.1",
-        "PyYAML<7.0",
-        "prometheus_client==0.17.1",
-        # Versions 3.8+ incompatible with pytest-aiohttp.
-        "aiohttp<=3.7.4",
-        "wrapt==1.15.0",
+        "kubernetes-asyncio<22",
+        "PyYAML<7",
+        "prometheus_client<0.18",
+        "aiohttp<3.9",
+        "wrapt<1.16",
     ],
     extras_require={
         "docs": [
@@ -70,18 +69,18 @@ setup(
             "Jinja2<3.1",
         ],
         "testing": [
-            "faker==18.3.1",
-            "pytest==7.4.1",
-            "pytest-aiohttp==0.3.0",
-            "pytest-asyncio==0.21.1",
-            "pytest-xdist==3.3.1",  # enables parallel testing
-            "filelock==3.12.3",  # used for locks when running in parallel mode
+            "faker<19",
+            "pytest<8",
+            "pytest-aiohttp<2",
+            "pytest-asyncio<0.22",
+            "pytest-xdist<3.4",  # enables parallel testing
+            "filelock<3.13",  # used for locks when running in parallel mode
         ],
         "develop": [
             "black==22.3.0",
             "flake8==3.8.4",
             "isort==5.12.0",
-            "mypy==0.770",
+            "mypy<2",
         ],
     },
     python_requires=">=3.8",
@@ -90,6 +89,9 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
     ],
     use_scm_version=True,
 )
