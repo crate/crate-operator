@@ -57,6 +57,7 @@ setup(
         "prometheus_client==0.21.0",
         "aiohttp==3.10.10",
         "wrapt==1.17.0",
+        "python-json-logger==2.0.7",
     ],
     extras_require={
         "docs": [
@@ -76,15 +77,15 @@ setup(
             "black==22.3.0",
             "flake8==3.8.4",
             "isort==5.12.0",
-            "mypy==0.770",
+            "mypy==0.981",
         ],
     },
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.10",
     ],
     use_scm_version=True,
 )
