@@ -11,6 +11,9 @@ Unreleased
 * Increased the timeout for querying ``sys.snapshots`` table when verifying backup
   repository.
 
+* Explicitly lowering TCP keepalives to 120s to deal with naughty load balancers.
+  Looking at you, AWS NLB.
+
 2.30.3 (2023-08-29)
 -------------------
 
