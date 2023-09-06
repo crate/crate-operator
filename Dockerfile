@@ -1,5 +1,5 @@
 # Build container
-FROM python:3.8-slim AS build
+FROM python:3.10-slim AS build
 
 RUN mkdir -pv /src
 
@@ -14,7 +14,7 @@ RUN python -m pip install -U setuptools==70.3.0 && \
 
 
 # Run container
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 LABEL license="Apache License 2.0" \
       maintainer="Crate.IO GmbH <office@crate.io>" \

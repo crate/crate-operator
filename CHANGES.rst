@@ -19,6 +19,8 @@ Unreleased
 
 * Change sql_exporter ``min_interval`` to 60s to avoid scraping every 15s.
 
+* Updated Python version to ``3.10``.
+
 2.42.0 (2024-10-02)
 -------------------
 
