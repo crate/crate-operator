@@ -178,6 +178,7 @@ class TestStatefulSetAffinity:
                     "limits": {"cpu": 0.5, "memory": "8589934592"},
                     "requests": {"cpu": 0.25, "memory": "8589934592"},
                 },
+                "nodepool": "shared",
             },
         ],
     )
@@ -279,6 +280,7 @@ class TestTolerations:
                     "limits": {"cpu": 0.5, "memory": "8589934592"},
                     "requests": {"cpu": 0.25, "memory": "8589934592"},
                 },
+                "nodepool": "shared",
             },
         ],
     )
@@ -1288,6 +1290,7 @@ def test_sql_exporter_config():
                     "limits": {"cpu": 0.5, "memory": "8589934592"},
                     "requests": {"cpu": 0.5, "memory": "8589934592"},
                 },
+                "nodepool": "dedicated",
             },
             False,
         ),
@@ -1296,12 +1299,14 @@ def test_sql_exporter_config():
                 "resources": {
                     "limits": {"cpu": 0.5, "memory": "8589934592"},
                 },
+                "nodepool": "dedicated",
             },
             False,
         ),
         (
             {
                 "resources": {"cpus": 0.5, "memory": "8589934592"},
+                "nodepool": "dedicated",
             },
             False,
         ),
@@ -1311,6 +1316,7 @@ def test_sql_exporter_config():
                     "limits": {"cpu": 0.5, "memory": "8589934592"},
                     "requests": {"cpu": 0.25, "memory": "8589934592"},
                 },
+                "nodepool": "shared",
             },
             True,
         ),

@@ -72,3 +72,8 @@ class SnapshotRestoreType(enum.Enum):
     TABLES = "tables"
     SECTIONS = "sections"
     PARTITIONS = "partitions"
+
+
+class Nodepool(str, enum.Enum):
+    SHARED = "shared"
+    DEDICATED = "dedicated"

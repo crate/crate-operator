@@ -282,12 +282,13 @@ async def test_change_compute_from_request_to_limit(
 
 @pytest.mark.parametrize(
     "old_cpu_limit, old_memory_limit, old_cpu_request, old_memory_request, "
-    "new_cpu_limit, new_memory_limit, new_cpu_request, new_memory_request",
+    "new_cpu_limit, new_memory_limit, new_cpu_request, new_memory_request, "
+    "old_nodepool, new_nodepool",
     [
         # Test no requests
-        (1, "2Gi", None, None, 3, "5Gi", None, None),
+        (1, "2Gi", None, None, 3, "5Gi", None, None, "dedicated", "dedicated"),
         # Test requests set
-        (1, "2Gi", None, None, 3, "5Gi", 5, "8Gi"),
+        (1, "2Gi", None, None, 3, "5Gi", 5, "8Gi", "shared", "shared"),
     ],
 )
 def test_generate_body_patch(
@@ -299,6 +300,8 @@ def test_generate_body_patch(
     new_memory_limit,
     new_cpu_request,
     new_memory_request,
+    old_nodepool,
+    new_nodepool,
     faker,
 ):
     compute_change_data = WebhookChangeComputePayload(
@@ -312,6 +315,8 @@ def test_generate_body_patch(
         new_memory_request=new_memory_request,
         old_heap_ratio=0.25,
         new_heap_ratio=0.25,
+        old_nodepool=old_nodepool,
+        new_nodepool=new_nodepool,
     )
 
     name = faker.domain_word()

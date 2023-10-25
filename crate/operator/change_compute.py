@@ -87,19 +87,23 @@ class AfterChangeComputeSubHandler(StateBasedSubHandler):
 
 
 def generate_change_compute_payload(old, body):
-    old_data = old["spec"]["nodes"]["data"][0].get("resources", {})
-    new_data = body["spec"]["nodes"]["data"][0].get("resources", {})
+    old_data = old["spec"]["nodes"]["data"][0]
+    new_data = body["spec"]["nodes"]["data"][0]
+    old_resources = old_data.get("resources", {})
+    new_resources = new_data.get("resources", {})
     return WebhookChangeComputePayload(
-        old_cpu_limit=old_data.get("limits", {}).get("cpu"),
-        old_memory_limit=old_data.get("limits", {}).get("memory"),
-        old_cpu_request=old_data.get("requests", {}).get("cpu"),
-        old_memory_request=old_data.get("requests", {}).get("memory"),
-        old_heap_ratio=old_data.get("heapRatio"),
-        new_cpu_limit=new_data.get("limits", {}).get("cpu"),
-        new_memory_limit=new_data.get("limits", {}).get("memory"),
-        new_cpu_request=new_data.get("requests", {}).get("cpu"),
-        new_memory_request=new_data.get("requests", {}).get("memory"),
-        new_heap_ratio=new_data.get("heapRatio"),
+        old_cpu_limit=old_resources.get("limits", {}).get("cpu"),
+        old_memory_limit=old_resources.get("limits", {}).get("memory"),
+        old_cpu_request=old_resources.get("requests", {}).get("cpu"),
+        old_memory_request=old_resources.get("requests", {}).get("memory"),
+        old_heap_ratio=old_resources.get("heapRatio"),
+        old_nodepool=old_data.get("nodepool"),
+        new_cpu_limit=new_resources.get("limits", {}).get("cpu"),
+        new_memory_limit=new_resources.get("limits", {}).get("memory"),
+        new_cpu_request=new_resources.get("requests", {}).get("cpu"),
+        new_memory_request=new_resources.get("requests", {}).get("memory"),
+        new_heap_ratio=new_resources.get("heapRatio"),
+        new_nodepool=new_data.get("nodepool"),
     )
 
 
@@ -165,8 +169,22 @@ def generate_body_patch(
         "spec": {
             "template": {
                 "spec": {
-                    "affinity": get_statefulset_affinity(name, logger, node_spec),
-                    "tolerations": get_tolerations(name, logger, node_spec),
+                    "affinity": get_statefulset_affinity(
+                        name,
+                        logger,
+                        {
+                            **node_spec,
+                            "nodepool": compute_change_data.get("new_nodepool"),
+                        },
+                    ),
+                    "tolerations": get_tolerations(
+                        name,
+                        logger,
+                        {
+                            **node_spec,
+                            "nodepool": compute_change_data.get("new_nodepool"),
+                        },
+                    ),
                     "containers": [node_spec],
                 }
             }

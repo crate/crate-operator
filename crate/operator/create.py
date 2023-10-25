@@ -92,6 +92,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
     CloudProvider,
+    Nodepool,
     Port,
 )
 from crate.operator.utils import crate, quorum
@@ -106,7 +107,6 @@ from crate.operator.utils.version import CrateVersion
 def get_sql_exporter_config(
     owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
 ) -> V1ConfigMap:
-
     sql_exporter_config = pkgutil.get_data("crate.operator", "data/sql-exporter.yaml")
 
     if sql_exporter_config:
@@ -379,7 +379,6 @@ def get_statefulset_crate_command(
     is_data: bool,
     crate_version: str,
 ) -> List[str]:
-
     expected_nodes_setting_name = "gateway.expected_nodes"
     recover_after_nodes_setting_name = "gateway.recover_after_nodes"
     expected_nodes_setting_value = total_nodes_count
@@ -1034,7 +1033,6 @@ async def recreate_services(
     meta,
     logger: logging.Logger,
 ):
-
     ports_spec = spec.get("ports", {})
     http_port = ports_spec.get("http", Port.HTTP.value)
     postgres_port = ports_spec.get("postgres", Port.POSTGRES.value)
@@ -1119,16 +1117,7 @@ async def create_system_user(
 
 
 def is_shared_resources_cluster(node_spec: Dict[str, Any]) -> bool:
-    try:
-        cpu_request = node_spec["resources"].get("requests", {}).get("cpu")
-        cpu_limit = node_spec["resources"].get("limits", {}).get("cpu")
-        memory_request = node_spec["resources"].get("requests", {}).get("memory")
-        memory_limit = node_spec["resources"].get("limits", {}).get("memory")
-        if not (cpu_request or memory_request):
-            return False
-        return cpu_request != cpu_limit or memory_request != memory_limit
-    except KeyError:
-        return False
+    return node_spec.get("nodepool") == Nodepool.SHARED
 
 
 def get_cluster_resource_requests(
@@ -1251,7 +1240,6 @@ class CreateStatefulsetSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-
         await create_statefulset(
             owner_references,
             namespace,
