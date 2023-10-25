@@ -36,4 +36,5 @@ def has_compute_changed(old_spec, new_spec) -> bool:
         != new_spec.get("resources", {}).get("limits", {}).get("memory")
         or old_spec.get("resources", {}).get("requests", {}).get("memory")
         != new_spec.get("resources", {}).get("requests", {}).get("memory")
+        or old_spec.get("nodepool") != new_spec.get("nodepool")
     )

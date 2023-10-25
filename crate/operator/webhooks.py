@@ -153,6 +153,9 @@ class WebhookChangeComputePayload(WebhookSubPayload):
     old_heap_ratio: float
     new_heap_ratio: float
 
+    old_nodepool: str
+    new_nodepool: str
+
 
 class WebhookInfoChangedPayload(WebhookSubPayload):
     external_ip: str
