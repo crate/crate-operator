@@ -32,8 +32,8 @@ class CrateVersion(Version):
     dot-separated numeric components, with an optional "-SNAPSHOT" tag
     on the end. Alternatively, a nightly version consists of the term "nightly"
     optionally followed by three dot-separated numeric components indicating
-    the version, as well as and optional the date component for the day of the
-    build in the form ``YYYYMMDD``.
+    the version, as well as an optional datetime or date component for the day of the
+    build in the form ``YYYY-MM-DD-HH-mm`` or ``YYYYMMDD``.
 
     The following are valid version numbers (shown in the order that
     would be obtained by sorting according to the supplied cmp function):
@@ -43,7 +43,8 @@ class CrateVersion(Version):
     - 3.2.0
     - nightly-3.2.1
     - nightly-3.2.1-20190708
-    - 3.2.1-SNAPSHORT
+    - nightly-3.2.1-2019-07-08-01-02
+    - 3.2.1-SNAPSHOT
     - 3.2.1
     - 4.0.0-SNAPSHOT
     - nightly
@@ -71,6 +72,7 @@ class CrateVersion(Version):
     nightly: bool
 
     date: Optional[str] = None
+    date_normalized: Optional[str] = None
 
     #: The regular expression to match a version string. Valid values are e.g.:
     #:
@@ -98,12 +100,14 @@ class CrateVersion(Version):
     #: - ``nightly``
     #: - ``nightly-0.1.2``
     #: - ``nightly-0.1.2-20190708``
-    #: - ``nightly-0.1.2-201907080200-abc0987``
+    #: - ``nightly-0.1.2-2019-07-08-01-02``
     #:
     #: Invalid values are, e.g:
     #:
     #: - ``nightly-0.1``
     #: - ``nightly-0.1.2-201907080200``
+    #: - ``nightly-0.1.2-201907080200-abc0987``
+
     nightly_version_re = re.compile(
         r"""
             ^
@@ -111,7 +115,7 @@ class CrateVersion(Version):
             (?:
                 -(?P<has_version>(?P<major>\d+)\.(?P<minor>\d+)\.(?P<hotfix>\d+))
                 (?:
-                    -(?P<date>\d{8})  # Match yyyymmdd
+                    -(?P<date>\d{8}|\d{4}-\d{2}-\d{2}-\d{2}-\d{2})  # Match either yyyy-MM-dd-HH-mm or yyyymmdd  # noqa
                 )?
             )?$
         """,
@@ -167,19 +171,19 @@ class CrateVersion(Version):
             assert self.version
             assert other.version
 
-            if not self.date and not other.date:
+            if not self.date_normalized and not other.date_normalized:
                 return 0
-            if self.date and not other.date:
+            if self.date_normalized and not other.date_normalized:
                 return -1
-            if not self.date and other.date:
+            if not self.date_normalized and other.date_normalized:
                 return 1
 
-            assert self.date
-            assert other.date
+            assert self.date_normalized
+            assert other.date_normalized
 
-            if self.date < other.date:
+            if self.date_normalized < other.date_normalized:
                 return -1
-            if self.date > other.date:
+            if self.date_normalized > other.date_normalized:
                 return 1
 
             return 0
@@ -273,4 +277,7 @@ class CrateVersion(Version):
         self.stable = False
         self.snapshot = False
         self.nightly = True
+
         self.date = date
+        if self.date:
+            self.date_normalized = date.replace("-", "")[:8]
