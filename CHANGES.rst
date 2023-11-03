@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Updated the ``CrateVersion`` nightly parsing to accept the new datetime format
+  of ``yyyy-mm-dd-hh-mm`` while still being compatible with the old ``yyyymmdd`` format.
+
 2.31.0 (2023-09-11)
 -------------------
 
