@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.33.0 (2023-11-14)
+-------------------
+
 * Changed the operator CRD to be able to specify a nodepool and set node affinity and
   tolerations accordingly when creating a cluster or changing its compute.
 
