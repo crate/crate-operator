@@ -58,7 +58,7 @@ setup(
         "PyYAML<7.0",
         "prometheus_client==0.18.0",
         # Versions 3.8+ incompatible with pytest-aiohttp.
-        "aiohttp<=3.7.4",
+        "aiohttp<=3.9.0",
         "wrapt==1.16.0",
     ],
     extras_require={
