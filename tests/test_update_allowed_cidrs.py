@@ -30,6 +30,7 @@ from crate.operator.constants import (
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
+from crate.operator.grand_central import read_grand_central_ingress
 from crate.operator.utils.kubeapi import get_service_public_hostname
 from crate.operator.webhooks import (
     WebhookAction,
@@ -79,7 +80,16 @@ async def test_update_cidrs(
         coapi,
         1,
         wait_for_healthy=True,
-        additional_cluster_spec={"allowedCIDRs": initial},
+        additional_cluster_spec={
+            "allowedCIDRs": initial,
+            "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net.",
+        },
+        grand_central_spec={
+            "backendEnabled": True,
+            "backendImage": "cloud.registry.cr8.net/crate/grand-central:latest",
+            "apiUrl": "https://my-cratedb-api.cloud/",
+            "jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
+        },
     )
 
     await asyncio.wait_for(
@@ -188,5 +198,13 @@ async def test_update_cidrs(
 
 async def _are_source_ranges_updated(core, name, namespace, cidr_list):
     service = await core.read_namespaced_service(f"crate-{name}", namespace)
+    ingress = await read_grand_central_ingress(namespace=namespace, name=name)
     actual = cidr_list if len(cidr_list) > 0 else None
-    return service.spec.load_balancer_source_ranges == actual
+
+    return (
+        service.spec.load_balancer_source_ranges == actual
+        and ingress.metadata.annotations.get(
+            "nginx.ingress.kubernetes.io/whitelist-source-range"
+        )
+        == ",".join(cidr_list)
+    )

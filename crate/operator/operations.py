@@ -53,6 +53,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     BACKUP_METRICS_DEPLOYMENT_NAME,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -69,6 +70,7 @@ from crate.operator.cratedb import (
     set_cluster_setting,
 )
 from crate.operator.create import recreate_services
+from crate.operator.grand_central import read_grand_central_deployment
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
@@ -659,6 +661,18 @@ async def suspend_or_start_cluster(
                         await update_deployment_replicas(
                             apps, namespace, backup_metrics_name, 1
                         )
+                    # scale grand central deployment back up if it exists
+                    deployment = await read_grand_central_deployment(
+                        namespace=namespace, name=name
+                    )
+
+                    if deployment:
+                        await update_deployment_replicas(
+                            apps,
+                            namespace,
+                            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+                            1,
+                        )
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
@@ -707,6 +721,18 @@ async def suspend_or_start_cluster(
                         )
                         await update_deployment_replicas(
                             apps, namespace, backup_metrics_name, 0
+                        )
+                    # scale grand central deployment down if it exists
+                    deployment = await read_grand_central_deployment(
+                        namespace=namespace, name=name
+                    )
+
+                    if deployment:
+                        await update_deployment_replicas(
+                            apps,
+                            namespace,
+                            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+                            0,
                         )
                 await send_operation_progress_notification(
                     namespace=namespace,

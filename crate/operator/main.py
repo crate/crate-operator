@@ -51,6 +51,7 @@ from crate.operator.handlers.handle_update_cratedb import update_cratedb
 from crate.operator.handlers.handle_update_user_password_secret import (
     update_user_password_secret,
 )
+from crate.operator.handlers.handle_upgrade_grand_central import upgrade_grand_central
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import (
     is_namespace_terminating,
@@ -283,6 +284,27 @@ async def service_backup_schedule_update(
     """
     await raise_on_namespace_terminating(namespace)
     await update_backup_schedule(namespace, name, diff, logger)
+
+
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field="spec.grandCentral.backendImage",
+    annotations=annotation_filter(),
+)
+async def grand_central_upgrade(
+    namespace: str,
+    name: str,
+    diff: kopf.Diff,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handles updates to the backend image of grand central.
+    """
+    await raise_on_namespace_terminating(namespace)
+    await upgrade_grand_central(namespace, name, diff, logger)
 
 
 @kopf.timer(
