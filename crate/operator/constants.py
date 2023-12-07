@@ -52,6 +52,9 @@ SHARED_NODE_TOLERATION_EFFECT = "NoSchedule"
 SHARED_NODE_TOLERATION_KEY = "cratedb"
 SHARED_NODE_TOLERATION_VALUE = "shared"
 
+GRAND_CENTRAL_RESOURCE_PREFIX = "grand-central"
+GRAND_CENTRAL_BACKEND_API_PORT = 5050
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"

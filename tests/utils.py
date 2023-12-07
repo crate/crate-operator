@@ -41,6 +41,7 @@ from crate.operator.constants import (
     API_GROUP,
     BACKUP_METRICS_DEPLOYMENT_NAME,
     DATA_NODE_NAME,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     KOPF_STATE_STORE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
@@ -108,6 +109,7 @@ async def start_cluster(
     users: Optional[List[Mapping[str, Any]]] = None,
     resource_requests: Optional[Mapping[str, Any]] = None,
     backups_spec: Optional[Mapping[str, Any]] = None,
+    grand_central_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     body: dict = {
@@ -163,6 +165,9 @@ async def start_cluster(
 
     if users:
         body["spec"]["users"] = users
+
+    if grand_central_spec:
+        body["spec"]["grandCentral"] = grand_central_spec
 
     await coapi.create_namespaced_custom_object(
         group=API_GROUP,
@@ -478,3 +483,14 @@ async def does_backup_metrics_pod_exist(
     backup_metrics_pods = await get_pods_in_deployment(core, namespace, name)
     backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
     return any(p["name"].startswith(backup_metrics_name) for p in backup_metrics_pods)
+
+
+async def does_grand_central_pod_exist(
+    core: CoreV1Api, name: str, namespace: V1Namespace
+) -> bool:
+    pods = await get_pods_in_deployment(
+        core, namespace, f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
+    )
+    return any(
+        p["name"].startswith(f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}") for p in pods
+    )

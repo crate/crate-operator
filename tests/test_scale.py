@@ -36,6 +36,7 @@ from crate.operator.constants import (
     API_GROUP,
     BACKUP_METRICS_DEPLOYMENT_NAME,
     DATA_NODE_NAME,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
@@ -54,6 +55,7 @@ from tests.utils import (
     create_test_sys_jobs_table,
     delete_fake_snapshot_job,
     does_backup_metrics_pod_exist,
+    does_grand_central_pod_exist,
     insert_test_snapshot_job,
     is_cluster_healthy,
     is_kopf_handler_finished,
@@ -221,6 +223,15 @@ async def test_suspend_resume_cluster(
         core,
         coapi,
         1,
+        additional_cluster_spec={
+            "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net."
+        },
+        grand_central_spec={
+            "backendEnabled": True,
+            "backendImage": "cloud.registry.cr8.net/crate/grand-central:latest",
+            "apiUrl": "https://my-cratedb-api.cloud/",
+            "jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
+        },
     )
 
     conn_factory = connection_factory(host, password)
@@ -234,6 +245,14 @@ async def test_suspend_resume_cluster(
         apps,
         namespace.metadata.name,
         BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
+    )
+
+    await assert_wait_for(
+        True,
+        does_deployment_exist,
+        apps,
+        namespace.metadata.name,
+        f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
     )
 
     await assert_wait_for(
@@ -331,6 +350,16 @@ async def test_suspend_resume_cluster(
         namespace.metadata.name,
         name,
         err_msg="Load balancer check 3 timed out",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        does_grand_central_pod_exist,
+        core,
+        name,
+        namespace.metadata.name,
+        err_msg="Grand central has not been scaled up.",
         timeout=DEFAULT_TIMEOUT,
     )
 

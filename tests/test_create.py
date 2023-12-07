@@ -26,12 +26,18 @@ from typing import Set
 from unittest import mock
 
 import pytest
-from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import (
+    AppsV1Api,
+    CoreV1Api,
+    CustomObjectsApi,
+    NetworkingV1Api,
+)
 
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -1121,6 +1127,18 @@ class TestCreateCustomResource:
         services = await core.list_namespaced_service(namespace)
         return expected.issubset({s.metadata.name for s in services.items})
 
+    async def does_deployment_exist(
+        self, apps: AppsV1Api, namespace: str, name: str
+    ) -> bool:
+        deployments = await apps.list_namespaced_deployment(namespace=namespace)
+        return name in (d.metadata.name for d in deployments.items)
+
+    async def does_ingress_exist(
+        self, networking: NetworkingV1Api, namespace: str, name: str
+    ) -> bool:
+        ingresses = await networking.list_namespaced_ingress(namespace=namespace)
+        return name in (i.metadata.name for i in ingresses.items)
+
     async def test_create_minimal(self, faker, namespace, kopf_runner, api_client):
         apps = AppsV1Api(api_client)
         coapi = CustomObjectsApi(api_client)
@@ -1172,6 +1190,80 @@ class TestCreateCustomResource:
             f"crate-{name}", namespace.metadata.name
         )
         assert service.metadata.annotations["some/annotation"] == "some.value"
+
+    async def test_create_with_grand_central_backend_enabled(
+        self, faker, namespace, kopf_runner, api_client
+    ):
+        apps = AppsV1Api(api_client)
+        coapi = CustomObjectsApi(api_client)
+        core = CoreV1Api(api_client)
+        networking = NetworkingV1Api(api_client)
+        name = faker.domain_word()
+
+        await start_cluster(
+            name,
+            namespace,
+            core,
+            coapi,
+            1,
+            wait_for_healthy=False,
+            additional_cluster_spec={
+                "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net."
+            },
+            grand_central_spec={
+                "backendEnabled": True,
+                "backendImage": "cloud.registry.cr8.net/crate/grand-central:latest",
+                "apiUrl": "https://my-cratedb-api.cloud/",
+                "jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
+            },
+        )
+        await assert_wait_for(
+            True,
+            self.does_deployment_exist,
+            apps,
+            namespace.metadata.name,
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+        )
+        deploy = await apps.read_namespaced_deployment(
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}", namespace.metadata.name
+        )
+        assert (
+            deploy.spec.template.spec.containers[0].image
+            == "cloud.registry.cr8.net/crate/grand-central:latest"
+        )
+        na = deploy.spec.template.spec.affinity.node_affinity
+        selector = na.required_during_scheduling_ignored_during_execution
+        terms = selector.node_selector_terms[0]
+        expressions = terms.match_expressions
+        assert [e.to_dict() for e in expressions] == [
+            {
+                "key": "cratedb",
+                "operator": "In",
+                "values": ["shared"],
+            }
+        ]
+        await assert_wait_for(
+            True,
+            self.do_services_exist,
+            core,
+            namespace.metadata.name,
+            {f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"},
+        )
+
+        await assert_wait_for(
+            True,
+            self.does_ingress_exist,
+            networking,
+            namespace.metadata.name,
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+        )
+        ingress = await networking.read_namespaced_ingress(
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}", namespace.metadata.name
+        )
+        assert (
+            ingress.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
+            == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
+        )
 
     async def test_preserve_unknown_object_keys(
         self, faker, namespace, cratedb_crd, api_client
