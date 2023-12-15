@@ -168,6 +168,21 @@ def get_grand_central_service(
     )
 
 
+async def read_grand_central_ingress(namespace: str, name: str) -> Optional[V1Ingress]:
+    async with ApiClient() as api_client:
+        networking = NetworkingV1Api(api_client)
+
+        ingresses = await networking.list_namespaced_ingress(namespace=namespace)
+        return next(
+            (
+                ing
+                for ing in ingresses.items
+                if ing.metadata.name == f"grand-central-{name}"
+            ),
+            None,
+        )
+
+
 def get_grand_central_ingress(
     owner_references: Optional[List[V1OwnerReference]],
     name: str,
@@ -302,9 +317,20 @@ async def update_grand_central_deployment_image(
 ):
     async with ApiClient() as api_client:
         apps = AppsV1Api(api_client)
-        deployment: V1Deployment = await apps.read_namespaced_deployment(
-            namespace=namespace, name=f"grand-central-{name}"
+        # This also runs on creation events, so we need to double check that the
+        # deployment exists before attempting to do anything.
+        deployments = await apps.list_namespaced_deployment(namespace=namespace)
+        deployment = next(
+            (
+                deploy
+                for deploy in deployments.items
+                if deploy.metadata.name == f"grand-central-{name}"
+            ),
+            None,
         )
+        if not deployment:
+            return
+
         api_container: V1Container = next(
             container
             for container in deployment.spec.template.spec.containers

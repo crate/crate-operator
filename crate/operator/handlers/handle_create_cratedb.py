@@ -231,9 +231,10 @@ async def create_cratedb(
                 id="backup",
             )
 
-    if spec.get("grand-central", {}).get("backend-enabled"):
+    if spec.get("grandCentral", {}).get("backendEnabled"):
         grand_central_labels = base_labels.copy()
-        grand_central_labels[LABEL_COMPONENT] = "grand_central"
+        grand_central_labels[LABEL_COMPONENT] = "grand-central"
+        grand_central_labels[LABEL_NAME] = f"grand-central-{name}"
         grand_central_labels.update(meta.get("labels", {}))
         external_dns = spec["cluster"]["externalDNS"]
         grand_central_hostname = external_dns.replace(
