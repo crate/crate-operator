@@ -27,6 +27,7 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     NetworkingV1Api,
+    V1Affinity,
     V1Container,
     V1ContainerPort,
     V1Deployment,
@@ -44,6 +45,10 @@ from kubernetes_asyncio.client import (
     V1IngressTLS,
     V1LabelSelector,
     V1LocalObjectReference,
+    V1NodeAffinity,
+    V1NodeSelector,
+    V1NodeSelectorRequirement,
+    V1NodeSelectorTerm,
     V1ObjectMeta,
     V1OwnerReference,
     V1PodSpec,
@@ -55,10 +60,18 @@ from kubernetes_asyncio.client import (
     V1ServiceBackendPort,
     V1ServicePort,
     V1ServiceSpec,
+    V1Toleration,
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
-from crate.operator.constants import LABEL_NAME
+from crate.operator.constants import (
+    LABEL_NAME,
+    SHARED_NODE_SELECTOR_KEY,
+    SHARED_NODE_SELECTOR_VALUE,
+    SHARED_NODE_TOLERATION_EFFECT,
+    SHARED_NODE_TOLERATION_KEY,
+    SHARED_NODE_TOLERATION_VALUE,
+)
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
@@ -137,6 +150,31 @@ def get_grand_central_deployment(
                                 initial_delay_seconds=60,
                                 period_seconds=10,
                             ),
+                        )
+                    ],
+                    affinity=V1Affinity(
+                        node_affinity=V1NodeAffinity(
+                            required_during_scheduling_ignored_during_execution=V1NodeSelector(  # noqa
+                                node_selector_terms=[
+                                    V1NodeSelectorTerm(
+                                        match_expressions=[
+                                            V1NodeSelectorRequirement(
+                                                key=SHARED_NODE_SELECTOR_KEY,
+                                                operator="In",
+                                                values=[SHARED_NODE_SELECTOR_VALUE],
+                                            )
+                                        ]
+                                    )
+                                ]
+                            )
+                        )
+                    ),
+                    tolerations=[
+                        V1Toleration(
+                            effect=SHARED_NODE_TOLERATION_EFFECT,
+                            key=SHARED_NODE_TOLERATION_KEY,
+                            operator="Equal",
+                            value=SHARED_NODE_TOLERATION_VALUE,
                         )
                     ],
                     image_pull_secrets=image_pull_secrets,
@@ -234,14 +272,7 @@ def get_grand_central_ingress(
                                         name=f"grand-central-{name}",
                                     )
                                 ),
-                            )
-                        ]
-                    ),
-                ),
-                V1IngressRule(
-                    host=hostname,
-                    http=V1HTTPIngressRuleValue(
-                        paths=[
+                            ),
                             V1HTTPIngressPath(
                                 path="/socket.io",
                                 path_type="ImplementationSpecific",
@@ -250,10 +281,10 @@ def get_grand_central_ingress(
                                         port=V1ServiceBackendPort(
                                             number=5050,
                                         ),
-                                        name=f"cratedb-center-{name}",
+                                        name=f"grand-central-{name}",
                                     )
                                 ),
-                            )
+                            ),
                         ]
                     ),
                 ),
