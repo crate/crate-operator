@@ -108,6 +108,7 @@ async def start_cluster(
     users: Optional[List[Mapping[str, Any]]] = None,
     resource_requests: Optional[Mapping[str, Any]] = None,
     backups_spec: Optional[Mapping[str, Any]] = None,
+    grand_central_spec: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[str, str]:
     additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
     body: dict = {
@@ -163,6 +164,9 @@ async def start_cluster(
 
     if users:
         body["spec"]["users"] = users
+
+    if grand_central_spec:
+        body["spec"]["grandCentral"] = grand_central_spec
 
     await coapi.create_namespaced_custom_object(
         group=API_GROUP,

@@ -26,6 +26,7 @@ from kopf import DiffItem
 from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
 from crate.operator.grand_central import read_grand_central_ingress
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
@@ -73,7 +74,7 @@ async def update_service_allowed_cidrs(
 
         if ingress:
             await networking.patch_namespaced_ingress(
-                name=f"grand-central-{name}",
+                name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 namespace=namespace,
                 body={
                     "metadata": {

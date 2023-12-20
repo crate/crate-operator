@@ -65,6 +65,8 @@ from kubernetes_asyncio.client import (
 from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.constants import (
+    GRAND_CENTRAL_BACKEND_API_PORT,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_NAME,
     SHARED_NODE_SELECTOR_KEY,
     SHARED_NODE_SELECTOR_VALUE,
@@ -85,9 +87,18 @@ def get_grand_central_deployment(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     spec: kopf.Spec,
 ) -> V1Deployment:
+    # Retrieve admin username from the CrateDB CRD
+    crd_users = spec.get("users", {})
+    crd_username = crd_users[0]["name"] if len(crd_users) else "admin"
     env = [
+        V1EnvVar(name="CRATEDB_CENTER_CRATEDB_USERNAME", value=crd_username),
         V1EnvVar(
-            name="CRATEDB_CENTER_CRATEDB_ADDRESS", value=f"crate-discovery-{name}"
+            name="CRATEDB_CENTER_CRATEDB_ADDRESS",
+            value=f"https://crate-discovery-{name}:4200",
+        ),
+        V1EnvVar(
+            name="CRATEDB_CENTER_USE_SSL",
+            value="true",
         ),
         V1EnvVar(
             name="CRATEDB_CENTER_VERIFY_SSL",
@@ -109,7 +120,7 @@ def get_grand_central_deployment(
     ]
     return V1Deployment(
         metadata=V1ObjectMeta(
-            name=f"grand-central-{name}",
+            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             labels=labels,
             owner_references=owner_references,
         ),
@@ -117,24 +128,24 @@ def get_grand_central_deployment(
             replicas=1,
             selector=V1LabelSelector(
                 match_labels={
-                    LABEL_NAME: f"grand-central-{name}",
+                    LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 }
             ),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
                     labels=labels,
-                    name=f"grand-central-{name}",
+                    name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 ),
                 spec=V1PodSpec(
                     containers=[
                         V1Container(
                             env=env,
                             image=spec["grandCentral"]["backendImage"],
-                            image_pull_policy="Never",
-                            name="grand-central-api",
+                            image_pull_policy="Always",
+                            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-api",
                             ports=[
                                 V1ContainerPort(
-                                    container_port=5050,
+                                    container_port=GRAND_CENTRAL_BACKEND_API_PORT,
                                     name="grand-central",
                                 )
                             ],
@@ -146,7 +157,10 @@ def get_grand_central_deployment(
                                 requests={"cpu": "500m", "memory": "1Gi"},
                             ),
                             liveness_probe=V1Probe(
-                                http_get=V1HTTPGetAction(path="/api/health", port=5050),
+                                http_get=V1HTTPGetAction(
+                                    path="/api/health",
+                                    port=GRAND_CENTRAL_BACKEND_API_PORT,
+                                ),
                                 initial_delay_seconds=60,
                                 period_seconds=10,
                             ),
@@ -192,16 +206,20 @@ def get_grand_central_service(
 ) -> V1Service:
     return V1Service(
         metadata=V1ObjectMeta(
-            name=f"grand-central-{name}",
+            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             labels=labels,
             owner_references=owner_references,
         ),
         spec=V1ServiceSpec(
             type="ClusterIP",
             ports=[
-                V1ServicePort(name="api", port=5050, target_port=5050),
+                V1ServicePort(
+                    name="api",
+                    port=GRAND_CENTRAL_BACKEND_API_PORT,
+                    target_port=GRAND_CENTRAL_BACKEND_API_PORT,
+                ),
             ],
-            selector={LABEL_NAME: f"grand-central-{name}"},
+            selector={LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"},
         ),
     )
 
@@ -215,7 +233,7 @@ async def read_grand_central_ingress(namespace: str, name: str) -> Optional[V1In
             (
                 ing
                 for ing in ingresses.items
-                if ing.metadata.name == f"grand-central-{name}"
+                if ing.metadata.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
             ),
             None,
         )
@@ -229,7 +247,7 @@ def get_grand_central_ingress(
 ) -> V1Ingress:
     return V1Ingress(
         metadata=V1ObjectMeta(
-            name=f"grand-central-{name}",
+            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             labels=labels,
             owner_references=owner_references,
             annotations={
@@ -267,9 +285,9 @@ def get_grand_central_ingress(
                                 backend=V1IngressBackend(
                                     service=V1IngressServiceBackend(
                                         port=V1ServiceBackendPort(
-                                            number=5050,
+                                            number=GRAND_CENTRAL_BACKEND_API_PORT,
                                         ),
-                                        name=f"grand-central-{name}",
+                                        name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                                     )
                                 ),
                             ),
@@ -279,9 +297,9 @@ def get_grand_central_ingress(
                                 backend=V1IngressBackend(
                                     service=V1IngressServiceBackend(
                                         port=V1ServiceBackendPort(
-                                            number=5050,
+                                            number=GRAND_CENTRAL_BACKEND_API_PORT,
                                         ),
-                                        name=f"grand-central-{name}",
+                                        name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                                     )
                                 ),
                             ),
@@ -355,7 +373,7 @@ async def update_grand_central_deployment_image(
             (
                 deploy
                 for deploy in deployments.items
-                if deploy.metadata.name == f"grand-central-{name}"
+                if deploy.metadata.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
             ),
             None,
         )
@@ -365,12 +383,14 @@ async def update_grand_central_deployment_image(
         api_container: V1Container = next(
             container
             for container in deployment.spec.template.spec.containers
-            if container.name == "grand-central-api"
+            if container.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-api"
         )
         api_container.image = image
 
         await apps.patch_namespaced_deployment(
-            namespace=namespace, name=f"grand-central-{name}", body=deployment
+            namespace=namespace,
+            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+            body=deployment,
         )
 
 

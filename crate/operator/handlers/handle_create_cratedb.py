@@ -31,6 +31,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     CLUSTER_CREATE_ID,
+    GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -234,7 +235,7 @@ async def create_cratedb(
     if spec.get("grandCentral", {}).get("backendEnabled"):
         grand_central_labels = base_labels.copy()
         grand_central_labels[LABEL_COMPONENT] = "grand-central"
-        grand_central_labels[LABEL_NAME] = f"grand-central-{name}"
+        grand_central_labels[LABEL_NAME] = f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
         grand_central_labels.update(meta.get("labels", {}))
         external_dns = spec["cluster"]["externalDNS"]
         grand_central_hostname = external_dns.replace(

@@ -7,6 +7,12 @@ Unreleased
 
 * Bumped aiohttp to latest to fix CVE-2023-49081
 
+* Added ``grandCentral`` section to the CRD and create the resources for grand-central
+  backend when a cluster is deployed.
+
+* Implemented a handler allowing changing the ``backendImage`` of ``grandCentral``.
+
+
 2.33.0 (2023-11-14)
 -------------------
 
