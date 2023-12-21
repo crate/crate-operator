@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Change the `crate` user HBA config to only allow access on the PG protocol, while
+  we fix the crate vulnerability for the HTTP protocol.
+
 2.33.0 (2023-11-14)
 -------------------
 

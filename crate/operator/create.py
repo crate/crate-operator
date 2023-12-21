@@ -420,6 +420,7 @@ def get_statefulset_crate_command(
         "-Cauth.host_based.config.0.user": "crate",
         "-Cauth.host_based.config.0.address": "_local_",
         "-Cauth.host_based.config.0.method": "trust",
+        "-Cauth.host_based.config.0.protocol": "pg",
         "-Cauth.host_based.config.99.method": "password",
         "-Cpath.data": ",".join(
             f"/data/data{i}" for i in range(node_spec["resources"]["disk"]["count"])
