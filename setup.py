@@ -57,8 +57,7 @@ setup(
         "kubernetes-asyncio==21.7.1",
         "PyYAML<7.0",
         "prometheus_client==0.19.0",
-        # Versions 3.8+ incompatible with pytest-aiohttp.
-        "aiohttp<=3.7.4",
+        "aiohttp==3.9.1",
         "wrapt==1.16.0",
     ],
     extras_require={
@@ -72,7 +71,7 @@ setup(
         "testing": [
             "faker==18.3.1",
             "pytest==7.4.3",
-            "pytest-aiohttp==0.3.0",
+            "pytest-aiohttp==1.0.5",
             "pytest-asyncio==0.23.2",
             "pytest-xdist==3.5.0",  # enables parallel testing
             "filelock==3.13.1",  # used for locks when running in parallel mode

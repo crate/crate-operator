@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bumped aiohttp to latest to fix CVE-2023-49081
+
 2.33.0 (2023-11-14)
 -------------------
 
