@@ -25,7 +25,7 @@ import logging
 import pytest
 from aiohttp import web
 from aiohttp.helpers import BasicAuth
-from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
+from aiohttp.test_utils import AioHTTPTestCase
 
 from crate.operator.webhooks import (
     WebhookAdminUsernameChangedPayload,
@@ -159,6 +159,7 @@ class TestWebhookClientSending(AioHTTPTestCase):
         return app
 
     async def setUpAsync(self):
+        await super().setUpAsync()
         self.webhook_client = WebhookClient()
         self.webhook_client.configure(
             f"{self.server.scheme}://{self.server.host}:{self.server.port}/some/path/",
@@ -166,7 +167,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "secr3t password",
         )
 
-    @unittest_run_loop
     async def test_send_scale_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -208,7 +208,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_send_upgrade_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -247,7 +246,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_send_delay_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -281,7 +279,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_send_info_changed_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -313,7 +310,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_send_admin_username_changed_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -345,7 +341,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_send_health_notification(self):
         response = await self.webhook_client.send_notification(
             "my-namespace",
@@ -377,7 +372,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
             },
         }
 
-    @unittest_run_loop
     async def test_error(self):
         client = WebhookClient()
         client.configure(
@@ -397,7 +391,6 @@ class TestWebhookClientSending(AioHTTPTestCase):
         )
         assert response.status == 418
 
-    @unittest_run_loop
     async def test_not_configured(self):
         client = WebhookClient()
         response = await client.send_notification(
