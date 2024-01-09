@@ -73,6 +73,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
+    SYSTEM_USERNAME,
 )
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -87,11 +88,8 @@ def get_grand_central_deployment(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     spec: kopf.Spec,
 ) -> V1Deployment:
-    # Retrieve admin username from the CrateDB CRD
-    crd_users = spec.get("users", {})
-    crd_username = crd_users[0]["name"] if len(crd_users) else "admin"
     env = [
-        V1EnvVar(name="CRATEDB_CENTER_CRATEDB_USERNAME", value=crd_username),
+        V1EnvVar(name="CRATEDB_CENTER_CRATEDB_USERNAME", value=SYSTEM_USERNAME),
         V1EnvVar(
             name="CRATEDB_CENTER_CRATEDB_ADDRESS",
             value=f"https://crate-discovery-{name}:4200",
@@ -113,7 +111,7 @@ def get_grand_central_deployment(
             name="CRATEDB_CENTER_CRATEDB_PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
-                    key="password", name=f"user-password-{name}-0"
+                    key="password", name=f"user-system-{name}"
                 ),
             ),
         ),
@@ -161,7 +159,7 @@ def get_grand_central_deployment(
                                     path="/api/health",
                                     port=GRAND_CENTRAL_BACKEND_API_PORT,
                                 ),
-                                initial_delay_seconds=60,
+                                initial_delay_seconds=180,
                                 period_seconds=10,
                             ),
                         )
@@ -234,6 +232,22 @@ async def read_grand_central_ingress(namespace: str, name: str) -> Optional[V1In
                 ing
                 for ing in ingresses.items
                 if ing.metadata.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
+            ),
+            None,
+        )
+
+
+async def read_grand_central_deployment(
+    namespace: str, name: str
+) -> Optional[V1Deployment]:
+    async with ApiClient() as api_client:
+        apps = AppsV1Api(api_client)
+        deployments = await apps.list_namespaced_deployment(namespace=namespace)
+        return next(
+            (
+                deploy
+                for deploy in deployments.items
+                if deploy.metadata.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
             ),
             None,
         )
