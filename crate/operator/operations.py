@@ -230,7 +230,6 @@ async def get_pods_in_deployment(
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     """
     labels = {
-        LABEL_COMPONENT: "backup",
         LABEL_MANAGED_BY: "crate-operator",
         LABEL_NAME: name,
         LABEL_PART_OF: "cratedb",
