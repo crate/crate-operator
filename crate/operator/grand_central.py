@@ -280,7 +280,7 @@ def get_grand_central_ingress(
                                     "Access-Control-Allow-Headers: Content-Type"
                                     "Access-Control-Allow-Credentials: true"
                                     "Access-Control-Max-Age: 7200"
-                                    "Access-Control-Allow-Methods: GET,POST,PATCH,OPTIONS,DELETE"
+                                    "Access-Control-Allow-Methods: GET,POST,PUT,PATCH,OPTIONS,DELETE"
                                     "Referrer-Policy: strict-origin-when-cross-origin"
                                     ;
                     """  # noqa
