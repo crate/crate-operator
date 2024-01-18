@@ -16,6 +16,7 @@ CrateDB_ inside Kubernetes_.
    changelog
    deprecation
    ref/modules
+   ref/crate
 
 
 Indices and tables
