@@ -44,7 +44,7 @@ docs/_build/
 
 # Environments
 .env
-.venv
+.venv*
 env/
 venv/
 ENV/
