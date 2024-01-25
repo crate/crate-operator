@@ -37,6 +37,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
+    GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
@@ -1264,6 +1265,33 @@ class TestCreateCustomResource:
             ingress.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
             == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
         )
+
+        # Test Prometheus
+        assert deploy.metadata.annotations["prometheus.io/scrape"] == "true"
+        assert deploy.metadata.annotations["prometheus.io/port"] == str(
+            GRAND_CENTRAL_PROMETHEUS_PORT
+        )
+        app_prometheus_port = next(
+            (
+                port.container_port
+                for port in deploy.spec.template.spec.containers[0].ports
+                if port.name == "prometheus"
+            ),
+            None,
+        )
+        assert app_prometheus_port == GRAND_CENTRAL_PROMETHEUS_PORT
+
+        service = await core.read_namespaced_service(
+            namespace=namespace.metadata.name,
+            name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+        )
+        svc_prometheus_port = next(
+            (port for port in service.spec.ports if port.name == "prometheus"),
+            None,
+        )
+        assert svc_prometheus_port
+        assert svc_prometheus_port.port == GRAND_CENTRAL_PROMETHEUS_PORT
+        assert svc_prometheus_port.target_port == GRAND_CENTRAL_PROMETHEUS_PORT
 
     async def test_preserve_unknown_object_keys(
         self, faker, namespace, cratedb_crd, api_client
