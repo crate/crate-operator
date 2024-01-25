@@ -12,6 +12,8 @@ Unreleased
 
 * Implemented a handler allowing changing the ``backendImage`` of ``grandCentral``.
 
+* Added the Prometheus annotations to ``grandCentral`` to allow metrics scrapping on it.
+
 
 2.33.0 (2023-11-14)
 -------------------

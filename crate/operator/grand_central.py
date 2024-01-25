@@ -66,6 +66,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.constants import (
     GRAND_CENTRAL_BACKEND_API_PORT,
+    GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_NAME,
     SHARED_NODE_SELECTOR_KEY,
@@ -116,10 +117,15 @@ def get_grand_central_deployment(
             ),
         ),
     ]
+    annotations = {
+        "prometheus.io/port": str(GRAND_CENTRAL_PROMETHEUS_PORT),
+        "prometheus.io/scrape": "true",
+    }
     return V1Deployment(
         metadata=V1ObjectMeta(
             name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             labels=labels,
+            annotations=annotations,
             owner_references=owner_references,
         ),
         spec=V1DeploymentSpec(
@@ -145,7 +151,11 @@ def get_grand_central_deployment(
                                 V1ContainerPort(
                                     container_port=GRAND_CENTRAL_BACKEND_API_PORT,
                                     name="grand-central",
-                                )
+                                ),
+                                V1ContainerPort(
+                                    container_port=GRAND_CENTRAL_PROMETHEUS_PORT,
+                                    name="prometheus",
+                                ),
                             ],
                             resources=V1ResourceRequirements(
                                 limits={
@@ -215,6 +225,11 @@ def get_grand_central_service(
                     name="api",
                     port=GRAND_CENTRAL_BACKEND_API_PORT,
                     target_port=GRAND_CENTRAL_BACKEND_API_PORT,
+                ),
+                V1ServicePort(
+                    name="prometheus",
+                    port=GRAND_CENTRAL_PROMETHEUS_PORT,
+                    target_port=GRAND_CENTRAL_PROMETHEUS_PORT,
                 ),
             ],
             selector={LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"},
