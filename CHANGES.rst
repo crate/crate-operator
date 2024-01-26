@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Added ``CRATEDB_CENTER_SENTRY_DSN`` envvar to allow specifying the sentry dsn for
+  grand central deployments.
+
 * Bumped aiohttp to latest to fix CVE-2023-49081
 
 * Added ``grandCentral`` section to the CRD and create the resources for grand-central
