@@ -421,7 +421,7 @@ def get_statefulset_crate_command(
         "-Cauth.host_based.config.0.address": "_local_",
         "-Cauth.host_based.config.0.method": "trust",
         "-Cauth.host_based.config.1.user": "system",
-        "-Cauth.host_based.config.1.address": "10.0.0.0/8",
+        "-Cauth.host_based.config.1.address": config.ALLOWED_SYSTEM_USER_CIDR,
         "-Cauth.host_based.config.99.method": "password",
         "-Cpath.data": ",".join(
             f"/data/data{i}" for i in range(node_spec["resources"]["disk"]["count"])

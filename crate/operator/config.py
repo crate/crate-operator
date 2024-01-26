@@ -158,6 +158,9 @@ class Config:
     #: backup when restoring a snapshot.
     RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
 
+    #: CIDR the system user is allowed to login from.
+    ALLOWED_SYSTEM_USER_CIDR = "10.0.0.0/8"
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 

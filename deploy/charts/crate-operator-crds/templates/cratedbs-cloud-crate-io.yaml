@@ -173,6 +173,9 @@ spec:
                     items:
                       type: string
                     type: array
+                  allowedSystemUserCIDR:
+                    description: Limit system User to specific subnet
+                    type: string
                   externalDNS:
                     description: The external DNS name record that should point to
                       the CrateDB cluster.
