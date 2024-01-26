@@ -1267,8 +1267,10 @@ class TestCreateCustomResource:
         )
 
         # Test Prometheus
-        assert deploy.metadata.annotations["prometheus.io/scrape"] == "true"
-        assert deploy.metadata.annotations["prometheus.io/port"] == str(
+        assert (
+            deploy.spec.template.metadata.annotations["prometheus.io/scrape"] == "true"
+        )
+        assert deploy.spec.template.metadata.annotations["prometheus.io/port"] == str(
             GRAND_CENTRAL_PROMETHEUS_PORT
         )
         app_prometheus_port = next(
