@@ -14,6 +14,8 @@ Unreleased
 
 * Added the Prometheus annotations to ``grandCentral`` to allow metrics scrapping on it.
 
+* system user login restricted to 10.0.0.0/8
+
 
 2.33.0 (2023-11-14)
 -------------------
