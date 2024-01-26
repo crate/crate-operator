@@ -125,7 +125,6 @@ def get_grand_central_deployment(
         metadata=V1ObjectMeta(
             name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             labels=labels,
-            annotations=annotations,
             owner_references=owner_references,
         ),
         spec=V1DeploymentSpec(
@@ -137,6 +136,7 @@ def get_grand_central_deployment(
             ),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
+                    annotations=annotations,
                     labels=labels,
                     name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 ),
