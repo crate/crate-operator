@@ -65,6 +65,7 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.config import config
 from crate.operator.constants import (
     GRAND_CENTRAL_BACKEND_API_PORT,
     GRAND_CENTRAL_PROMETHEUS_PORT,
@@ -117,6 +118,7 @@ def get_grand_central_deployment(
                 ),
             ),
         ),
+        V1EnvVar(name="CRATEDB_CENTER_SENTRY_DSN", value=config.GC_SENTRY_DSN),
     ]
     annotations = {
         "prometheus.io/port": str(GRAND_CENTRAL_PROMETHEUS_PORT),

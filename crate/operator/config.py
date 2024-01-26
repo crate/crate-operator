@@ -158,6 +158,9 @@ class Config:
     #: backup when restoring a snapshot.
     RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
 
+    #: Grand Central Sentry DSN
+    GC_SENTRY_DSN: Optional[str] = None
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -308,6 +311,9 @@ class Config:
         self.SQL_EXPORTER_IMAGE = self.env(
             "SQL_EXPORTER_IMAGE", default=self.SQL_EXPORTER_IMAGE
         )
+
+        self.GC_SENTRY_DSN = self.env("GC_SENTRY_DSN", default=self.GC_SENTRY_DSN)
+
         cratedb_status_interval = int(
             self.env(
                 "CRATEDB_STATUS_CHECK_INTERVAL",
