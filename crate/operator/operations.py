@@ -933,6 +933,7 @@ CRONJOB_NAME = "cronjob_name"
 
 class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.BEFORE_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
@@ -1082,6 +1083,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
 class AfterClusterUpdateSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.AFTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,

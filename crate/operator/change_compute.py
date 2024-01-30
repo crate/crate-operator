@@ -25,6 +25,7 @@ import kopf
 from kubernetes_asyncio.client import AppsV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.config import config
 from crate.operator.create import (
     get_statefulset_affinity,
     get_statefulset_env_crate_heap,
@@ -41,6 +42,7 @@ from crate.operator.webhooks import (
 
 class ChangeComputeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,

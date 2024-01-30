@@ -33,6 +33,8 @@ Unreleased
 
 * Added the Prometheus annotations to ``grandCentral`` to allow metrics scrapping on it.
 
+- Moved cluster update timeout to the handlers level.
+
 
 2.33.0 (2023-11-14)
 -------------------
