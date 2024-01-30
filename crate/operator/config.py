@@ -113,6 +113,12 @@ class Config:
     #: failed.
     RESTORE_BACKUP_TIMEOUT = 3600 * 24
 
+    #: Time in seconds for which the operator will continue and wait to perform
+    #: checks before and after a cluster update. Once the threshold has passed,
+    #: an update is considered failed.
+    BEFORE_UPDATE_TIMEOUT = 3600 * 24
+    AFTER_UPDATE_TIMEOUT = 3600
+
     #: Do not scale down cluster when performing storage expansion.
     #: The underlying infrastructure must support this - i.e. Azure or AWS CSI volumes.
     NO_DOWNTIME_STORAGE_EXPANSION: bool = False
@@ -292,6 +298,38 @@ class Config:
             raise ConfigurationError(
                 f"Invalid {self._prefix}SCALING_TIMEOUT="
                 f"'{scaling_timeout}'. Needs to be a positive integer or 0."
+            )
+
+        before_update_timeout = self.env(
+            "BEFORE_UPDATE_TIMEOUT", default=str(self.BEFORE_UPDATE_TIMEOUT)
+        )
+        try:
+            self.BEFORE_UPDATE_TIMEOUT = int(before_update_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}BEFORE_UPDATE_TIMEOUT="
+                f"'{before_update_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.BEFORE_UPDATE_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}BEFORE_UPDATE_TIMEOUT="
+                f"'{before_update_timeout}'. Needs to be a positive integer or 0."
+            )
+
+        after_update_timeout = self.env(
+            "AFTER_UPDATE_TIMEOUT", default=str(self.AFTER_UPDATE_TIMEOUT)
+        )
+        try:
+            self.AFTER_UPDATE_TIMEOUT = int(after_update_timeout)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}AFTER_UPDATE_TIMEOUT="
+                f"'{after_update_timeout}'. Needs to be a positive integer or 0."
+            )
+        if self.AFTER_UPDATE_TIMEOUT < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}AFTER_UPDATE_TIMEOUT="
+                f"'{after_update_timeout}'. Needs to be a positive integer or 0."
             )
 
         testing = self.env("TESTING", default=str(self.TESTING))

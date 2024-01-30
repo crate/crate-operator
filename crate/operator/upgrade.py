@@ -170,6 +170,7 @@ async def upgrade_cluster(
 
 class UpgradeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
+    @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
     async def handle(  # type: ignore
         self,
         namespace: str,
