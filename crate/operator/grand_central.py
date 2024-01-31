@@ -92,33 +92,33 @@ def get_grand_central_deployment(
     spec: kopf.Spec,
 ) -> V1Deployment:
     env = [
-        V1EnvVar(name="CRATEDB_CENTER_CRATEDB_USERNAME", value=SYSTEM_USERNAME),
+        V1EnvVar(name="GRAND_CENTRAL_CRATEDB_USERNAME", value=SYSTEM_USERNAME),
         V1EnvVar(
-            name="CRATEDB_CENTER_CRATEDB_ADDRESS",
+            name="GRAND_CENTRAL_CRATEDB_ADDRESS",
             value=f"https://crate-discovery-{name}:4200",
         ),
         V1EnvVar(
-            name="CRATEDB_CENTER_USE_SSL",
+            name="GRAND_CENTRAL_USE_SSL",
             value="true",
         ),
         V1EnvVar(
-            name="CRATEDB_CENTER_VERIFY_SSL",
+            name="GRAND_CENTRAL_VERIFY_SSL",
             value="false",
         ),
-        V1EnvVar(name="CRATEDB_CENTER_CLUSTER_ID", value=name),
+        V1EnvVar(name="GRAND_CENTRAL_CLUSTER_ID", value=name),
         V1EnvVar(
-            name="CRATEDB_CENTER_JWK_ENDPOINT",
+            name="GRAND_CENTRAL_JWK_ENDPOINT",
             value=spec["grandCentral"]["jwkUrl"],
         ),
         V1EnvVar(
-            name="CRATEDB_CENTER_CRATEDB_PASSWORD",
+            name="GRAND_CENTRAL_CRATEDB_PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
                     key="password", name=f"user-system-{name}"
                 ),
             ),
         ),
-        V1EnvVar(name="CRATEDB_CENTER_SENTRY_DSN", value=config.GC_SENTRY_DSN),
+        V1EnvVar(name="GRAND_CENTRAL_SENTRY_DSN", value=config.GC_SENTRY_DSN),
     ]
     annotations = {
         "prometheus.io/port": str(GRAND_CENTRAL_PROMETHEUS_PORT),
