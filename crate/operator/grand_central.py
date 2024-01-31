@@ -32,6 +32,7 @@ from kubernetes_asyncio.client import (
     V1ContainerPort,
     V1Deployment,
     V1DeploymentSpec,
+    V1DeploymentStrategy,
     V1EnvVar,
     V1EnvVarSource,
     V1HTTPGetAction,
@@ -134,6 +135,7 @@ def get_grand_central_deployment(
                     LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 }
             ),
+            strategy=V1DeploymentStrategy(type="Recreate"),
             template=V1PodTemplateSpec(
                 metadata=V1ObjectMeta(
                     annotations=annotations,
