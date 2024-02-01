@@ -118,6 +118,8 @@ async def update_cratedb(
             do_restart = True
         elif field_path == ("spec", "nodes", "master", "replicas"):
             do_scale = True
+        elif field_path == ("spec", "allowedSystemUserCIDR"):
+            do_restart = True
         elif field_path == ("spec", "nodes", "data"):
             for node_spec_idx in range(len(old_spec)):
                 old_spec = old_spec[node_spec_idx]
