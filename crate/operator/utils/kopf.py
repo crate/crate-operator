@@ -23,6 +23,7 @@ import abc
 import functools
 import json
 import logging
+from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, Optional, TypedDict
 
@@ -120,7 +121,11 @@ class StateBasedSubHandler(abc.ABC):
         status = kwargs["status"]
         annotations = kwargs["annotations"]
         logger = kwargs["logger"]
+        patch = kwargs["patch"]
         waiting_for = []
+
+        self._init_handler_starttime(status, patch, logger)
+
         for dependency in self.depends_on:
             if self._get_status(status, dependency, logger) is None:
                 if self._should_run_on_failed_dependency(
@@ -132,6 +137,12 @@ class StateBasedSubHandler(abc.ABC):
 
         if len(waiting_for) > 0:
             wt = ",".join(waiting_for)
+            patch.status.setdefault("subhandlerStartedAt", {})[
+                self.__class__.__name__
+            ] = {
+                "ref": self.ref,
+                "started": int(datetime.utcnow().timestamp()),
+            }
             # If running in testing mode (i.e. running ITs) we can reduce the delay
             # significantly as things generally move fast.
             raise kopf.TemporaryError(
@@ -236,6 +247,25 @@ class StateBasedSubHandler(abc.ABC):
                 )
 
         return False
+
+    def _init_handler_starttime(
+        self, statuses: dict, patch: kopf.Patch, logger: logging.Logger
+    ):
+        """
+        This sets the intitial start time of the subhandler. It gets constantly updated
+        when a subhandler is delayed because of unfinished dependencies. This is
+        required to calculate the correct runtime of a subhandler in the timeout
+        decorator.
+        """
+        status = statuses.get("subhandlerStartedAt", {}).get(self.__class__.__name__)
+
+        if (
+            not (status and status.get("started") and status.get("ref") == self.ref)
+            and patch
+        ):
+            patch.status.setdefault("subhandlerStartedAt", {})[
+                self.__class__.__name__
+            ] = {"started": int(datetime.utcnow().timestamp()), "ref": self.ref}
 
 
 async def send_webhook_notification(
