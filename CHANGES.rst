@@ -12,6 +12,8 @@ Unreleased
 
 * Added the `Authorization` header to the allowed list for GC.
 
+* Moved cluster update timeout to the handlers level.
+
 2.34.1 (2024-02-06)
 -------------------
 
@@ -32,8 +34,6 @@ Unreleased
 * Implemented a handler allowing changing the ``backendImage`` of ``grandCentral``.
 
 * Added the Prometheus annotations to ``grandCentral`` to allow metrics scrapping on it.
-
-- Moved cluster update timeout to the handlers level.
 
 
 2.33.0 (2023-11-14)

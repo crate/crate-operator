@@ -76,7 +76,15 @@ async def test_upgrade_cluster_timeout(
             await handler._subhandler(
                 logger=logging.getLogger(__name__),
                 runtime=datetime.timedelta(seconds=runtime),
-                status={},
+                status={
+                    "subhandlerStartedAt": {
+                        "ActionSubhandler": {
+                            "started": int(datetime.datetime.utcnow().timestamp())
+                            - runtime,
+                            "ref": hash,
+                        }
+                    }
+                },
                 annotations={},
                 diff=(
                     kopf.DiffItem(
@@ -86,6 +94,7 @@ async def test_upgrade_cluster_timeout(
                         "4.6.4",
                     ),
                 ),
+                patch={},
             )
         await assert_wait_for(
             True,
@@ -113,8 +122,17 @@ async def test_upgrade_cluster_timeout(
         res = await handler._subhandler(
             logger=logging.getLogger(__name__),
             runtime=datetime.timedelta(seconds=runtime),
-            status={},
+            status={
+                "subhandlerStartedAt": {
+                    "ActionSubhandler": {
+                        "started": int(datetime.datetime.utcnow().timestamp())
+                        - runtime,
+                        "ref": hash,
+                    }
+                }
+            },
             annotations={},
+            patch={},
         )
         assert res["result"] == {"success": True}
 
@@ -274,6 +292,7 @@ async def test_get_action_for_diff(
     name = faker.domain_word()
     hash = faker.md5()
     namespace = faker.uuid4()
+    runtime = 30
 
     handler = ActionSubhandler(
         namespace,
@@ -285,9 +304,18 @@ async def test_get_action_for_diff(
         await handler._subhandler(
             logger=logging.getLogger(__name__),
             runtime=datetime.timedelta(seconds=30),
-            status={},
+            status={
+                "subhandlerStartedAt": {
+                    "ActionSubhandler": {
+                        "started": int(datetime.datetime.utcnow().timestamp())
+                        - runtime,
+                        "ref": hash,
+                    }
+                }
+            },
             annotations={},
             diff=(kopf.DiffItem(*diff_item),),
+            patch={},
         )
     await assert_wait_for(
         True,
