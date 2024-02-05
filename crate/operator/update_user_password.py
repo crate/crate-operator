@@ -19,13 +19,14 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import json
 import logging
+from typing import List
 
 from aiohttp.client_exceptions import WSServerHandshakeError
 from kopf import TemporaryError
 from kubernetes_asyncio.client import ApiException, CoreV1Api
 from kubernetes_asyncio.stream import WsApiClient
-from psycopg2.extensions import QuotedString
 
 from crate.operator.config import config
 from crate.operator.utils.formatting import b64decode
@@ -60,14 +61,29 @@ async def update_user_password(
         no SSL/TLS is configured.
     """
     scheme = "https" if has_ssl else "http"
-    password_quoted = QuotedString(b64decode(new_password)).getquoted().decode()
-    command_alter_user = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        f'ALTER USER "{username}" SET (password={password_quoted});',
-    ]
+    password = b64decode(new_password)
+
+    def get_curl_command(payload: dict) -> List[str]:
+        return [
+            "curl",
+            "-k",
+            "-X",
+            "POST",
+            f"{scheme}://localhost:4200/_sql",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            json.dumps(payload),
+            "-w",
+            "\\n",
+        ]
+
+    command_alter_user = get_curl_command(
+        {
+            "stmt": 'ALTER USER "{}" SET (password = $1)'.format(username),
+            "args": [password],
+        }
+    )
     exception_logger = logger.exception if config.TESTING else logger.error
 
     async with WsApiClient() as ws_api_client:
@@ -84,7 +100,7 @@ async def update_user_password(
                 stdout=True,
                 tty=False,
             )
-            if "ALTER OK" in result:
+            if "rowcount" in result:
                 logger.info("... success")
             else:
                 logger.info("... error. %s", result)
