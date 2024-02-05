@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.34.0 (2024-02-05)
+-------------------
+
 * Added ``GRAND_CENTRAL_SENTRY_DSN`` envvar to allow specifying the sentry dsn for
   grand central deployments.
 
