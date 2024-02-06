@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.34.1 (2024-02-06)
+-------------------
+
 * Fixed compatibility with CrateDB 5.6, which returns a slightly different version of
   ``UserAlreadyExistsException`` (``RoleAlreadyExistsException``) and breaks bootstrap.
 
