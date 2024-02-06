@@ -132,7 +132,7 @@ async def bootstrap_system_user(
         else:
             if "CREATE OK" in result:
                 logger.info("... success")
-            elif "UserAlreadyExistsException" in result:
+            elif "AlreadyExistsException" in result:
                 needs_update = True
                 logger.info("... success. Already present")
             else:
