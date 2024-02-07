@@ -8,6 +8,8 @@ Unreleased
 * Updated user modification operations to leverage parameterized queries and
   ``curl``, replacing direct usage of ``crash``.
 
+* Added ``GRAND_CENTRAL_API_URL`` envvar required for sending webhooks.
+
 2.34.1 (2024-02-06)
 -------------------
 

@@ -111,6 +111,10 @@ def get_grand_central_deployment(
             value=spec["grandCentral"]["jwkUrl"],
         ),
         V1EnvVar(
+            name="GRAND_CENTRAL_API_URL",
+            value=spec["grandCentral"]["apiUrl"],
+        ),
+        V1EnvVar(
             name="GRAND_CENTRAL_CRATEDB_PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
