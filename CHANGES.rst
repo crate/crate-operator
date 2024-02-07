@@ -10,6 +10,8 @@ Unreleased
 
 * Added ``GRAND_CENTRAL_API_URL`` envvar required for sending webhooks.
 
+* Added the `Authorization` header to the allowed list for GC.
+
 2.34.1 (2024-02-06)
 -------------------
 

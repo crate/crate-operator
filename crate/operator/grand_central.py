@@ -300,7 +300,7 @@ def get_grand_central_ingress(
                                     "X-Frame-Options: DENY"
                                     "X-Content-Type-Options: nosniff"
                                     "Access-Control-Allow-Origin: $http_origin"
-                                    "Access-Control-Allow-Headers: Content-Type"
+                                    "Access-Control-Allow-Headers: Content-Type,Authorization"
                                     "Access-Control-Allow-Credentials: true"
                                     "Access-Control-Max-Age: 7200"
                                     "Access-Control-Allow-Methods: GET,POST,PUT,PATCH,OPTIONS,DELETE"
