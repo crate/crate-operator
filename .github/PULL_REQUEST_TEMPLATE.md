@@ -3,6 +3,7 @@
 
 ## Checklist
 
+- [ ] Link to issue this PR refers to:
 - [ ] Relevant changes are reflected in `CHANGES.rst`
 - [ ] Added or changed code is covered by tests
 - [ ] Documentation has been updated if necessary
