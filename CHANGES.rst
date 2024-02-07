@@ -5,6 +5,15 @@ Changelog
 Unreleased
 ----------
 
+* Updated user modification operations to leverage parameterized queries and
+  ``curl``, replacing direct usage of ``crash``.
+
+2.34.1 (2024-02-06)
+-------------------
+
+* Fixed compatibility with CrateDB 5.6, which returns a slightly different version of
+  ``UserAlreadyExistsException`` (``RoleAlreadyExistsException``) and breaks bootstrap.
+
 2.34.0 (2024-02-05)
 -------------------
 

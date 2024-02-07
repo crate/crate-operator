@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -27,7 +28,6 @@ from kopf import TemporaryError
 from kubernetes_asyncio.client import ApiException, CoreV1Api
 from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
-from psycopg2.extensions import QuotedString
 
 from crate.operator.config import config
 from crate.operator.constants import CONNECT_TIMEOUT, SYSTEM_USERNAME
@@ -75,48 +75,58 @@ async def bootstrap_system_user(
     """
     scheme = "https" if has_ssl else "http"
     password = await get_system_user_password(core, namespace, name)
-    password_quoted = QuotedString(password).getquoted().decode()
-    # Yes, we're constructing the SQL for the system user manually. But that's
-    # fine in this case, because we have full control of the formatting of
-    # the username and it's only `[a-z]+`.
-    command_create_user = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        f'CREATE USER "{SYSTEM_USERNAME}" WITH (password={password_quoted});',
-    ]
-    command_alter_user = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        f'ALTER USER "{SYSTEM_USERNAME}" SET (password={password_quoted});',
-    ]
-    command_grant = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        f'GRANT ALL PRIVILEGES TO "{SYSTEM_USERNAME}";',
-    ]
+
+    def get_curl_command(payload: dict) -> List[str]:
+        return [
+            "curl",
+            "-s",
+            "-k",
+            "-X",
+            "POST",
+            f"{scheme}://localhost:4200/_sql",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            json.dumps(payload),
+            "-w",
+            "\\n",
+        ]
+
+    command_create_user = get_curl_command(
+        {
+            "stmt": 'CREATE USER "{}" WITH (password = $1)'.format(SYSTEM_USERNAME),
+            "args": [password],
+        }
+    )
+    command_alter_user = get_curl_command(
+        {
+            "stmt": 'ALTER USER "{}" SET (password = $1)'.format(SYSTEM_USERNAME),
+            "args": [password],
+        }
+    )
+    command_grant = get_curl_command(
+        {"stmt": 'GRANT ALL PRIVILEGES TO "{}" '.format(SYSTEM_USERNAME)}
+    )
     exception_logger = logger.exception if config.TESTING else logger.error
+
+    async def pod_exec(cmd):
+        return await core_ws.connect_get_namespaced_pod_exec(
+            namespace=namespace,
+            name=master_node_pod,
+            command=cmd,
+            container="crate",
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+        )
 
     needs_update = False
     async with WsApiClient() as ws_api_client:
         core_ws = CoreV1Api(ws_api_client)
         try:
             logger.info("Trying to create system user ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command_create_user,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
+            result = await pod_exec(command_create_user)
         except ApiException as e:
             # We don't use `logger.exception()` to not accidentally include the
             # password in the log messages which might be part of the string
@@ -130,9 +140,9 @@ async def bootstrap_system_user(
             exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
             raise _temporary_error()
         else:
-            if "CREATE OK" in result:
+            if "rowcount" in result:
                 logger.info("... success")
-            elif "UserAlreadyExistsException" in result:
+            elif "AlreadyExistsException" in result:
                 needs_update = True
                 logger.info("... success. Already present")
             else:
@@ -142,16 +152,7 @@ async def bootstrap_system_user(
         if needs_update:
             try:
                 logger.info("Trying to update system user password ...")
-                result = await core_ws.connect_get_namespaced_pod_exec(
-                    namespace=namespace,
-                    name=master_node_pod,
-                    command=command_alter_user,
-                    container="crate",
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False,
-                )
+                result = await pod_exec(command_alter_user)
             except ApiException as e:
                 # We don't use `logger.exception()` to not accidentally include the
                 # password in the log messages which might be part of the string
@@ -169,7 +170,7 @@ async def bootstrap_system_user(
                 )
                 raise _temporary_error()
             else:
-                if "ALTER OK" in result:
+                if "rowcount" in result:
                     logger.info("... success")
                 else:
                     logger.info("... error. %s", result)
@@ -177,21 +178,12 @@ async def bootstrap_system_user(
 
         try:
             logger.info("Trying to grant system user all privileges ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=master_node_pod,
-                command=command_grant,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
+            result = await pod_exec(command_grant)
         except (ApiException, WSServerHandshakeError):
             logger.exception("... failed")
             raise _temporary_error()
         else:
-            if "GRANT OK" in result:
+            if "rowcount" in result:
                 logger.info("... success")
             else:
                 logger.info("... error. %s", result)
