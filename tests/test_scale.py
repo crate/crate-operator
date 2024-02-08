@@ -58,6 +58,7 @@ from tests.utils import (
     does_grand_central_pod_exist,
     insert_test_snapshot_job,
     is_cluster_healthy,
+    is_cronjob_enabled,
     is_kopf_handler_finished,
     start_backup_metrics,
     start_cluster,
@@ -214,6 +215,7 @@ async def test_suspend_resume_cluster(
     apps = AppsV1Api(api_client)
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
+    batch = BatchV1Api(api_client)
     name = faker.domain_word()
 
     # Create a cluster with 1 node
@@ -360,6 +362,16 @@ async def test_suspend_resume_cluster(
         name,
         namespace.metadata.name,
         err_msg="Grand central has not been scaled up.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        is_cronjob_enabled,
+        batch,
+        namespace.metadata.name,
+        f"create-snapshot-{name}",
+        err_msg="The backup cronjob is disabled",
         timeout=DEFAULT_TIMEOUT,
     )
 

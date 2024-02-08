@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Delayed cronjob re-enabling after upgrading or resuming a cluster.
+
 2.35.0 (2024-02-15)
 -------------------
 
@@ -37,7 +39,6 @@ Unreleased
 * Implemented a handler allowing changing the ``backendImage`` of ``grandCentral``.
 
 * Added the Prometheus annotations to ``grandCentral`` to allow metrics scrapping on it.
-
 
 2.33.0 (2023-11-14)
 -------------------

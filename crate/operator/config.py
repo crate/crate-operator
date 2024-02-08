@@ -167,6 +167,9 @@ class Config:
     #: Grand Central Sentry DSN
     GC_SENTRY_DSN: Optional[str] = None
 
+    #: Delay before re-enabling cronjobs
+    RE_ENABLING_CRONJOB_DELAY = 3600
+
     def __init__(self, *, prefix: str):
         self._prefix = prefix
 
@@ -330,6 +333,22 @@ class Config:
             raise ConfigurationError(
                 f"Invalid {self._prefix}AFTER_UPDATE_TIMEOUT="
                 f"'{after_update_timeout}'. Needs to be a positive integer or 0."
+            )
+
+        re_enabling_cronjob_delay = self.env(
+            "RE_ENABLING_CRONJOB_DELAY", default=str(self.RE_ENABLING_CRONJOB_DELAY)
+        )
+        try:
+            self.RE_ENABLING_CRONJOB_DELAY = int(re_enabling_cronjob_delay)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}RE_ENABLING_CRONJOB_DELAY="
+                f"'{re_enabling_cronjob_delay}'. Needs to be a positive integer or 0."
+            )
+        if self.RE_ENABLING_CRONJOB_DELAY < 0:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}RE_ENABLING_CRONJOB_DELAY="
+                f"'{re_enabling_cronjob_delay}'. Needs to be a positive integer or 0."
             )
 
         testing = self.env("TESTING", default=str(self.TESTING))

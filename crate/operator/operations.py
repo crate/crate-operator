@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import datetime
 import logging
 import pkgutil
 import warnings
@@ -929,6 +930,8 @@ DISABLE_CRONJOB_HANDLER_ID = "disable_cronjob"
 IGNORE_CRONJOB = "ignore_cronjob"
 CRONJOB_SUSPENDED = "cronjob_suspended"
 CRONJOB_NAME = "cronjob_name"
+DELAY_CRONJOB = "delay_cronjob"
+DELAY_CRONJOB_START = "delay_cronjob_start"
 
 
 class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
@@ -940,12 +943,13 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         name: str,
         body: kopf.Body,
         old: kopf.Body,
+        status: kopf.Status,
         logger: logging.Logger,
         **kwargs: Any,
     ):
         kopf.register(
             fn=subhandler_partial(
-                self._ensure_cronjob_suspended, namespace, name, logger
+                self._ensure_cronjob_suspended, namespace, name, status, logger
             ),
             id=DISABLE_CRONJOB_HANDLER_ID,
         )
@@ -970,7 +974,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
     @staticmethod
     async def _ensure_cronjob_suspended(
-        namespace: str, name: str, logger: logging.Logger
+        namespace: str, name: str, status: kopf.Status, logger: logging.Logger
     ) -> Optional[Dict]:
         async with ApiClient() as api_client:
             batch = BatchV1Api(api_client)
@@ -985,7 +989,10 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                     and labels.get("app.kubernetes.io/name") == name
                 ):
                     current_suspend_status = job.spec.suspend
-                    if current_suspend_status:
+                    if (
+                        current_suspend_status
+                        and status.get(DELAY_CRONJOB, False) is False
+                    ):
                         logger.warning(
                             f"Found job {job_name} that is already suspended, ignoring"
                         )
@@ -1090,52 +1097,25 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
         name: str,
         body: kopf.Body,
         old: kopf.Body,
-        logger: logging.Logger,
         status: kopf.Status,
+        logger: logging.Logger,
         **kwargs: Any,
     ):
-        kopf.register(
-            fn=subhandler_partial(
-                self._ensure_cronjob_reenabled, namespace, name, logger, status
-            ),
-            id="ensure_cronjob_reenabled",
-        )
+        # If a delay is set, a timer will trigger it, otherwise, it's triggered here
+        if status.get(DELAY_CRONJOB, False) is False:
+            kopf.register(
+                fn=subhandler_partial(
+                    ensure_cronjob_reenabled, namespace, name, logger, status
+                ),
+                id="ensure_cronjob_reenabled",
+            )
+
         kopf.register(
             fn=subhandler_partial(
                 self._reset_cluster_routing_allocation_setting, namespace, name, logger
             ),
             id="reset_cluster_routing_allocation_setting",
         )
-
-    async def _ensure_cronjob_reenabled(
-        self, namespace: str, name: str, logger: logging.Logger, status: kopf.Status
-    ):
-        disabler_job_status = None
-        for key in status.keys():
-            if key.endswith(DISABLE_CRONJOB_HANDLER_ID):
-                disabler_job_status = status.get(key)
-                break
-
-        if disabler_job_status is None:
-            logger.info("No cronjob was disabled, so can't re-enable anything.")
-            return
-
-        if disabler_job_status.get(IGNORE_CRONJOB, False):
-            logger.warning("Will not attempt to re-enable any CronJobs")
-            return
-
-        async with ApiClient() as api_client:
-            job_name = disabler_job_status[CRONJOB_NAME]
-
-            batch = BatchV1Api(api_client)
-
-            jobs: V1CronJobList = await batch.list_namespaced_cron_job(namespace)
-
-            for job in jobs.items:
-                if job.metadata.name == job_name:
-                    update = {"spec": {"suspend": False}}
-                    await batch.patch_namespaced_cron_job(job_name, namespace, update)
-                    logger.info(f"Re-enabled cronjob {job_name}")
 
     async def _reset_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger
@@ -1150,6 +1130,47 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
                 logger,
                 setting="cluster.routing.allocation.enable",
             )
+
+
+async def ensure_cronjob_reenabled(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    status: kopf.Status,
+):
+    disabler_job_status = None
+    for key in status.keys():
+        if key.endswith(DISABLE_CRONJOB_HANDLER_ID):
+            disabler_job_status = status.get(key)
+            break
+
+    if disabler_job_status is None:
+        logger.info("No cronjob was disabled, so can't re-enable anything.")
+        return
+
+    if disabler_job_status.get(IGNORE_CRONJOB, False):
+        logger.warning("Will not attempt to re-enable any CronJobs")
+        return
+
+    async with ApiClient() as api_client:
+        job_name = disabler_job_status[CRONJOB_NAME]
+
+        batch = BatchV1Api(api_client)
+
+        jobs: V1CronJobList = await batch.list_namespaced_cron_job(namespace)
+
+        for job in jobs.items:
+            if job.metadata.name == job_name:
+                update = {"spec": {"suspend": False}}
+                await batch.patch_namespaced_cron_job(job_name, namespace, update)
+                logger.info(f"Re-enabled cronjob {job_name}")
+
+
+async def set_cronjob_delay(patch):
+    # Set a tag in the status that will be detected by a timer.
+    # The timer will re-enable the cronjobs.
+    patch.status[DELAY_CRONJOB] = True
+    patch.status[DELAY_CRONJOB_START] = datetime.datetime.utcnow().timestamp()
 
 
 class StartClusterSubHandler(StateBasedSubHandler):

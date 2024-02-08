@@ -23,6 +23,7 @@ from unittest import mock
 import kopf
 import pytest
 from kubernetes_asyncio.client import (
+    BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1ObjectMeta,
@@ -56,6 +57,7 @@ from tests.utils import (
     create_test_sys_jobs_table,
     does_backup_metrics_pod_exist,
     is_cluster_healthy,
+    is_cronjob_enabled,
     is_kopf_handler_finished,
     mocked_coro_func_called_with,
     start_backup_metrics,
@@ -88,6 +90,7 @@ async def test_restore_backup(
 ):
     coapi = CustomObjectsApi(api_client)
     core = CoreV1Api(api_client)
+    batch = BatchV1Api(api_client)
     name = faker.domain_word()
     number_of_nodes = 1
 
@@ -270,6 +273,16 @@ async def test_restore_backup(
         f"{KOPF_STATE_STORE_PREFIX}/cluster_restore/spec.cluster.restoreSnapshot",
         err_msg="Restore handler has not finished",
         timeout=DEFAULT_TIMEOUT * 3,
+    )
+
+    await assert_wait_for(
+        True,
+        is_cronjob_enabled,
+        batch,
+        namespace.metadata.name,
+        f"create-snapshot-{name}",
+        err_msg="The backup cronjob is disabled",
+        timeout=DEFAULT_TIMEOUT,
     )
 
 
