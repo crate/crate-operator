@@ -54,6 +54,9 @@ from crate.operator.handlers.handle_update_user_password_secret import (
 from crate.operator.handlers.handle_upgrade_grand_central import upgrade_grand_central
 from crate.operator.kube_auth import login_via_kubernetes_asyncio
 from crate.operator.operations import (
+    DELAY_CRONJOB,
+    DELAY_CRONJOB_START,
+    ensure_cronjob_reenabled,
     is_namespace_terminating,
     update_sql_exporter_configmap,
 )
@@ -344,3 +347,36 @@ async def resume_sql_exporter_configmap(
     """
     await raise_on_namespace_terminating(namespace)
     await update_sql_exporter_configmap(namespace, name, logger)
+
+
+@kopf.timer(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field=f"status.{DELAY_CRONJOB}",
+    value=True,
+    interval=2 if config.TESTING else 60 * 5,
+)
+@crate.on.error(error_handler=crate.send_update_failed_notification)
+@crate.timeout(timeout=float(config.AFTER_UPDATE_TIMEOUT))
+async def enable_cronjob_after_delay(
+    namespace: str,
+    name: str,
+    spec: kopf.Spec,
+    patch: kopf.Patch,
+    status: kopf.Status,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    # Delay cronjob after resuming or upgrading a cluster
+    delay_start_time = status.get(DELAY_CRONJOB_START)
+    if delay_start_time:
+        delay = (
+            datetime.datetime.utcnow()
+            - datetime.timedelta(
+                seconds=5 if config.TESTING else config.RE_ENABLING_CRONJOB_DELAY
+            )
+        ).timestamp()
+        if delay_start_time <= delay:
+            patch.status[DELAY_CRONJOB] = False
+            await ensure_cronjob_reenabled(namespace, name, logger, status)

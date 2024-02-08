@@ -494,3 +494,8 @@ async def does_grand_central_pod_exist(
     return any(
         p["name"].startswith(f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}") for p in pods
     )
+
+
+async def is_cronjob_enabled(batch: BatchV1Api, namespace: str, name: str) -> bool:
+    cronjob = await batch.read_namespaced_cron_job(namespace=namespace, name=name)
+    return cronjob.spec.suspend is False

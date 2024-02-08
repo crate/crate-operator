@@ -33,11 +33,13 @@ from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
+    DELAY_CRONJOB,
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
     RestartSubHandler,
     StartClusterSubHandler,
     SuspendClusterSubHandler,
+    set_cronjob_delay,
 )
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
@@ -128,9 +130,17 @@ async def update_cratedb(
                     # When resuming the cluster do not register before_update
                     if old_spec.get("replicas") == 0:
                         do_before_update = False
+
+                        # Delay the cronjob re-enabling after resuming the cluster
+                        await set_cronjob_delay(patch)
+
                     # When suspending the cluster do not register after_update
                     elif new_spec.get("replicas") == 0:
                         do_after_update = False
+
+                        # Do not re-enable the cronjobs if the cluster is suspended
+                        patch.status[DELAY_CRONJOB] = False
+
                 elif old_spec.get("resources", {}).get("disk", {}).get(
                     "size"
                 ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
@@ -161,6 +171,11 @@ async def update_cratedb(
 
     if do_upgrade:
         register_upgrade_handlers(namespace, name, change_hash, context, depends_on)
+
+        # Delay the cronjob re-enabling after upgrading a cluster
+        # It is called here to not mess up with the values stored in the status
+        # by the update subhandlers.
+        await set_cronjob_delay(patch)
 
     if do_change_compute:
         register_change_compute_handlers(
