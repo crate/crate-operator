@@ -26,6 +26,8 @@ Unreleased
 
 * Moved cluster update timeout to the handlers level.
 
+* Add GCP as a cloud provider and fetch the zone from the node's metadata.
+
 2.34.1 (2024-02-06)
 -------------------
 
