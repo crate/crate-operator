@@ -60,6 +60,7 @@ GRAND_CENTRAL_PROMETHEUS_PORT = 8000
 class CloudProvider(str, enum.Enum):
     AWS = "aws"
     AZURE = "azure"
+    GCP = "gcp"
 
 
 class Port(enum.Enum):

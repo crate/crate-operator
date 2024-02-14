@@ -260,7 +260,11 @@ def get_topology_spread(
         return None
 
     topology_spread = None
-    if config.CLOUD_PROVIDER in {CloudProvider.AWS, CloudProvider.AZURE}:
+    if config.CLOUD_PROVIDER in {
+        CloudProvider.AWS,
+        CloudProvider.AZURE,
+        CloudProvider.GCP,
+    }:
         topology_spread = [
             V1TopologySpreadConstraint(
                 max_skew=1,
@@ -455,6 +459,12 @@ def get_statefulset_crate_command(
     elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
         url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
         settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
+    elif config.CLOUD_PROVIDER == CloudProvider.GCP:
+        url = "http://169.254.169.254/computeMetadata/v1/instance/zone"  # noqa
+        # projects/<account-id>/zones/us-central1-a
+        settings[
+            "-Cnode.attr.zone"
+        ] = f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | rev | cut -d '/' -f 1 | rev)"  # noqa
 
     if cluster_settings:
         for k, v in cluster_settings.items():
