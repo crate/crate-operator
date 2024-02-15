@@ -38,6 +38,7 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.handlers.handle_create_cratedb import create_cratedb
+from crate.operator.handlers.handle_create_grand_central import create_grand_central
 from crate.operator.handlers.handle_notify_external_ip_changed import (
     external_ip_changed,
 )
@@ -307,6 +308,28 @@ async def grand_central_upgrade(
     """
     await raise_on_namespace_terminating(namespace)
     await upgrade_grand_central(namespace, name, diff, logger)
+
+
+@kopf.on.field(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    field="spec.grandCentral",
+    annotations=annotation_filter(),
+)
+async def grand_central_create(
+    namespace: str,
+    name: str,
+    old: kopf.Body,
+    new: kopf.Body,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handles deployments of grand central backend.
+    """
+    await raise_on_namespace_terminating(namespace)
+    await create_grand_central(namespace, name, old, new, logger)
 
 
 @kopf.timer(

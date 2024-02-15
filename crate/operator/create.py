@@ -26,6 +26,7 @@ import warnings
 from typing import Any, Dict, List, Optional
 
 import bitmath
+import kopf
 import yaml
 from kubernetes_asyncio.client import (
     AppsV1Api,
@@ -1145,6 +1146,19 @@ def get_cluster_resource_limits(
         .get("limits", {})
         .get(resource_type, node_spec["resources"].get(fallback_key))
     )
+
+
+def get_owner_references(name: str, meta: kopf.Meta) -> List[V1OwnerReference]:
+    return [
+        V1OwnerReference(
+            api_version=f"{API_GROUP}/v1",
+            block_owner_deletion=True,
+            controller=True,
+            kind="CrateDB",
+            name=name,
+            uid=meta["uid"],
+        )
+    ]
 
 
 class CreateSqlExporterConfigSubHandler(StateBasedSubHandler):

@@ -23,7 +23,7 @@ import hashlib
 import logging
 
 import kopf
-from kubernetes_asyncio.client import V1LocalObjectReference, V1OwnerReference
+from kubernetes_asyncio.client import V1OwnerReference
 
 from crate.operator.backup import CreateBackupsSubHandler
 from crate.operator.bootstrap import CreateUsersSubHandler
@@ -31,7 +31,6 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     CLUSTER_CREATE_ID,
-    GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -44,8 +43,8 @@ from crate.operator.create import (
     CreateStatefulsetSubHandler,
     CreateSystemUserSubHandler,
 )
-from crate.operator.grand_central import CreateGrandCentralBackendSubHandler
 from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
+from crate.operator.utils.secrets import get_image_pull_secrets
 
 
 async def create_cratedb(
@@ -79,11 +78,7 @@ async def create_cratedb(
         )
     ]
 
-    image_pull_secrets = (
-        [V1LocalObjectReference(name=secret) for secret in config.IMAGE_PULL_SECRETS]
-        if config.IMAGE_PULL_SECRETS
-        else None
-    )
+    image_pull_secrets = get_image_pull_secrets()
 
     ports_spec = spec.get("ports", {})
     http_port = ports_spec.get("http", Port.HTTP.value)
@@ -231,24 +226,5 @@ async def create_cratedb(
                 ),
                 id="backup",
             )
-
-    if spec.get("grandCentral", {}).get("backendEnabled"):
-        grand_central_labels = base_labels.copy()
-        grand_central_labels[LABEL_COMPONENT] = "grand-central"
-        grand_central_labels[LABEL_NAME] = f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}"
-        grand_central_labels.update(meta.get("labels", {}))
-        external_dns = spec["cluster"]["externalDNS"]
-        grand_central_hostname = external_dns.replace(
-            cluster_name, f"{cluster_name}.gc"
-        ).rstrip(".")
-        kopf.register(
-            fn=CreateGrandCentralBackendSubHandler(namespace, name, hash, context)(
-                owner_references=owner_references,
-                image_pull_secrets=image_pull_secrets,
-                grand_central_labels=grand_central_labels,
-                grand_central_hostname=grand_central_hostname,
-            ),
-            id="grand_central",
-        )
 
     patch.status[CLUSTER_CREATE_ID] = context
