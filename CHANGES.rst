@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.35.0 (2024-02-15)
+-------------------
+
 * Updated user modification operations to leverage parameterized queries and
   ``curl``, replacing direct usage of ``crash``.
 
