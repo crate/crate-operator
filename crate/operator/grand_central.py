@@ -20,7 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import kopf
 from kubernetes_asyncio.client import (
@@ -70,7 +70,10 @@ from crate.operator.constants import (
     GRAND_CENTRAL_BACKEND_API_PORT,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
+    LABEL_COMPONENT,
+    LABEL_MANAGED_BY,
     LABEL_NAME,
+    LABEL_PART_OF,
     SHARED_NODE_SELECTOR_KEY,
     SHARED_NODE_SELECTOR_VALUE,
     SHARED_NODE_TOLERATION_EFFECT,
@@ -78,10 +81,22 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_VALUE,
     SYSTEM_USERNAME,
 )
-from crate.operator.utils import crate
-from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.create import get_owner_references
 from crate.operator.utils.kubeapi import call_kubeapi
+from crate.operator.utils.secrets import get_image_pull_secrets
 from crate.operator.utils.typing import LabelType
+
+
+def get_grand_central_labels(name: str, meta: kopf.Meta) -> Dict[str, Any]:
+    labels = {
+        LABEL_MANAGED_BY: "crate-operator",
+        LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+        LABEL_PART_OF: "cratedb",
+        LABEL_COMPONENT: "grand-central",
+    }
+    labels.update(meta.get("labels", {}))
+
+    return labels
 
 
 def get_grand_central_deployment(
@@ -357,15 +372,19 @@ def get_grand_central_ingress(
 
 
 async def create_grand_central_backend(
-    owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
     name: str,
     spec: kopf.Spec,
-    image_pull_secrets: Optional[List[V1LocalObjectReference]],
-    labels: LabelType,
-    hostname: str,
+    meta: kopf.Meta,
     logger: logging.Logger,
 ) -> None:
+    image_pull_secrets = get_image_pull_secrets()
+    owner_references = get_owner_references(name, meta)
+    cluster_name = spec["cluster"]["name"]
+    external_dns = spec["cluster"]["externalDNS"]
+    hostname = external_dns.replace(cluster_name, f"{cluster_name}.gc").rstrip(".")
+    labels = get_grand_central_labels(name, meta)
+
     async with ApiClient() as api_client:
         apps = AppsV1Api(api_client)
         core = CoreV1Api(api_client)
@@ -430,30 +449,4 @@ async def update_grand_central_deployment_image(
             namespace=namespace,
             name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
             body=deployment,
-        )
-
-
-class CreateGrandCentralBackendSubHandler(StateBasedSubHandler):
-    @crate.on.error(error_handler=crate.send_create_failed_notification)
-    async def handle(  # type: ignore
-        self,
-        namespace: str,
-        name: str,
-        spec: kopf.Spec,
-        owner_references: Optional[List[V1OwnerReference]],
-        image_pull_secrets: Optional[List[V1LocalObjectReference]],
-        grand_central_labels: LabelType,
-        grand_central_hostname: str,
-        logger: logging.Logger,
-        **_kwargs: Any,
-    ):
-        await create_grand_central_backend(
-            owner_references,
-            namespace,
-            name,
-            spec,
-            image_pull_secrets,
-            grand_central_labels,
-            grand_central_hostname,
-            logger,
         )

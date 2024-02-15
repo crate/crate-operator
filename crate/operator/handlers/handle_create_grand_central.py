@@ -19,30 +19,36 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-import secrets
-import string
-from typing import List, Optional
+import logging
 
-from kubernetes_asyncio.client import V1LocalObjectReference
+import kopf
 
-from crate.operator.config import config
+from crate.operator.grand_central import create_grand_central_backend
+from crate.operator.operations import get_cratedb_resource
+from crate.operator.utils.kopf import subhandler_partial
 
-_ALPHABET = string.ascii_letters + string.digits
-
-
-def gen_password(length: int, alphabet=_ALPHABET) -> str:
-    """
-    Generate a cryptographically secure password of length ``length``.
-
-    :param length: The desired password length.
-    :param alphabet: The characters to use within the password.
-    """
-    return "".join(secrets.choice(alphabet) for i in range(length))
+logger = logging.getLogger(__name__)
 
 
-def get_image_pull_secrets() -> Optional[List[V1LocalObjectReference]]:
-    return (
-        [V1LocalObjectReference(name=secret) for secret in config.IMAGE_PULL_SECRETS]
-        if config.IMAGE_PULL_SECRETS
-        else None
-    )
+async def create_grand_central(
+    namespace: str,
+    name: str,
+    old: kopf.Body,
+    new: kopf.Body,
+    logger: logging.Logger,
+):
+    if (old is None or not old.get("backendEnabled")) and (
+        new is not None and new.get("backendEnabled")
+    ):
+        cratedb = await get_cratedb_resource(namespace, name)
+        kopf.register(
+            fn=subhandler_partial(
+                create_grand_central_backend,
+                namespace,
+                name,
+                cratedb["spec"],
+                cratedb["metadata"],
+                logger,
+            ),
+            id="create_grand_central",
+        )

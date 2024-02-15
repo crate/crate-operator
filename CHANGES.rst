@@ -7,6 +7,8 @@ Unreleased
 
 * Delayed cronjob re-enabling after upgrading or resuming a cluster.
 
+* Implemented a handler allowing installing ``grandCentral`` for existing clusters.
+
 2.35.0 (2024-02-15)
 -------------------
 
