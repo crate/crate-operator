@@ -9,6 +9,8 @@ Unreleased
 
 * Implemented a handler allowing installing ``grandCentral`` for existing clusters.
 
+* Fixed a bug that subhandlers were erroneously considered to be timed out.
+
 2.35.0 (2024-02-15)
 -------------------
 
