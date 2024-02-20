@@ -105,7 +105,12 @@ def timeout(*, timeout: float) -> Callable:
                         .get("subhandlerStartedAt", {})
                         .get(instance.__class__.__name__)
                     )
-                    if status and status.get("started"):
+                    # calculate runtime for the current execution run
+                    if (
+                        status
+                        and status.get("started")
+                        and status.get("ref") == getattr(instance, "ref", None)
+                    ):
                         runtime = now - status["started"]
                     return runtime >= timeout
                 else:
