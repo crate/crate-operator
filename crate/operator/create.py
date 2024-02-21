@@ -1104,6 +1104,20 @@ def get_system_user_secret(
     )
 
 
+def get_gc_user_secret(
+    owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
+) -> V1Secret:
+    return V1Secret(
+        data={"password": b64encode(gen_password(50))},
+        metadata=V1ObjectMeta(
+            name=f"user-gc-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
+        type="Opaque",
+    )
+
+
 async def create_system_user(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,

@@ -23,7 +23,11 @@ import logging
 
 import kopf
 
-from crate.operator.grand_central import create_grand_central_backend
+from crate.operator.config import config
+from crate.operator.grand_central import (
+    create_grand_central_backend,
+    create_grand_central_user,
+)
 from crate.operator.operations import get_cratedb_resource
 from crate.operator.utils.kopf import subhandler_partial
 
@@ -51,4 +55,13 @@ async def create_grand_central(
                 logger,
             ),
             id="create_grand_central",
+            backoff=config.BOOTSTRAP_RETRY_DELAY,
+        )
+
+        kopf.register(
+            fn=subhandler_partial(
+                create_grand_central_user, namespace, name, cratedb["metadata"], logger
+            ),
+            id="create_grand_central_user",
+            backoff=config.BOOTSTRAP_RETRY_DELAY,
         )

@@ -33,6 +33,7 @@ LABEL_NODE_NAME = f"{API_GROUP}/node-name"
 LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
 SYSTEM_USERNAME = "system"
+GC_USERNAME = "gc_admin"
 
 CONNECT_TIMEOUT = 10.0
 
