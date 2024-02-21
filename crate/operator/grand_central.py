@@ -164,11 +164,20 @@ def get_grand_central_deployment(
                     name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
                 ),
                 spec=V1PodSpec(
+                    init_containers=[
+                        V1Container(
+                            env=env,
+                            image=spec["grandCentral"]["backendImage"],
+                            image_pull_policy="IfNotPresent",
+                            name="wait-for-crate",
+                            command=["./wait-for-cratedb.py"],
+                        )
+                    ],
                     containers=[
                         V1Container(
                             env=env,
                             image=spec["grandCentral"]["backendImage"],
-                            image_pull_policy="Always",
+                            image_pull_policy="IfNotPresent",
                             name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-api",
                             ports=[
                                 V1ContainerPort(

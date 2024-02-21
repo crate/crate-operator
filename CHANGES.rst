@@ -5,6 +5,13 @@ Changelog
 Unreleased
 ----------
 
+* Added an init container for grand central, that explicitly waits for the associated
+  CrateDB to be started.
+
+* Changed the image pull policy for Grand Central to ``IfNotPresent``, there's no reason
+  to always pull.
+
+
 2.36.0 (2024-02-21)
 -------------------
 
@@ -13,6 +20,7 @@ Unreleased
 * Implemented a handler allowing installing ``grandCentral`` for existing clusters.
 
 * Fixed a bug that subhandlers were erroneously considered to be timed out.
+
 
 2.35.0 (2024-02-15)
 -------------------
