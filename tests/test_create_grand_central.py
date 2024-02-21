@@ -30,11 +30,14 @@ from kubernetes_asyncio.client import (
 
 from crate.operator.constants import (
     API_GROUP,
+    GC_USERNAME,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
+from crate.operator.utils.formatting import b64decode
+from tests.test_bootstrap import does_user_exist
 
 from .utils import (
     DEFAULT_TIMEOUT,
@@ -164,6 +167,20 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
     assert (
         ingress.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
         == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
+    )
+
+    secret_pw = await core.read_namespaced_secret(
+        name=f"user-gc-{name}", namespace=namespace.metadata.name
+    )
+    gc_admin_pw = b64decode(secret_pw.data["password"])
+
+    await assert_wait_for(
+        True,
+        does_user_exist,
+        host,
+        gc_admin_pw,
+        GC_USERNAME,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
     assert deploy.spec.template.metadata.annotations["prometheus.io/scrape"] == "true"

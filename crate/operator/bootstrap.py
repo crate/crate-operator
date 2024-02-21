@@ -30,7 +30,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
-from crate.operator.constants import CONNECT_TIMEOUT, SYSTEM_USERNAME
+from crate.operator.constants import CONNECT_TIMEOUT, GC_USERNAME, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils import crate
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -188,6 +188,26 @@ async def bootstrap_system_user(
             else:
                 logger.info("... error. %s", result)
                 raise _temporary_error()
+
+
+async def bootstrap_gc_admin_user(core: CoreV1Api, namespace: str, name: str):
+    """
+    Create the gc_admin user, which is used by Grand Central to run
+    queries against CrateDB.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the ``CrateDB`` custom resource. Used to lookup
+        the password for the system user created during deployment.
+    """
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(core, namespace, name)
+    async with get_connection(host, password, timeout=CONNECT_TIMEOUT) as conn:
+        async with conn.cursor() as cursor:
+            password = await resolve_secret_key_ref(
+                core, namespace, {"key": "password", "name": f"user-gc-{name}"}
+            )
+            await create_user(cursor, GC_USERNAME, password)
 
 
 async def bootstrap_users(

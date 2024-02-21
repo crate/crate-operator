@@ -65,8 +65,10 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.api_client import ApiClient
 
+from crate.operator.bootstrap import bootstrap_gc_admin_user
 from crate.operator.config import config
 from crate.operator.constants import (
+    GC_USERNAME,
     GRAND_CENTRAL_BACKEND_API_PORT,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
@@ -79,9 +81,8 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
-    SYSTEM_USERNAME,
 )
-from crate.operator.create import get_owner_references
+from crate.operator.create import get_gc_user_secret, get_owner_references
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import get_image_pull_secrets
 from crate.operator.utils.typing import LabelType
@@ -107,7 +108,7 @@ def get_grand_central_deployment(
     spec: kopf.Spec,
 ) -> V1Deployment:
     env = [
-        V1EnvVar(name="GRAND_CENTRAL_CRATEDB_USERNAME", value=SYSTEM_USERNAME),
+        V1EnvVar(name="GRAND_CENTRAL_CRATEDB_USERNAME", value=GC_USERNAME),
         V1EnvVar(
             name="GRAND_CENTRAL_CRATEDB_ADDRESS",
             value=f"https://crate-discovery-{name}:4200",
@@ -133,7 +134,7 @@ def get_grand_central_deployment(
             name="GRAND_CENTRAL_CRATEDB_PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
-                    key="password", name=f"user-system-{name}"
+                    key="password", name=f"user-gc-{name}"
                 ),
             ),
         ),
@@ -426,6 +427,29 @@ async def create_grand_central_backend(
             namespace=namespace,
             body=get_grand_central_ingress(owner_references, name, labels, hostname),
         )
+
+
+async def create_grand_central_user(
+    namespace: str,
+    name: str,
+    meta: kopf.Meta,
+    logger: logging.Logger,
+):
+    owner_references = get_owner_references(name, meta)
+    labels = get_grand_central_labels(name, meta)
+
+    async with ApiClient() as api_client:
+        core = CoreV1Api(api_client)
+
+        await call_kubeapi(
+            core.create_namespaced_secret,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=get_gc_user_secret(owner_references, name, labels),
+        )
+
+        await bootstrap_gc_admin_user(core, namespace, name)
 
 
 async def update_grand_central_deployment_image(
