@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.37.0 (2024-02-26)
+-------------------
+
 * Added an init container for grand central, that explicitly waits for the associated
   CrateDB to be started.
 
