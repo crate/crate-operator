@@ -34,7 +34,6 @@ from crate.operator.constants import (
     LABEL_MANAGED_BY,
     LABEL_PART_OF,
     LABEL_USER_PASSWORD,
-    RESOURCE_CONFIGMAP,
     RESOURCE_CRATEDB,
 )
 from crate.operator.handlers.handle_create_cratedb import create_cratedb
@@ -59,7 +58,6 @@ from crate.operator.operations import (
     DELAY_CRONJOB_START,
     ensure_cronjob_reenabled,
     is_namespace_terminating,
-    update_sql_exporter_configmap,
 )
 from crate.operator.restore_backup import is_valid_snapshot
 from crate.operator.utils import crate
@@ -348,28 +346,12 @@ async def ping_cratedb(
     logger: logging.Logger,
     **_kwargs,
 ):
-    await raise_on_namespace_terminating(namespace)
-    await ping_cratedb_status(namespace, name, spec["cluster"]["name"], patch, logger)
-
-
-@kopf.on.resume(
-    "",
-    "v1",
-    RESOURCE_CONFIGMAP,
-    labels={LABEL_PART_OF: "cratedb", LABEL_MANAGED_BY: "crate-operator"},
-)
-async def resume_sql_exporter_configmap(
-    namespace: str,
-    name: str,
-    spec: kopf.Spec,
-    logger: logging.Logger,
-    **kwargs,
-):
-    """
-    Updates sql-exporter configmap in all namespaces to latest.
-    """
-    await raise_on_namespace_terminating(namespace)
-    await update_sql_exporter_configmap(namespace, name, logger)
+    hot_node: dict = next(
+        filter(lambda node: node["name"] == "hot", spec["nodes"]["data"])
+    )
+    await ping_cratedb_status(
+        namespace, name, spec["cluster"]["name"], hot_node["replicas"], patch, logger
+    )
 
 
 @kopf.timer(

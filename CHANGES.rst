@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Set a hard limit for max TCP connections
+
+* Use a global Kubernetes API client.
+
 2.38.1 (2024-03-14)
 -------------------
 

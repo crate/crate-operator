@@ -25,6 +25,7 @@ from typing import List, Optional, TypedDict
 
 import aiohttp
 import kopf
+from aiohttp import TCPConnector
 from pkg_resources import get_distribution
 
 from crate.operator.utils.crd import has_compute_changed
@@ -233,6 +234,7 @@ class WebhookClient:
             },
             auth=aiohttp.BasicAuth(username, password),
             raise_for_status=False,
+            connector=TCPConnector(limit=10),
         )
 
         self._configured = True
@@ -318,8 +320,7 @@ class WebhookClient:
             status,
         )
         try:
-            response = await self._session.post(self._url, json=payload)
-            async with response:
+            async with self._session.post(self._url, json=payload) as response:
                 response_text = await response.text()
                 response.raise_for_status()
         except aiohttp.ClientResponseError:
