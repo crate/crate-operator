@@ -63,7 +63,6 @@ from kubernetes_asyncio.client import (
     V1ServiceSpec,
     V1Toleration,
 )
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.bootstrap import bootstrap_gc_admin_user
 from crate.operator.config import config
@@ -83,6 +82,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_VALUE,
 )
 from crate.operator.create import get_gc_user_secret, get_owner_references
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import get_image_pull_secrets
 from crate.operator.utils.typing import LabelType
@@ -271,7 +271,7 @@ def get_grand_central_service(
 
 
 async def read_grand_central_ingress(namespace: str, name: str) -> Optional[V1Ingress]:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         networking = NetworkingV1Api(api_client)
 
         ingresses = await networking.list_namespaced_ingress(namespace=namespace)
@@ -288,7 +288,7 @@ async def read_grand_central_ingress(namespace: str, name: str) -> Optional[V1In
 async def read_grand_central_deployment(
     namespace: str, name: str
 ) -> Optional[V1Deployment]:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         deployments = await apps.list_namespaced_deployment(namespace=namespace)
         return next(
@@ -395,7 +395,7 @@ async def create_grand_central_backend(
     hostname = external_dns.replace(cluster_name, f"{cluster_name}.gc").rstrip(".")
     labels = get_grand_central_labels(name, meta)
 
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         core = CoreV1Api(api_client)
         networking = NetworkingV1Api(api_client)
@@ -438,7 +438,7 @@ async def create_grand_central_user(
     owner_references = get_owner_references(name, meta)
     labels = get_grand_central_labels(name, meta)
 
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
 
         await call_kubeapi(
@@ -455,7 +455,7 @@ async def create_grand_central_user(
 async def update_grand_central_deployment_image(
     namespace: str, name: str, image: str, logger: logging.Logger
 ):
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         # This also runs on creation events, so we need to double check that the
         # deployment exists before attempting to do anything.

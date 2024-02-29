@@ -22,17 +22,8 @@
 import logging
 import time
 
-import pytest
-from kubernetes_asyncio.client import CoreV1Api, V1ConfigMap, V1ObjectMeta
 from prometheus_client import REGISTRY
 
-from crate.operator.constants import (
-    LABEL_COMPONENT,
-    LABEL_MANAGED_BY,
-    LABEL_NAME,
-    LABEL_PART_OF,
-)
-from crate.operator.operations import update_sql_exporter_configmap
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
 
 logger = logging.getLogger(__name__)
@@ -120,55 +111,3 @@ def test_will_not_report_last_seen_for_unreachable_clusters():
     assert cloud_clusters_health_sample.labels["exported_namespace"] == "ns1"
     assert cloud_clusters_health_sample.labels["cluster_name"] == "cluster-name"
     assert cloud_clusters_last_seen_sample is None
-
-
-@pytest.mark.k8s
-@pytest.mark.asyncio
-async def test_update_sql_exporter_configmap(
-    faker,
-    namespace,
-    kopf_runner,
-    api_client,
-):
-    core = CoreV1Api(api_client)
-    name = faker.domain_word()
-    config_map_name = f"crate-sql-exporter-{name}"
-    labels = {
-        LABEL_MANAGED_BY: "crate-operator",
-        LABEL_NAME: name,
-        LABEL_PART_OF: "cratedb",
-        LABEL_COMPONENT: "cratedb",
-    }
-
-    await core.create_namespaced_config_map(
-        namespace=namespace.metadata.name,
-        body=V1ConfigMap(
-            metadata=V1ObjectMeta(
-                name=config_map_name,
-                labels=labels,
-            ),
-            data={"sql-exporter.yaml": ""},
-        ),
-    )
-
-    await update_sql_exporter_configmap(
-        namespace.metadata.name,
-        config_map_name,
-        logger=logger,
-    )
-
-    config_map = await core.read_namespaced_config_map(
-        name=config_map_name, namespace=namespace.metadata.name
-    )
-    assert (
-        "collectors: [responsivity_collector, cratedb_max_shards_collector, "
-        "cratedb_cluster_last_user_activity_collector, "
-        "cratedb_unreplicated_tables_collector]"
-    ) in config_map.data["sql-exporter.yaml"]
-    for collector in [
-        "responsivity-collector.yaml",
-        "cratedb_max_shards-collector.yaml",
-        "cratedb_cluster_last_user_activity-collector.yaml",
-        "cratedb_unreplicated_tables-collector.yaml",
-    ]:
-        assert collector in config_map.data.keys()

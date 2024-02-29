@@ -26,13 +26,13 @@ from typing import Any, Dict, List, Optional
 from aiohttp.client_exceptions import WSServerHandshakeError
 from kopf import TemporaryError
 from kubernetes_asyncio.client import ApiException, CoreV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import CONNECT_TIMEOUT, GC_USERNAME, SYSTEM_USERNAME
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils import crate
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import (
     ensure_user_password_label,
@@ -301,7 +301,7 @@ class CreateUsersSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             await create_users(
                 core, namespace, name, master_node_pod, has_ssl, users, logger

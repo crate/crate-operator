@@ -34,13 +34,13 @@ from kubernetes_asyncio.client import (
     V1StatefulSet,
     V1StatefulSetList,
 )
-from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
 from crate.operator.operations import get_total_nodes_count, suspend_or_start_cluster
 from crate.operator.utils import crate, quorum
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.utils.notifications import send_operation_progress_notification
@@ -671,7 +671,7 @@ class ScaleSubHandler(StateBasedSubHandler):
             else:
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
             core = CoreV1Api(api_client)
 

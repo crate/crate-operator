@@ -29,7 +29,6 @@ import kopf
 from aiohttp.client_exceptions import WSServerHandshakeError
 from aiopg import Cursor
 from kubernetes_asyncio.client import ApiException, CoreV1Api, CustomObjectsApi
-from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.stream import WsApiClient
 from psycopg2 import DatabaseError, ProgrammingError
 from psycopg2.errors import DuplicateTable
@@ -53,6 +52,7 @@ from crate.operator.operations import (
     scale_backup_metrics_deployment,
 )
 from crate.operator.utils import crate
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
     get_host,
@@ -563,7 +563,7 @@ class BeforeRestoreBackupSubHandler(StateBasedSubHandler):
         :param patch: The ``kopf.Patch`` object to store the old settings values.
         :param logger: the logger on which we're logging
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
@@ -633,7 +633,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             data = await get_source_backup_repository_data(
                 core,
@@ -808,7 +808,7 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
         :param name: The CrateDB custom resource name defining the CrateDB cluster.
         :param logger: the logger on which we're logging
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password = await get_system_user_password(core, namespace, name)
             password_quoted = QuotedString(password).getquoted().decode()
@@ -839,7 +839,7 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
 async def update_cratedb_admin_username_in_cratedb(
     namespace, cluster_name, new_admin_username
 ):
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)
 
         await coapi.patch_namespaced_custom_object(
@@ -872,7 +872,7 @@ class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
@@ -950,7 +950,7 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         :param snapshot: The name of the snapshot to check if it has been
             restored completely.
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
@@ -998,7 +998,7 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         :param logger: the logger on which we're logging
         :param repository: The name of the repository to drop.
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
@@ -1026,7 +1026,7 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         :param name: The CrateDB custom resource name defining the CrateDB cluster.
         :param logger: the logger on which we're logging
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             try:
                 await core.delete_namespaced_secret(
@@ -1069,7 +1069,7 @@ class SendSuccessNotificationSubHandler(StateBasedSubHandler):
         # We want to update the CrateDB CRD with the admin username, if it has changed.
 
         # Determine if the admin username has changed.
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password = await get_system_user_password(core, namespace, name)
             host = await get_host(core, namespace, name)
@@ -1124,7 +1124,7 @@ class ResetSnapshotSubHandler(StateBasedSubHandler):
         :param name: The CrateDB custom resource name defining the CrateDB cluster.
         :param logger: the logger on which we're logging
         """
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             coapi = CustomObjectsApi(api_client)
             body = [
                 {

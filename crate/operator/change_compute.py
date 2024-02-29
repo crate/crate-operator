@@ -23,7 +23,6 @@ from typing import Any
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.create import (
@@ -32,6 +31,7 @@ from crate.operator.create import (
     get_tolerations,
 )
 from crate.operator.utils import crate
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.webhooks import (
     WebhookChangeComputePayload,
@@ -53,7 +53,7 @@ class ChangeComputeSubHandler(StateBasedSubHandler):
         **kwargs: Any,
     ):
         webhook_payload = generate_change_compute_payload(old, body)
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
             await change_cluster_compute(apps, namespace, name, webhook_payload, logger)
 

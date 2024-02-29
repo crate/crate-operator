@@ -40,6 +40,7 @@ from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.config import load_kube_config
 
 from crate.operator.config import config
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 
 from .utils import assert_wait_for, does_namespace_exist
 
@@ -133,7 +134,7 @@ async def kube_config(request, load_config):
 
 @pytest_asyncio.fixture(name="api_client")
 async def k8s_asyncio_api_client(kube_config) -> ApiClient:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         yield api_client
 
 

@@ -24,10 +24,10 @@ import logging
 import kopf
 from kopf import DiffItem
 from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
 from crate.operator.grand_central import read_grand_central_ingress
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
@@ -51,7 +51,7 @@ async def update_service_allowed_cidrs(
         action=WebhookAction.ALLOWED_CIDR_UPDATE,
     )
 
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         networking = NetworkingV1Api(api_client)
         # This also runs on creation events, so we want to double check that the service
