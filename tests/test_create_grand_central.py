@@ -169,9 +169,16 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
         == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
     )
 
-    secret_pw = await core.read_namespaced_secret(
-        name=f"user-gc-{name}", namespace=namespace.metadata.name
+    await assert_wait_for(
+        True,
+        does_secret_exist,
+        core,
+        namespace.metadata.name,
+        f"user-gc-{name}",
     )
+    secrets = (await core.list_namespaced_secret(namespace.metadata.name)).items
+    secret_pw = next(filter(lambda x: x.metadata.name == f"user-gc-{name}", secrets))
+
     gc_admin_pw = b64decode(secret_pw.data["password"])
 
     await assert_wait_for(
@@ -227,3 +234,8 @@ async def does_ingress_exist(
 ) -> bool:
     ingresses = await networking.list_namespaced_ingress(namespace=namespace)
     return name in (i.metadata.name for i in ingresses.items)
+
+
+async def does_secret_exist(core: CoreV1Api, namespace: str, name: str) -> bool:
+    secrets = await core.list_namespaced_secret(namespace)
+    return name in (s.metadata.name for s in secrets.items)

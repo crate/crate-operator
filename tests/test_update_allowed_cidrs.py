@@ -19,7 +19,6 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-import asyncio
 from unittest import mock
 
 import pytest
@@ -31,7 +30,6 @@ from crate.operator.constants import (
     RESOURCE_CRATEDB,
 )
 from crate.operator.grand_central import read_grand_central_ingress
-from crate.operator.utils.kubeapi import get_service_public_hostname
 from crate.operator.webhooks import (
     WebhookAction,
     WebhookEvent,
@@ -90,12 +88,6 @@ async def test_update_cidrs(
             "apiUrl": "https://my-cratedb-api.cloud/",
             "jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
         },
-    )
-
-    await asyncio.wait_for(
-        get_service_public_hostname(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     await assert_wait_for(
