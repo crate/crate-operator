@@ -177,6 +177,16 @@ async def start_cluster(
         body=body,
     )
 
+    await assert_wait_for(
+        True,
+        is_lb_service_ready,
+        core,
+        namespace.metadata.name,
+        f"crate-{name}",
+        err_msg="Lb service was not ready.",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
     host = await asyncio.wait_for(
         get_service_public_hostname(core, namespace.metadata.name, name),
         # It takes a while to retrieve an external IP on AKS.
@@ -499,3 +509,21 @@ async def does_grand_central_pod_exist(
 async def is_cronjob_enabled(batch: BatchV1Api, namespace: str, name: str) -> bool:
     cronjob = await batch.read_namespaced_cron_job(namespace=namespace, name=name)
     return cronjob.spec.suspend is False
+
+
+async def is_lb_service_ready(core: CoreV1Api, namespace: str, expected: str) -> bool:
+    services = await core.list_namespaced_service(namespace)
+    service = next(
+        (svc for svc in services.items if svc.metadata.name == expected),
+        None,
+    )
+    if (
+        service
+        and service.status
+        and service.status.load_balancer
+        and service.status.load_balancer.ingress
+        and service.status.load_balancer.ingress[0]
+    ):
+        return True
+    else:
+        return False

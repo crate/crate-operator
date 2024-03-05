@@ -19,10 +19,10 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
+import kopf
 from kubernetes_asyncio.client import ApiException, CoreV1Api, V1ObjectMeta, V1Secret
 
 from crate.operator.config import config
@@ -149,27 +149,24 @@ async def get_service_public_hostname(
     :param namespace: The namespace where the CrateDB cluster is deployed.
     :param name: The name of the CrateDB cluster.
     """
-    for second in range(0, 300):
-        try:
-            service = await core.read_namespaced_service(
-                namespace=namespace, name=f"crate-{name}"
-            )
-            status = service.status
-            if (
-                status
-                and status.load_balancer
-                and status.load_balancer.ingress
-                and status.load_balancer.ingress[0]
-            ):
-                if status.load_balancer.ingress[0].ip:
-                    return status.load_balancer.ingress[0].ip
-                elif status.load_balancer.ingress[0].hostname:
-                    return status.load_balancer.ingress[0].hostname
-        except ApiException:
-            pass
+    services = await core.list_namespaced_service(namespace)
+    service = next(
+        (svc for svc in services.items if svc.metadata.name == f"crate-{name}"),
+        None,
+    )
+    if (
+        service
+        and service.status
+        and service.status.load_balancer
+        and service.status.load_balancer.ingress
+        and service.status.load_balancer.ingress[0]
+    ):
+        if service.status.load_balancer.ingress[0].ip:
+            return service.status.load_balancer.ingress[0].ip
+        elif service.status.load_balancer.ingress[0].hostname:
+            return service.status.load_balancer.ingress[0].hostname
 
-        await asyncio.sleep(1.0)
-    raise Exception("Could not find the load balancer")
+    raise kopf.TemporaryError("Waiting for service to be created...", delay=5)
 
 
 async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
