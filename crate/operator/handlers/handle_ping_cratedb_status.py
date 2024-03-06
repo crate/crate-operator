@@ -62,29 +62,29 @@ async def ping_cratedb_status(
         core = CoreV1Api(api_client)
         host = await get_host(core, namespace, name)
         password = await get_system_user_password(core, namespace, name)
-        conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(host, password)
 
-        try:
-            async with conn_factory() as conn:
-                async with conn.cursor() as cursor:
-                    healthiness = await get_healthiness(cursor)
-                    # If there are no tables in the cluster, get_healthiness returns
-                    # none: default to `Green`, as cluster is reachable
-                    status = HEALTHINESS_TO_STATUS.get(
-                        healthiness, PrometheusClusterStatus.GREEN
-                    )
-        except Exception as e:
-            logger.warning("Failed to ping cluster.", exc_info=e)
-            status = PrometheusClusterStatus.UNREACHABLE
+    try:
+        async with conn_factory() as conn:
+            async with conn.cursor() as cursor:
+                healthiness = await get_healthiness(cursor)
+                # If there are no tables in the cluster, get_healthiness returns
+                # none: default to `Green`, as cluster is reachable
+                status = HEALTHINESS_TO_STATUS.get(
+                    healthiness, PrometheusClusterStatus.GREEN
+                )
+    except Exception as e:
+        logger.warning("Failed to ping cluster.", exc_info=e)
+        status = PrometheusClusterStatus.UNREACHABLE
 
-        report_cluster_status(name, cluster_name, namespace, status)
-        patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
+    report_cluster_status(name, cluster_name, namespace, status)
+    patch.status[CLUSTER_STATUS_KEY] = {"health": status.name}
 
-        await webhook_client.send_notification(
-            namespace,
-            name,
-            WebhookEvent.HEALTH,
-            WebhookClusterHealthPayload(status=status.name),
-            WebhookStatus.SUCCESS,
-            logger,
-        )
+    await webhook_client.send_notification(
+        namespace,
+        name,
+        WebhookEvent.HEALTH,
+        WebhookClusterHealthPayload(status=status.name),
+        WebhookStatus.SUCCESS,
+        logger,
+    )
