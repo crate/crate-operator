@@ -26,8 +26,10 @@ from typing import Optional
 
 from prometheus_client import REGISTRY, Info
 from prometheus_client.core import GaugeMetricFamily
+from prometheus_client.metrics_core import CounterMetricFamily
 
 from crate.operator import __version__
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 
 i = Info("svc", "Service Info")
 i.info(
@@ -91,6 +93,25 @@ class ClusterCollector:
 
         yield cloud_clusters_health
         yield cloud_clusters_last_seen
+
+        k8s_api_sessions = GaugeMetricFamily(
+            "crate_operator_open_k8s_api_sessions",
+            "Number of sessions open to the k8s api",
+        )
+        k8s_api_sessions_created = CounterMetricFamily(
+            "crate_operator_k8s_api_sessions_created",
+            "Number of sessions open to the k8s api",
+        )
+        k8s_api_sessions_removed = CounterMetricFamily(
+            "crate_operator_k8s_api_sessions_removed",
+            "Number of sessions open to the k8s api",
+        )
+        k8s_api_sessions.add_metric([], GlobalApiClient.get_instance_count())
+        k8s_api_sessions_created.add_metric([], GlobalApiClient.get_created_instances())
+        k8s_api_sessions_removed.add_metric([], GlobalApiClient.get_removed_instances())
+        yield k8s_api_sessions
+        yield k8s_api_sessions_created
+        yield k8s_api_sessions_removed
 
 
 REGISTRY.register(ClusterCollector())

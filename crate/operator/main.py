@@ -96,8 +96,6 @@ async def startup(settings: kopf.OperatorSettings, **_kwargs):
         prefix=KOPF_STATE_STORE_PREFIX, v1=False
     )
 
-    settings.execution.max_workers = 2
-
     # Timeout passed along to the Kubernetes API as timeoutSeconds=x
     settings.watching.server_timeout = 300
     # Total number of seconds for a whole watch request per aiohttp:

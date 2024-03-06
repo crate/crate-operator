@@ -23,11 +23,11 @@ import logging
 
 import kopf
 from kubernetes_asyncio.client import CoreV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.operations import get_desired_nodes_count
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.webhooks import (
     WebhookClusterHealthPayload,
@@ -58,7 +58,7 @@ async def ping_cratedb_status(
         patch.status[CLUSTER_STATUS_KEY] = {"health": "SUSPENDED"}
         return
 
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         host = await get_host(core, namespace, name)
         password = await get_system_user_password(core, namespace, name)

@@ -46,7 +46,6 @@ from kubernetes_asyncio.client import (
     V1StatefulSet,
     V1StatefulSetList,
 )
-from kubernetes_asyncio.client.api_client import ApiClient
 from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
 from psycopg2 import DatabaseError, OperationalError
 
@@ -73,6 +72,7 @@ from crate.operator.cratedb import (
 from crate.operator.create import recreate_services
 from crate.operator.grand_central import read_grand_central_deployment
 from crate.operator.utils import crate
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
     call_kubeapi,
@@ -94,7 +94,7 @@ async def get_desired_nodes_count(namespace: str, name: str) -> int:
     Returns the amount of replicas specified by the StatefulSet
     """
     sts_name = f"crate-data-hot-{name}"
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         statefulset = await apps.read_namespaced_stateful_set(
             namespace=namespace, name=sts_name
@@ -249,7 +249,7 @@ async def get_namespace_resource(namespace_name: str) -> V1Namespace:
 
     :param namespace_name: The Kubernetes namespace name to look up.
     """
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         namespaces = await core.list_namespace()
         for ns in namespaces.items:
@@ -276,7 +276,7 @@ async def get_cratedb_resource(namespace: str, name: str) -> dict:
         cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     """
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)
         return await coapi.get_namespaced_custom_object(
             group=API_GROUP,
@@ -479,7 +479,7 @@ async def scale_backup_metrics_deployment(
     :param name: The name for the backup-metrics deployment to update.
     :param replicas: The new number of replicas.
     """
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
         await update_deployment_replicas(apps, namespace, backup_metrics_name, replicas)
@@ -863,7 +863,7 @@ async def update_sql_exporter_configmap(
 ):
     if not name.startswith(SQL_EXPORTER_CONFIGMAP_PREFIX):
         return
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
 
         config_map: V1ConfigMap = await core.read_namespaced_config_map(
@@ -919,7 +919,7 @@ class RestartSubHandler(StateBasedSubHandler):
         action: WebhookAction,
         **kwargs: Any,
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             await restart_cluster(
                 core, namespace, name, old, logger, patch, status, action
@@ -976,7 +976,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     async def _ensure_cronjob_suspended(
         namespace: str, name: str, status: kopf.Status, logger: logging.Logger
     ) -> Optional[Dict]:
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             batch = BatchV1Api(api_client)
 
             jobs: V1CronJobList = await batch.list_namespaced_cron_job(namespace)
@@ -1017,7 +1017,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
         return None
 
     async def _ensure_no_snapshots_in_progress(self, namespace, name, logger):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
 
             conn_factory = await _get_connection_factory(core, namespace, name)
@@ -1035,7 +1035,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     async def _ensure_no_backup_cronjobs_running(
         self, namespace: str, name: str, logger: logging.Logger
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             batch = BatchV1Api(api_client)
 
             jobs: V1JobList = await call_kubeapi(
@@ -1074,7 +1074,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     async def _set_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
 
             conn_factory = await _get_connection_factory(core, namespace, name)
@@ -1120,7 +1120,7 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
     async def _reset_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
 
             conn_factory = await _get_connection_factory(core, namespace, name)
@@ -1152,7 +1152,7 @@ async def ensure_cronjob_reenabled(
         logger.warning("Will not attempt to re-enable any CronJobs")
         return
 
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         job_name = disabler_job_status[CRONJOB_NAME]
 
         batch = BatchV1Api(api_client)
@@ -1206,7 +1206,7 @@ class StartClusterSubHandler(StateBasedSubHandler):
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
         if scale_data_diff_items:
-            async with ApiClient() as api_client:
+            async with GlobalApiClient() as api_client:
                 apps = AppsV1Api(api_client)
                 core = CoreV1Api(api_client)
 
@@ -1256,7 +1256,7 @@ class SuspendClusterSubHandler(StateBasedSubHandler):
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
         if scale_data_diff_items:
-            async with ApiClient() as api_client:
+            async with GlobalApiClient() as api_client:
                 apps = AppsV1Api(api_client)
                 core = CoreV1Api(api_client)
 

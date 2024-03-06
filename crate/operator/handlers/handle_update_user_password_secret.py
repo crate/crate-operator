@@ -24,11 +24,11 @@ import re
 
 import kopf
 from kubernetes_asyncio.client import CustomObjectsApi
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.update_user_password import update_user_password
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
@@ -53,7 +53,7 @@ async def update_user_password_secret(
         operation=WebhookOperation.UPDATE,
         action=WebhookAction.PASSWORD_UPDATE,
     )
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         coapi = CustomObjectsApi(api_client)
 
         for operation, field_path, old_value, new_value in diff:

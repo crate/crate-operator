@@ -24,13 +24,13 @@ from typing import Any, Dict, List, Optional
 
 import kopf
 from kubernetes_asyncio.client import CoreV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import DATA_NODE_NAME, DATA_PVC_NAME_PREFIX
 from crate.operator.operations import get_pvcs_in_namespace
 from crate.operator.utils import crate
 from crate.operator.utils.formatting import convert_to_bytes
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
@@ -169,7 +169,7 @@ class ExpandVolumeSubHandler(StateBasedSubHandler):
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
         if expand_data_diff_items:
-            async with ApiClient() as api_client:
+            async with GlobalApiClient() as api_client:
                 core = CoreV1Api(api_client)
 
                 await expand_volume(

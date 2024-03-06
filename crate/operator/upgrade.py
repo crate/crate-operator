@@ -25,12 +25,12 @@ from typing import Any, Dict, List
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.scale import get_container
 from crate.operator.utils import crate, quorum
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
@@ -180,7 +180,7 @@ class UpgradeSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        async with ApiClient() as api_client:
+        async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
             await upgrade_cluster(apps, namespace, name, body, old, logger)
 

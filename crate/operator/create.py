@@ -76,7 +76,6 @@ from kubernetes_asyncio.client import (
     V1Volume,
     V1VolumeMount,
 )
-from kubernetes_asyncio.client.api_client import ApiClient
 
 from crate.operator.config import config
 from crate.operator.constants import (
@@ -98,6 +97,7 @@ from crate.operator.constants import (
 )
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import gen_password
@@ -160,7 +160,7 @@ async def create_sql_exporter_config(
     labels: LabelType,
     logger: logging.Logger,
 ) -> None:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         await call_kubeapi(
             core.create_namespaced_config_map,
@@ -833,7 +833,7 @@ async def create_statefulset(
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
     logger: logging.Logger,
 ) -> None:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         await call_kubeapi(
             apps.create_namespaced_stateful_set,
@@ -1003,7 +1003,7 @@ async def create_services(
     source_ranges: Optional[List[str]] = None,
     additional_annotations: Optional[Dict] = None,
 ) -> None:
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
 
         # Create the load balancer service
@@ -1130,7 +1130,7 @@ async def create_system_user(
     cluster. For that, it will use a ``system`` user who's credentials are
     created here.
     """
-    async with ApiClient() as api_client:
+    async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         await call_kubeapi(
             core.create_namespaced_secret,
