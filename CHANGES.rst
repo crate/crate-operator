@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.38.0 (2024-03-12)
+-------------------
+
 * Bootstrap ``gc_admin`` user when installing ``grandCentral``.
 
 2.37.0 (2024-02-26)
