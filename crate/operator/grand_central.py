@@ -195,7 +195,7 @@ def get_grand_central_deployment(
                                     "cpu": 2,
                                     "memory": "150Mi",
                                 },
-                                requests={"cpu": "500m", "memory": "150Mi"},
+                                requests={"cpu": "100m", "memory": "150Mi"},
                             ),
                             liveness_probe=V1Probe(
                                 http_get=V1HTTPGetAction(
