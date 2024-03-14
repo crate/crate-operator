@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.38.1 (2024-03-14)
+-------------------
+
 * Lower cpu requests for grand central.
 
 2.38.0 (2024-03-12)
