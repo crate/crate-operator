@@ -9,6 +9,8 @@ Unreleased
 
 * Use a global Kubernetes API client.
 
+* Set an explicit ingress class for GC ingresses.
+
 2.38.1 (2024-03-14)
 -------------------
 
