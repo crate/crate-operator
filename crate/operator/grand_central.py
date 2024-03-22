@@ -338,6 +338,7 @@ def get_grand_central_ingress(
             },
         ),
         spec=V1IngressSpec(
+            ingress_class_name="nginx",
             rules=[
                 V1IngressRule(
                     host=hostname,
