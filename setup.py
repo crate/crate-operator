@@ -71,9 +71,9 @@ setup(
         ],
         "testing": [
             "faker==18.3.1",
-            "pytest==7.4.4",
+            "pytest==8.1.1",
             "pytest-aiohttp==1.0.5",
-            "pytest-asyncio==0.23.2",
+            "pytest-asyncio==0.23.6",
             "pytest-xdist==3.5.0",  # enables parallel testing
             "filelock==3.13.3",  # used for locks when running in parallel mode
         ],
