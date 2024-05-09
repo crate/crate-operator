@@ -61,3 +61,4 @@ dmypy.json
 
 .idea/
 /deploy/charts/crate-operator/Chart.lock
+/deploy/charts/crate-operator/charts/
