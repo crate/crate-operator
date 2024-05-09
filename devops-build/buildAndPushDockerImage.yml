@@ -1,0 +1,31 @@
+parameters:
+  - name: ContainerRegistry
+    type: string
+  - name: Repository
+    type: string
+  - name: Dockerfile
+    type: string
+  - name: IsRelease
+    type: boolean
+    
+steps:
+- task: Docker@2
+  displayName: Build ${{ parameters.Repository }}
+  inputs:
+    command: build
+    containerRegistry: ${{ parameters.ContainerRegistry }}
+    repository: ${{ parameters.Repository }}
+    dockerfile: ${{ parameters.Dockerfile }}
+    buildContext: $(System.DefaultWorkingDirectory)
+    tags: |
+      $(Build.BuildNumber)
+
+- task: Docker@2
+  condition: ${{ eq(parameters.IsRelease, true) }}
+  displayName: Push ${{ parameters.Repository }}
+  inputs:
+    command: push
+    containerRegistry: ${{ parameters.ContainerRegistry }}
+    repository: ${{ parameters.Repository }}
+    tags: |
+      $(Build.BuildNumber)

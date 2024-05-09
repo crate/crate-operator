@@ -1,0 +1,75 @@
+name: $(MajorVersion).$(MinorVersion).$(date:yyMM).$(DayOfMonth)$(rev:rrr)
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - dev/*
+      - main
+  tags:
+    exclude:
+      - '*'
+
+variables:
+  - group: GitSSHGroup
+  - group: OctoDefault
+  - group: ApiKeys
+  - name: isRelease
+    value: true #${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/r') }}
+
+stages:
+  - stage: Build
+    jobs:
+      - job: linux
+        displayName: Docker build
+        pool:
+          name: Gerald-Local-Linux
+        steps:
+          - checkout: self
+            clean: true
+            submodules: recursive
+          - task: InstallSSHKey@0
+            inputs:
+              knownHostsEntry: '$(SSHKnownHosts)'
+              sshPublicKey: '$(SSHPublicKey)'
+              sshPassphrase: '$(SSHPassphrase)'
+              sshKeySecureFile: '$(SSHPrivateKeyFile)'
+          - task: PowerShell@2
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "Source Branch $(Build.SourceBranch)"
+                Write-Host "Source Branch Name $(Build.SourceBranchName)"
+                $branch = '$(Build.SourceBranch)'
+                $branchName = '$(Build.SourceBranchName)'
+                if ($branch.StartsWith("refs/tags/r")) {
+                  $major = [int]$branchName.Split(".")[0].substring(1)
+                  $minor = [int]$branchName.Split(".")[1]
+                  $revision = [int]$branchName.Split(".")[2]
+                  $buildNumber = "$major.$minor.$revision.0"
+                  Write-Host "##vso[task.setvariable variable=MajorVersion;]$major"
+                  Write-Host "##vso[task.setvariable variable=MinorVersion;]$minor"
+                  Write-Host "Setting build number to $buildNumber"
+                  Write-Host "##vso[build.updatebuildnumber]$buildNumber"
+                }
+            displayName: 'Set build number'
+          - template: setversion.yml
+          - task: PowerShell@2
+            displayName: 'Create versioninfo file'
+            inputs:
+              targetType: 'inline'
+              script: |
+                New-Item $(build.artifactstagingdirectory)/versioninfo.txt
+                Set-Content $(build.artifactstagingdirectory)/versioninfo.txt $(Build.BuildNumber)
+          - template: buildAndPushDockerImage.yml
+            parameters:
+              ContainerRegistry: 'dockerhub@ianitor'
+              Repository: meshmakers/crate-operator
+              Dockerfile: Dockerfile
+              IsRelease: ${{ variables.isRelease }}
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact: local'
+            inputs:
+              ArtifactName: local
+
+
