@@ -13,7 +13,8 @@ crate-operator-crds:
 replicaCount: 1
 
 image:
-  repository: crate/crate-operator
+  repository: meshmakers/crate-operator
+  tag: 0.0.2405.9002
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   # tag: latest

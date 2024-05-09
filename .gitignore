@@ -60,3 +60,4 @@ venv.bak/
 dmypy.json
 
 .idea/
+/deploy/charts/crate-operator/Chart.lock
