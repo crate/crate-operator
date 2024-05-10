@@ -11,6 +11,8 @@ Unreleased
 
 * Set an explicit ingress class for GC ingresses.
 
+* Bumped aiohttp to latest to fix CVE-2024-30251
+
 2.38.1 (2024-03-14)
 -------------------
 
