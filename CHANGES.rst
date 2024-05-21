@@ -4,6 +4,9 @@ Changelog
 
 Unreleased
 ----------
+
+2.38.2 (2024-05-21)
+-------------------
 * Bump ``sql_exporter`` to 0.14.2
 
 * Set a hard limit for max TCP connections
