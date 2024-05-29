@@ -9,6 +9,8 @@ Unreleased
 
 * Changed the ``node.attr.zone`` parameter for AWS to use IMDSv2.
 
+* Added explicit security context capabilities for compatibility with cri-o.
+
 2.39.0 (2024-05-22)
 -------------------
 
