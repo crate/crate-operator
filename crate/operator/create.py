@@ -64,6 +64,7 @@ from kubernetes_asyncio.client import (
     V1Secret,
     V1SecretKeySelector,
     V1SecretVolumeSource,
+    V1Capabilities,
     V1SecurityContext,
     V1Service,
     V1ServicePort,
@@ -611,7 +612,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             image="busybox:1.35.0",
             image_pull_policy="IfNotPresent",
             name="init-sysctl",
-            security_context=V1SecurityContext(privileged=True),
+            security_context=V1SecurityContext(capabilities=V1Capabilities(add=["SYS_CHROOT"])),
         ),
         V1Container(
             command=[
