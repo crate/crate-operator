@@ -33,6 +33,7 @@ from kubernetes_asyncio.client import (
     CoreV1Api,
     PolicyV1Api,
     V1Affinity,
+    V1Capabilities,
     V1ConfigMap,
     V1ConfigMapVolumeSource,
     V1Container,
@@ -363,6 +364,9 @@ def get_statefulset_containers(
                 },
             ),
             volume_mounts=crate_volume_mounts,
+            security_context=V1SecurityContext(
+                capabilities=V1Capabilities(add=["SYS_CHROOT"])
+            ),
         ),
     ]
 
