@@ -4,6 +4,7 @@ Changelog
 
 Unreleased
 ----------
+* Increase memory for grand central, reduce CPU limit.
 
 2.39.0 (2024-05-22)
 -------------------
