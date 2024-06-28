@@ -192,10 +192,10 @@ def get_grand_central_deployment(
                             ],
                             resources=V1ResourceRequirements(
                                 limits={
-                                    "cpu": 2,
-                                    "memory": "150Mi",
+                                    "cpu": "500m",
+                                    "memory": "256Mi",
                                 },
-                                requests={"cpu": "100m", "memory": "150Mi"},
+                                requests={"cpu": "64m", "memory": "256Mi"},
                             ),
                             liveness_probe=V1Probe(
                                 http_get=V1HTTPGetAction(
