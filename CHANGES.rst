@@ -6,6 +6,8 @@ Unreleased
 ----------
 * Increase memory for grand central, reduce CPU limit.
 
+* Maintenance: Update to Python 3.11
+
 2.39.0 (2024-05-22)
 -------------------
 
