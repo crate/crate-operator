@@ -634,19 +634,26 @@ class TestStatefulSetCrateCommand:
         assert "-Cnode.attr.some_cluster_setting=cluster" in cmd
 
     @pytest.mark.parametrize(
-        "provider, url",
+        "provider, url, header",
         [
             (
                 CloudProvider.AWS,
-                "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+                "-X PUT 'http://169.254.169.254/latest/api/token'",
+                " -H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | xargs -I {} curl -s 'http://169.254.169.254/latest/meta-data/placement/availability-zone' -H 'X-aws-ec2-metadata-token: {}'",  # noqa
             ),
             (
                 CloudProvider.AZURE,
-                "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text",  # noqa
+                "'http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text'",  # noqa
+                " -H 'Metadata: true'",
+            ),
+            (
+                CloudProvider.GCP,
+                "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
+                " -H 'Metadata-Flavor: Google' | rev | cut -d '/' -f 1 | rev",
             ),
         ],
     )
-    def test_zone_attr(self, provider, url):
+    def test_zone_attr(self, provider, url, header):
         with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
             cmd = get_statefulset_crate_command(
                 namespace="some-namespace",
@@ -670,10 +677,7 @@ class TestStatefulSetCrateCommand:
                 is_data=True,
                 crate_version="4.6.3",
             )
-        additional_args = ""
-        if provider == CloudProvider.AZURE:
-            additional_args = " -H 'Metadata: true'"
-        assert f"-Cnode.attr.zone=$(curl -s '{url}'{additional_args})" in cmd
+        assert f"-Cnode.attr.zone=$(curl -s {url}{header})" in cmd
 
     @pytest.mark.parametrize(
         "node_settings, cluster_settings",

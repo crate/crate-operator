@@ -453,9 +453,16 @@ def get_statefulset_crate_command(
             }
         )
 
+    # Availability zone retrieval at pod launch time
     if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
+        aws_cmd = (
+            "curl -s -X PUT 'http://169.254.169.254/latest/api/token' "
+            "-H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | "
+            "xargs -I {} curl -s "
+            "'http://169.254.169.254/latest/meta-data/placement/availability-zone'"
+            " -H 'X-aws-ec2-metadata-token: {}'"
+        )
+        settings["-Cnode.attr.zone"] = f"$({aws_cmd})"
     elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
         url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
         settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
