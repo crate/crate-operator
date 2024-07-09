@@ -4,7 +4,10 @@ Changelog
 
 Unreleased
 ----------
+
 * Increase memory for grand central, reduce CPU limit.
+
+* Changed the ``node.attr.zone`` parameter for AWS to support IMDSv2.
 
 2.39.0 (2024-05-22)
 -------------------
