@@ -9,7 +9,7 @@ RUN apt-get update && \
     apt-get install git -y
 
 COPY . /src
-RUN python -m pip install -U setuptools==65.5.1 && \
+RUN python -m pip install -U setuptools==70.3.0 && \
     python setup.py clean bdist_wheel
 
 
@@ -31,7 +31,7 @@ RUN apt-get update && \
 
 COPY --from=build /src/dist /wheels
 
-RUN pip install --no-cache-dir -U pip wheel setuptools==65.5.1 && \
+RUN pip install --no-cache-dir -U pip wheel setuptools==70.3.0 && \
     pip install --no-cache-dir /wheels/*.whl && \
     rm -rf /wheels && \
     ln -s "$(python -c "import pkgutil; main = pkgutil.get_loader('crate.operator.main'); print(main.path)")"
