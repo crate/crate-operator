@@ -5,11 +5,17 @@ Changelog
 Unreleased
 ----------
 
+2.40.0 (2024-07-17)
+-------------------
+
+* Added explicit security context capabilities for compatibility with cri-o.
+
+2.39.1 (2024-07-10)
+-------------------
+
 * Increase memory for grand central, reduce CPU limit.
 
 * Changed the ``node.attr.zone`` parameter for AWS to use IMDSv2.
-
-* Added explicit security context capabilities for compatibility with cri-o.
 
 2.39.0 (2024-05-22)
 -------------------
