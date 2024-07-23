@@ -69,6 +69,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     GC_USERNAME,
     GRAND_CENTRAL_BACKEND_API_PORT,
+    GRAND_CENTRAL_INIT_CONTAINER,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
@@ -170,7 +171,7 @@ def get_grand_central_deployment(
                             env=env,
                             image=spec["grandCentral"]["backendImage"],
                             image_pull_policy="IfNotPresent",
-                            name="wait-for-crate",
+                            name=GRAND_CENTRAL_INIT_CONTAINER,
                             command=["./wait-for-cratedb.py"],
                         )
                     ],
@@ -478,6 +479,14 @@ async def update_grand_central_deployment_image(
             if container.name == f"{GRAND_CENTRAL_RESOURCE_PREFIX}-api"
         )
         api_container.image = image
+
+        if deployment.spec.template.spec.init_containers:
+            init_container: V1Container = next(
+                container
+                for container in deployment.spec.template.spec.init_containers
+                if container.name == GRAND_CENTRAL_INIT_CONTAINER
+            )
+            init_container.image = image
 
         await apps.patch_namespaced_deployment(
             namespace=namespace,
