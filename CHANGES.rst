@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.40.1 (2024-07-24)
+-------------------
+
 * Bumped setuptools to 70.3.0 to fix CVE-2024-6345.
 
 * Fixed Grand Central initContainer image update.
