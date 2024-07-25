@@ -4,6 +4,8 @@ Changelog
 
 Unreleased
 ----------
+* Bumped version of the JMX Exporter to ``1.1.0``
+
 
 2.40.1 (2024-07-24)
 -------------------
