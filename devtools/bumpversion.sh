@@ -28,20 +28,21 @@ if [ "$BRANCH" != "release/$VERSION" ]; then
   exit 1
 fi
 
+set -x
 print_info "Incrementing crate-operator Helm Chart to version '$VERSION'"
 # Chart version
-sed -i "s/^version:.*$/version: $VERSION/" deploy/charts/crate-operator/Chart.yaml
+sed -i '' "s/^version:.*$/version: ${VERSION}/" deploy/charts/crate-operator/Chart.yaml
 # App version
-sed -i "s/^appVersion:.*$/appVersion: \"$VERSION\"/" deploy/charts/crate-operator/Chart.yaml
+sed -i '' "s/^appVersion:.*$/appVersion: \"$VERSION\"/" deploy/charts/crate-operator/Chart.yaml
 # Dependency version
-sed -i "s/^  version:.*$/  version: $VERSION/" deploy/charts/crate-operator/Chart.yaml
+sed -i '' "s/^  version:.*$/  version: $VERSION/" deploy/charts/crate-operator/Chart.yaml
 
 
 print_info "Incrementing crate-operator-crds Helm Chart to version '$VERSION'"
 # Chart version
-sed -i "s/^version:.*$/version: $VERSION/" deploy/charts/crate-operator-crds/Chart.yaml
+sed -i '' "s/^version:.*$/version: $VERSION/" deploy/charts/crate-operator-crds/Chart.yaml
 # App version
-sed -i "s/^appVersion:.*$/appVersion: \"$VERSION\"/" deploy/charts/crate-operator-crds/Chart.yaml
+sed -i '' "s/^appVersion:.*$/appVersion: \"$VERSION\"/" deploy/charts/crate-operator-crds/Chart.yaml
 
 
 print_info "Done. ✨"
