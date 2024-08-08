@@ -32,6 +32,8 @@ from crate.operator.webhooks import (
 )
 
 from .utils import (
+    CRATE_VERSION,
+    CRATE_VERSION_WITH_JWT,
     DEFAULT_TIMEOUT,
     assert_wait_for,
     start_cluster,
@@ -41,14 +43,20 @@ from .utils import (
 pytestmark = pytest.mark.asyncio
 
 
-async def test_create_user(faker):
+@mock.patch("crate.operator.cratedb.get_cratedb_resource")
+async def test_create_user(mock_get_cratedb_resource: mock.AsyncMock, faker):
     password = faker.password()
     username = faker.user_name()
     username_ident = f'"{username}"'  # This is to check that "quote_ident" is called
+    namespace = faker.uuid4()
+    name = faker.domain_word()
     cursor = mock.AsyncMock()
     cursor.fetchone.return_value = (0,)
+    mock_get_cratedb_resource.return_value = {
+        "spec": {"cluster": {"version": CRATE_VERSION}}
+    }
     with mock.patch("crate.operator.cratedb.quote_ident", return_value=username_ident):
-        await create_user(cursor, username, password)
+        await create_user(cursor, namespace, name, username, password)
 
     cursor.fetchone.assert_awaited_once()
     cursor.execute.assert_has_awaits(
@@ -59,19 +67,26 @@ async def test_create_user(faker):
             mock.call(
                 f"CREATE USER {username_ident} WITH (password = %s)", (password,)
             ),
-            mock.call(f"GRANT ALL PRIVILEGES TO {username_ident}"),
+            mock.call(f"GRANT ALL TO {username_ident}"),
+            mock.call(f"DENY ALL ON SCHEMA gc TO {username_ident}"),
         ]
     )
 
 
-async def test_create_user_duplicate(faker):
+@mock.patch("crate.operator.cratedb.get_cratedb_resource")
+async def test_create_user_duplicate(mock_get_cratedb_resource: mock.AsyncMock, faker):
     password = faker.password()
     username = faker.user_name()
     username_ident = f'"{username}"'  # This is to check that "quote_ident" is called
+    namespace = faker.uuid4()
+    name = faker.domain_word()
     cursor = mock.AsyncMock()
     cursor.fetchone.return_value = (1,)
+    mock_get_cratedb_resource.return_value = {
+        "spec": {"cluster": {"version": CRATE_VERSION}}
+    }
     with mock.patch("crate.operator.cratedb.quote_ident", return_value=username_ident):
-        await create_user(cursor, username, password)
+        await create_user(cursor, namespace, name, username, password)
 
     cursor.fetchone.assert_awaited_once()
     cursor.execute.assert_has_awaits(
@@ -79,7 +94,80 @@ async def test_create_user_duplicate(faker):
             mock.call(
                 "SELECT count(*) = 1 FROM sys.users WHERE name = %s", (username,)
             ),
-            mock.call(f"GRANT ALL PRIVILEGES TO {username_ident}"),
+            mock.call(f"GRANT ALL TO {username_ident}"),
+            mock.call(f"DENY ALL ON SCHEMA gc TO {username_ident}"),
+        ]
+    )
+
+
+@mock.patch("crate.operator.cratedb.get_cratedb_resource")
+async def test_create_user_with_jwt(mock_get_cratedb_resource: mock.AsyncMock, faker):
+    password = faker.password()
+    username = faker.user_name()
+    username_ident = f'"{username}"'  # This is to check that "quote_ident" is called
+    namespace = faker.uuid4()
+    name = faker.domain_word()
+    cursor = mock.AsyncMock()
+    cursor.fetchone.return_value = (0,)
+    mock_get_cratedb_resource.return_value = {
+        "spec": {
+            "cluster": {"version": CRATE_VERSION_WITH_JWT},
+            "grandCentral": {"jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/"},
+        }
+    }
+    with mock.patch("crate.operator.cratedb.quote_ident", return_value=username_ident):
+        await create_user(cursor, namespace, name, username, password)
+
+    cursor.fetchone.assert_awaited_once()
+    cursor.execute.assert_has_awaits(
+        [
+            mock.call(
+                "SELECT count(*) = 1 FROM sys.users WHERE name = %s", (username,)
+            ),
+            mock.call(
+                f"""CREATE USER {username_ident} WITH (password = %s, """
+                f"""jwt = {{"iss" = %s, "username" = %s, "aud" = %s}})""",
+                (
+                    password,
+                    "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
+                    username,
+                    name,
+                ),
+            ),
+            mock.call(f"GRANT ALL TO {username_ident}"),
+            mock.call(f"DENY ALL ON SCHEMA gc TO {username_ident}"),
+        ]
+    )
+
+
+@mock.patch("crate.operator.cratedb.get_cratedb_resource")
+async def test_create_user_custom_privileges(
+    mock_get_cratedb_resource: mock.AsyncMock, faker
+):
+    password = faker.password()
+    username = faker.user_name()
+    username_ident = f'"{username}"'  # This is to check that "quote_ident" is called
+    namespace = faker.uuid4()
+    name = faker.domain_word()
+    cursor = mock.AsyncMock()
+    cursor.fetchone.return_value = (0,)
+    mock_get_cratedb_resource.return_value = {
+        "spec": {"cluster": {"version": CRATE_VERSION}}
+    }
+    with mock.patch("crate.operator.cratedb.quote_ident", return_value=username_ident):
+        await create_user(cursor, namespace, name, username, password, ["DQL", "DML"])
+
+    cursor.fetchone.assert_awaited_once()
+    cursor.execute.assert_has_awaits(
+        [
+            mock.call(
+                "SELECT count(*) = 1 FROM sys.users WHERE name = %s", (username,)
+            ),
+            mock.call(
+                f"CREATE USER {username_ident} WITH (password = %s)", (password,)
+            ),
+            mock.call(f"GRANT DQL,DML TO {username_ident}"),
+            mock.call(f"DENY ALL ON SCHEMA gc TO {username_ident}"),
         ]
     )
 

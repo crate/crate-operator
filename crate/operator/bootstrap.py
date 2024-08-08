@@ -207,7 +207,7 @@ async def bootstrap_gc_admin_user(core: CoreV1Api, namespace: str, name: str):
             password = await resolve_secret_key_ref(
                 core, namespace, {"key": "password", "name": f"user-gc-{name}"}
             )
-            await create_user(cursor, GC_USERNAME, password)
+            await create_user(cursor, namespace, name, GC_USERNAME, password)
 
 
 async def bootstrap_users(
@@ -239,7 +239,7 @@ async def bootstrap_users(
                 await ensure_user_password_label(
                     core, namespace, secret_key_ref["name"]
                 )
-                await create_user(cursor, username, password)
+                await create_user(cursor, namespace, name, username, password)
 
 
 async def create_users(

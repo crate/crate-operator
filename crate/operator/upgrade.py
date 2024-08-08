@@ -36,7 +36,9 @@ from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
 
 
-def upgrade_command(old_command: List[str], total_data_nodes: int) -> List[str]:
+def upgrade_command_data_nodes(
+    old_command: List[str], total_data_nodes: int
+) -> List[str]:
     """
     Iterate through the ``old_command`` items and upgrade the setting's
     names where required in versions >= 4.7.
@@ -59,6 +61,29 @@ def upgrade_command(old_command: List[str], total_data_nodes: int) -> List[str]:
             item = f"-Cgateway.expected_data_nodes={total_data_nodes}"
         new_command.append(item)
     return new_command
+
+
+def upgrade_command_jwt_auth(command: List[str]) -> List[str]:
+    """
+    Add the settings required for JWT authentication if they are not present yet.
+
+    Return the list making up the new CrateDB command.
+
+    :param old_command: The command used to start-up CrateDB inside a
+        Kubernetes container. This consists of the path to the Docker
+        entrypoint script, the ``crate`` command argument and any additional
+        settings.
+    :return: The list forming the new CrateDB command.
+    """
+    for c in [
+        "-Cauth.host_based.config.98.method=jwt",
+        "-Cauth.host_based.config.98.protocol=http",
+        "-Cauth.host_based.config.98.ssl=on",
+    ]:
+        if c not in command:
+            command.append(c)
+
+    return command
 
 
 async def update_statefulset(
@@ -99,7 +124,21 @@ async def update_statefulset(
             namespace=namespace, name=sts_name
         )
         crate_container = get_container(statefulset)
-        new_command = upgrade_command(crate_container.command, data_nodes_count)
+        new_command = upgrade_command_data_nodes(
+            crate_container.command, data_nodes_count
+        )
+        logger.info("upgraded sts command: %s", new_command)
+        body["spec"]["template"]["spec"]["containers"][0]["command"] = new_command
+
+    if CrateVersion(old_version) < CrateVersion(
+        config.CRATEDB_JWT_AUTH_VERSION
+    ) and CrateVersion(new_version) >= CrateVersion(config.CRATEDB_JWT_AUTH_VERSION):
+        # upgrading to a version >= 5.7.2 requires changing the auth config
+        statefulset = await apps.read_namespaced_stateful_set(
+            namespace=namespace, name=sts_name
+        )
+        crate_container = get_container(statefulset)
+        new_command = upgrade_command_jwt_auth(crate_container.command)
         logger.info("upgraded sts command: %s", new_command)
         body["spec"]["template"]["spec"]["containers"][0]["command"] = new_command
     await apps.patch_namespaced_stateful_set(

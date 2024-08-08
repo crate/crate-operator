@@ -32,7 +32,7 @@ from crate.operator.handlers.handle_update_cratedb import get_backoff
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
-    get_cratedb_resource,
+    RestoreUserJWTAuthSubHandler,
 )
 from crate.operator.restore_backup import (
     AfterRestoreBackupSubHandler,
@@ -46,6 +46,7 @@ from crate.operator.restore_backup import (
     get_crash_pod_name,
     get_crash_scheme,
 )
+from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.utils.notifications import FlushNotificationsSubHandler
 
 CLUSTER_RESTORE_FIELD_ID = "cluster_restore/spec.cluster.restoreSnapshot"
@@ -228,6 +229,19 @@ def register_restore_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/restore_system_user_password")
+
+    kopf.register(
+        fn=RestoreUserJWTAuthSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+        )(),
+        id="restore_user_jwt_auth",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/restore_user_jwt_auth")
 
     kopf.register(
         fn=ValidateRestoreCompleteSubHandler(

@@ -98,6 +98,7 @@ from crate.operator.constants import (
 )
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.formatting import b64encode, format_bitmath
+from crate.operator.utils.jwt import crate_version_supports_jwt
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import call_kubeapi
@@ -454,6 +455,15 @@ def get_statefulset_crate_command(
                 "-Cssl.keystore_password": "${KEYSTORE_PASSWORD}",
                 "-Cssl.keystore_key_password": "${KEYSTORE_KEY_PASSWORD}",
                 "-Cauth.host_based.config.99.ssl": "on",
+            }
+        )
+
+    if crate_version_supports_jwt(crate_version):
+        settings.update(
+            {
+                "-Cauth.host_based.config.98.method": "jwt",
+                "-Cauth.host_based.config.98.protocol": "http",
+                "-Cauth.host_based.config.98.ssl": "on",
             }
         )
 
