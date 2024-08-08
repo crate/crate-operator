@@ -165,6 +165,97 @@ spec:
                     - region
                     - secretAccessKey
                     type: object
+                  azure_blob:
+                    properties:
+                      accountName:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Storage account name.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Storage account name to be used for
+                                  backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      accountKey:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Storage Account Key.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Storage Account Key to be used for backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      container:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Blob Container name.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Blob Container name to be used for backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      region:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the name of the azure region to use.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the azure region to be used for backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      cron:
+                        description: A crontab formatted string indicating when and
+                          how often to perform backups.
+                        pattern: ^(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*) ){4}(((\d+,)+\d+|(\d+(\/|-)\d+)|\d+|\*))$
+                        type: string
+                    required:
+                      - accountName
+                      - accountKey
+                      - container
+                      - cron
+                      - region
+                    type: object
                 type: object
               cluster:
                 properties:

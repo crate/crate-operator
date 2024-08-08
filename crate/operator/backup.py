@@ -59,7 +59,7 @@ from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.typing import LabelType
 
 
-def get_backup_env(
+def get_aws_backup_env(
     name: str, http_port: int, backup_aws: Dict[str, Any], has_ssl: bool
 ) -> List[V1EnvVar]:
     schema = "https" if has_ssl else "http"
@@ -108,6 +108,42 @@ def get_backup_env(
     ]
 
 
+def get_azure_backup_env(
+    name: str, http_port: int, backup_azure: Dict[str, Any], has_ssl: bool
+) -> List[V1EnvVar]:
+    schema = "https" if has_ssl else "http"
+    return [
+        V1EnvVar(
+            name="NAMESPACE",
+            value_from=V1EnvVarSource(
+                field_ref=V1ObjectFieldSelector(
+                    api_version="v1",
+                    field_path="metadata.namespace",
+                )
+            ),
+        ),
+        V1EnvVar(name="HOSTS", value=f"{schema}://crate-{name}:{http_port}"),
+        V1EnvVar(
+            name="PASSWORD",
+            value_from=V1EnvVarSource(
+                secret_key_ref=V1SecretKeySelector(
+                    key="password", name=f"user-system-{name}"
+                ),
+            ),
+        ),
+        V1EnvVar(
+            name="AZURE_CONTAINER",
+            value_from=V1EnvVarSource(
+                secret_key_ref=V1SecretKeySelector(
+                    key=backup_azure["container"]["secretKeyRef"]["key"],
+                    name=backup_azure["container"]["secretKeyRef"]["name"],
+                ),
+            ),
+        ),
+        V1EnvVar(name="USERNAME", value=SYSTEM_USERNAME),
+    ]
+
+
 def get_webhook_env():
     if (
         config.WEBHOOK_URL is not None
@@ -122,7 +158,7 @@ def get_webhook_env():
     return []
 
 
-def get_backup_cronjob(
+def get_aws_backup_cronjob(
     owner_references: Optional[List[V1OwnerReference]],
     name: str,
     labels: LabelType,
@@ -155,7 +191,7 @@ def get_backup_cronjob(
             V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
             V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
         ]
-        + get_backup_env(name, http_port, backup_aws, has_ssl)
+        + get_aws_backup_env(name, http_port, backup_aws, has_ssl)
         + get_webhook_env()
     )
 
@@ -210,7 +246,82 @@ def get_backup_cronjob(
     )
 
 
-def get_backup_metrics_exporter(
+def get_azure_backup_cronjob(
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    labels: LabelType,
+    http_port: int,
+    backup_azure: Dict[str, Any],
+    image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    has_ssl: bool,
+) -> V1CronJob:
+    env = (
+        [
+            V1EnvVar(
+                name="AZURE_ACCOUNT_NAME",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_azure["accountName"]["secretKeyRef"]["key"],
+                        name=backup_azure["accountName"]["secretKeyRef"]["name"],
+                    ),
+                ),
+            ),
+            V1EnvVar(
+                name="AZURE_ACCOUNT_KEY",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_azure["accountKey"]["secretKeyRef"]["key"],
+                        name=backup_azure["accountKey"]["secretKeyRef"]["name"],
+                    ),
+                ),
+            ),
+            V1EnvVar(name="CLUSTER_ID", value=name),
+            V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
+            V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
+        ]
+        + get_azure_backup_env(name, http_port, backup_azure, has_ssl)
+        + get_webhook_env()
+    )
+
+    cron_job = V1CronJob(
+        metadata=V1ObjectMeta(
+            name=f"create-snapshot-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
+        spec=V1CronJobSpec(
+            concurrency_policy="Forbid",
+            failed_jobs_history_limit=1,
+            job_template=V1JobTemplateSpec(
+                metadata=V1ObjectMeta(labels=labels, name=f"create-snapshot-{name}"),
+                spec=V1JobSpec(
+                    template=V1PodTemplateSpec(
+                        metadata=V1ObjectMeta(
+                            labels=labels, name=f"create-snapshot-{name}"
+                        ),
+                        spec=V1PodSpec(
+                            containers=[
+                                V1Container(
+                                    command=["backup", "-vv"],
+                                    env=env,
+                                    image=config.CLUSTER_BACKUP_IMAGE,
+                                    name="backup",
+                                )
+                            ],
+                            image_pull_secrets=image_pull_secrets,
+                            restart_policy="Never",
+                        ),
+                    ),
+                ),
+            ),
+            schedule=backup_azure["cron"],
+            successful_jobs_history_limit=1,
+        ),
+    )
+    return cron_job
+
+
+def get_aws_backup_metrics_exporter(
     owner_references: Optional[List[V1OwnerReference]],
     name: str,
     labels: LabelType,
@@ -224,7 +335,81 @@ def get_backup_metrics_exporter(
         V1EnvVar(name="EXPORTER_PORT", value=str(prometheus_port)),
         V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
         V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
-    ] + get_backup_env(name, http_port, backup_aws, has_ssl)
+    ] + get_aws_backup_env(name, http_port, backup_aws, has_ssl)
+    return V1Deployment(
+        metadata=V1ObjectMeta(
+            name=BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
+            labels=labels,
+            owner_references=owner_references,
+        ),
+        spec=V1DeploymentSpec(
+            replicas=1,
+            selector=V1LabelSelector(
+                match_labels={LABEL_COMPONENT: "backup", LABEL_NAME: name}
+            ),
+            template=V1PodTemplateSpec(
+                metadata=V1ObjectMeta(
+                    annotations={
+                        "prometheus.io/port": str(prometheus_port),
+                        "prometheus.io/scrape": "true",
+                    },
+                    labels=labels,
+                    name=BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
+                ),
+                spec=V1PodSpec(
+                    containers=[
+                        V1Container(
+                            command=["metrics-exporter", "-vv"],
+                            env=env,
+                            image=config.CLUSTER_BACKUP_IMAGE,
+                            name="metrics-exporter",
+                            ports=[
+                                V1ContainerPort(
+                                    container_port=prometheus_port,
+                                    name="backup-metrics",
+                                )
+                            ],
+                        )
+                    ],
+                    image_pull_secrets=image_pull_secrets,
+                    restart_policy="Always",
+                ),
+            ),
+        ),
+    )
+
+
+def get_azure_backup_metrics_exporter(
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    labels: LabelType,
+    http_port: int,
+    prometheus_port: int,
+    backup_azure: Dict[str, Any],
+    image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    has_ssl: bool,
+) -> V1Deployment:
+    env = [
+        V1EnvVar(name="EXPORTER_PORT", value=str(prometheus_port)),
+        V1EnvVar(name="PYTHONWARNINGS", value="ignore:Unverified HTTPS request"),
+        V1EnvVar(name="REPOSITORY_PREFIX", value="system_backup"),
+    ] + get_azure_backup_env(name, http_port, backup_azure, has_ssl)
+    # BASE_PATH, bucket and region are required by the metrics exporter
+    env.extend(
+        [
+            V1EnvVar(name="BASE_PATH", value=""),
+            V1EnvVar(name="BUCKET", value="azure"),
+            V1EnvVar(
+                name="REGION",
+                value_from=V1EnvVarSource(
+                    secret_key_ref=V1SecretKeySelector(
+                        key=backup_azure["region"]["secretKeyRef"]["key"],
+                        name=backup_azure["region"]["secretKeyRef"]["name"],
+                    ),
+                ),
+            ),
+        ]
+    )
     return V1Deployment(
         metadata=V1ObjectMeta(
             name=BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name),
@@ -281,6 +466,8 @@ async def create_backups(
     logger: logging.Logger,
 ) -> None:
     backup_aws = backups.get("aws")
+    backup_azure = backups.get("azure_blob")
+
     async with GlobalApiClient() as api_client:
         apps = AppsV1Api(api_client)
         batch = BatchV1Api(api_client)
@@ -290,7 +477,7 @@ async def create_backups(
                 logger,
                 continue_on_conflict=True,
                 namespace=namespace,
-                body=get_backup_cronjob(
+                body=get_aws_backup_cronjob(
                     owner_references,
                     name,
                     labels,
@@ -305,13 +492,46 @@ async def create_backups(
                 logger,
                 continue_on_conflict=True,
                 namespace=namespace,
-                body=get_backup_metrics_exporter(
+                body=get_aws_backup_metrics_exporter(
                     owner_references,
                     name,
                     labels,
                     http_port,
                     prometheus_port,
                     backup_aws,
+                    image_pull_secrets,
+                    has_ssl,
+                ),
+            )
+
+        if backup_azure:
+            await call_kubeapi(
+                batch.create_namespaced_cron_job,
+                logger,
+                continue_on_conflict=True,
+                namespace=namespace,
+                body=get_azure_backup_cronjob(
+                    owner_references,
+                    name,
+                    labels,
+                    http_port,
+                    backup_azure,
+                    image_pull_secrets,
+                    has_ssl,
+                ),
+            )
+            await call_kubeapi(
+                apps.create_namespaced_deployment,
+                logger,
+                continue_on_conflict=True,
+                namespace=namespace,
+                body=get_azure_backup_metrics_exporter(
+                    owner_references,
+                    name,
+                    labels,
+                    http_port,
+                    prometheus_port,
+                    backup_azure,
                     image_pull_secrets,
                     has_ssl,
                 ),
