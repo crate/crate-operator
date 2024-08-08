@@ -23,11 +23,18 @@ import logging
 from typing import Awaitable, Callable, Optional
 
 import kopf
-from kubernetes_asyncio.client import ApiException, CoreV1Api, V1ObjectMeta, V1Secret
+from kubernetes_asyncio.client import (
+    ApiException,
+    CoreV1Api,
+    CustomObjectsApi,
+    V1ObjectMeta,
+    V1Secret,
+)
 
 from crate.operator.config import config
-from crate.operator.constants import LABEL_USER_PASSWORD
+from crate.operator.constants import API_GROUP, LABEL_USER_PASSWORD, RESOURCE_CRATEDB
 from crate.operator.utils.formatting import b64decode
+from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.typing import K8sModel, SecretKeyRef
 
 
@@ -210,3 +217,22 @@ async def ensure_user_password_label(core: CoreV1Api, namespace: str, secret_nam
             ),
         ),
     )
+
+
+async def get_cratedb_resource(namespace: str, name: str) -> dict:
+    """
+    Return the CrateDB custom resource.
+
+    :param namespace: The Kubernetes namespace where to look up the CrateDB
+        cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    """
+    async with GlobalApiClient() as api_client:
+        coapi = CustomObjectsApi(api_client)
+        return await coapi.get_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+            name=name,
+        )

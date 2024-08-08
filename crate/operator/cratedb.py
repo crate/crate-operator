@@ -21,7 +21,7 @@
 
 import functools
 import logging
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import aiopg
 from aiopg import Cursor
@@ -29,7 +29,9 @@ from psycopg2 import ProgrammingError
 from psycopg2.extensions import quote_ident
 
 from crate.operator.config import config
-from crate.operator.constants import SYSTEM_USERNAME
+from crate.operator.constants import GC_USERNAME, SYSTEM_USERNAME
+from crate.operator.utils.jwt import crate_version_supports_jwt
+from crate.operator.utils.kubeapi import get_cratedb_resource
 
 HEALTHINESS = {1: "GREEN", 2: "YELLOW", 3: "RED"}
 
@@ -69,15 +71,29 @@ def connection_factory(
     return functools.partial(get_connection, host, password, username, **kwargs)
 
 
-async def create_user(cursor: Cursor, username: str, password: str) -> None:
+async def create_user(
+    cursor: Cursor,
+    namespace: str,
+    name: str,
+    username: str,
+    password: str,
+    privileges: List[str] = None,
+) -> None:
     """
-    Create user ``username`` and grant it ``ALL PRIVILEGES``.
+    Create user ``username`` and grant it given privileges.
 
     :param cursor: A database cursor object to the CrateDB cluster where the
         user should be added.
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param username: The username for the new user.
     :param password: The password for the new user.
+    :param privileges: An optional list of privileges granted to the user.
+        Defaults to ``ALL``
     """
+    privileges = privileges or ["ALL"]
+    cratedb = await get_cratedb_resource(namespace, name)
+    crate_version = cratedb["spec"]["cluster"]["version"]
     await cursor.execute(
         "SELECT count(*) = 1 FROM sys.users WHERE name = %s", (username,)
     )
@@ -86,10 +102,20 @@ async def create_user(cursor: Cursor, username: str, password: str) -> None:
 
     username_ident = quote_ident(username, cursor._impl)
     if not user_exists:
-        await cursor.execute(
-            f"CREATE USER {username_ident} WITH (password = %s)", (password,)
-        )
-    await cursor.execute(f"GRANT ALL PRIVILEGES TO {username_ident}")
+        query = f"CREATE USER {username_ident} WITH (password = %s"
+        params = [password]
+        if crate_version_supports_jwt(crate_version):
+            iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+            query += ', jwt = {"iss" = %s, "username" = %s, "aud" = %s}'
+            params.extend([iss, username, name])
+
+        query += ")"
+        await cursor.execute(query, tuple(params))
+
+    await cursor.execute(f"GRANT {','.join(privileges)} TO {username_ident}")
+
+    if not username == GC_USERNAME:
+        await cursor.execute(f"DENY ALL ON SCHEMA gc TO {username_ident}")
 
 
 async def update_user(cursor: Cursor, username: str, password: str) -> None:

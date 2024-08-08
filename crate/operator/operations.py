@@ -27,12 +27,14 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
 import yaml
+from aiohttp.client_exceptions import WSServerHandshakeError
+from aiopg import Cursor
 from kopf import TemporaryError
 from kubernetes_asyncio.client import (
+    ApiException,
     AppsV1Api,
     BatchV1Api,
     CoreV1Api,
-    CustomObjectsApi,
     V1ConfigMap,
     V1CronJobList,
     V1JobList,
@@ -46,23 +48,25 @@ from kubernetes_asyncio.client import (
     V1StatefulSetList,
 )
 from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
+from kubernetes_asyncio.stream import WsApiClient
 from psycopg2 import DatabaseError, OperationalError
+from psycopg2.extensions import quote_ident
 
 from crate.operator.config import config
 from crate.operator.constants import (
-    API_GROUP,
     BACKUP_METRICS_DEPLOYMENT_NAME,
+    CONNECT_TIMEOUT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
-    RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import (
     are_snapshots_in_progress,
     connection_factory,
+    get_connection,
     is_cluster_healthy,
     reset_cluster_setting,
     set_cluster_setting,
@@ -70,10 +74,12 @@ from crate.operator.cratedb import (
 from crate.operator.create import recreate_services
 from crate.operator.grand_central import read_grand_central_deployment
 from crate.operator.utils import crate
+from crate.operator.utils.jwt import crate_version_supports_jwt
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
     call_kubeapi,
+    get_cratedb_resource,
     get_host,
     get_system_user_password,
 )
@@ -251,25 +257,6 @@ async def is_namespace_terminating(namespace_name: str) -> bool:
     """
     namespace_obj = await get_namespace_resource(namespace_name)
     return namespace_obj and namespace_obj.status.phase == "Terminating"
-
-
-async def get_cratedb_resource(namespace: str, name: str) -> dict:
-    """
-    Return the CrateDB custom resource.
-
-    :param namespace: The Kubernetes namespace where to look up the CrateDB
-        cluster.
-    :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    """
-    async with GlobalApiClient() as api_client:
-        coapi = CustomObjectsApi(api_client)
-        return await coapi.get_namespaced_custom_object(
-            group=API_GROUP,
-            version="v1",
-            plural=RESOURCE_CRATEDB,
-            namespace=namespace,
-            name=name,
-        )
 
 
 async def check_all_data_nodes_gone(
@@ -666,9 +653,11 @@ async def suspend_or_start_cluster(
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
-                    action=WebhookAction.SUSPEND
-                    if old_replicas == 0
-                    else WebhookAction.SCALE,
+                    action=(
+                        WebhookAction.SUSPEND
+                        if old_replicas == 0
+                        else WebhookAction.SCALE
+                    ),
                 )
 
                 conn_factory = await _get_connection_factory(core, namespace, name)
@@ -726,9 +715,11 @@ async def suspend_or_start_cluster(
                     logger=logger,
                     status=WebhookStatus.IN_PROGRESS,
                     operation=WebhookOperation.UPDATE,
-                    action=WebhookAction.SUSPEND
-                    if new_replicas == 0
-                    else WebhookAction.SCALE,
+                    action=(
+                        WebhookAction.SUSPEND
+                        if new_replicas == 0
+                        else WebhookAction.SCALE
+                    ),
                 )
                 if scale_backup_metrics:
                     await check_backup_metrics_pod_gone(
@@ -838,6 +829,87 @@ def _has_sql_exporter_config_changed(
         if yaml_filename not in old_config_map.data.keys():
             return True
     return False
+
+
+def get_crash_pod_name(spec: dict, name: str) -> str:
+    """
+    Returns the pod name where crash commands should be run.
+
+    :param spec: The CrateDB custom resource definition.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    """
+    has_master_nodes = "master" in spec["spec"]["nodes"]
+    if has_master_nodes:
+        return f"crate-master-{name}-0"
+    else:
+        node_name = spec["spec"]["nodes"]["data"][0]["name"]
+        return f"crate-data-{node_name}-{name}-0"
+
+
+def get_crash_scheme(spec: dict) -> str:
+    """
+    Return the host scheme for running crash commands.
+
+    :param spec: The CrateDB custom resource definition.
+    """
+    return "https" if "ssl" in spec["spec"]["cluster"] else "http"
+
+
+async def run_crash_command(
+    namespace: str,
+    pod_name: str,
+    scheme: str,
+    command: str,
+    logger,
+    delay: int = 30,
+):
+    """
+    This connects to a CrateDB pod and executes a crash command in the
+    ``crate`` container. It returns the result of the execution.
+
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param pod_name: The pod name where the command should be run.
+    :param scheme: The host scheme for running the command.
+    :param command: The SQL query that should be run.
+    :param logger: the logger on which we're logging
+    :param delay: Time in seconds between the retries when executing
+        the query.
+    """
+    async with WsApiClient() as ws_api_client:
+        core_ws = CoreV1Api(ws_api_client)
+        try:
+            exception_logger = logger.exception if config.TESTING else logger.error
+            crash_command = [
+                "crash",
+                "--verify-ssl=false",
+                f"--host={scheme}://localhost:4200",
+                "-c",
+                command,
+            ]
+            result = await core_ws.connect_get_namespaced_pod_exec(
+                namespace=namespace,
+                name=pod_name,
+                command=crash_command,
+                container="crate",
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+            )
+        except ApiException as e:
+            # We don't use `logger.exception()` to not accidentally include sensitive
+            # data in the log messages which might be part of the string
+            # representation of the exception.
+            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
+            raise kopf.TemporaryError(delay=delay)
+        except WSServerHandshakeError as e:
+            # We don't use `logger.exception()` to not accidentally include sensitive
+            # data in the log messages which might be part of the string
+            # representation of the exception.
+            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
+            raise kopf.TemporaryError(delay=delay)
+        else:
+            return result
 
 
 class RestartSubHandler(StateBasedSubHandler):
@@ -1108,6 +1180,46 @@ async def set_cronjob_delay(patch):
     patch.status[DELAY_CRONJOB_START] = datetime.datetime.utcnow().timestamp()
 
 
+async def set_user_jwt(
+    cursor: Cursor, namespace: str, name: str, username: str, logger: logging.Logger
+) -> None:
+    """
+    Set JWT auth properties for a given username
+
+    :param cursor: A database cursor object to the CrateDB cluster where the
+        user should be added.
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param username: The name of the user the JWT properties should be set for.
+    """
+    cratedb = await get_cratedb_resource(namespace, name)
+    await cursor.execute(
+        "SELECT count(*) = 1 FROM sys.users WHERE name = %s", (username,)
+    )
+    row = await cursor.fetchone()
+    user_exists = bool(row[0])
+
+    username_ident = quote_ident(username, cursor._impl)
+    if user_exists:
+        iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+
+        query = (
+            f"ALTER USER {username_ident} SET "
+            f"""(jwt = {{"iss" = '{iss}', "username" = '{username}', """
+            f""""aud" = '{name}'}})"""
+        )
+        pod_name = get_crash_pod_name(cratedb, name)
+        scheme = get_crash_scheme(cratedb)
+        result = await run_crash_command(namespace, pod_name, scheme, query, logger)
+        if "ALTER OK" in result:
+            logger.info("... success")
+        else:
+            logger.info("... error. %s", result)
+            # Continue if the same JWT properties are already set
+            if "RoleAlreadyExistsException" not in result:
+                raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
+
 class StartClusterSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
@@ -1205,3 +1317,40 @@ class SuspendClusterSubHandler(StateBasedSubHandler):
                     False,
                     logger,
                 )
+
+
+class RestoreUserJWTAuthSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        """
+        Restore the admin user's JWT properties.
+        Use crash here because the system user is not allowed to ALTER any
+        other users.
+
+        :param namespace: The Kubernetes namespace of the CrateDB cluster.
+        :param name: The CrateDB custom resource name defining the CrateDB cluster.
+        :param logger: the logger on which we're logging
+        """
+        cratedb = await get_cratedb_resource(namespace, name)
+        crate_version = cratedb["spec"]["cluster"]["version"]
+        if crate_version_supports_jwt(crate_version):
+            async with GlobalApiClient() as api_client:
+                core = CoreV1Api(api_client)
+                host = await get_host(core, namespace, name)
+                password = await get_system_user_password(core, namespace, name)
+                async with get_connection(
+                    host, password, timeout=CONNECT_TIMEOUT
+                ) as conn:
+                    async with conn.cursor() as cursor:
+                        for user_spec in cratedb["spec"].get("users"):
+                            username = user_spec["name"]
+
+                            await set_user_jwt(
+                                cursor, namespace, name, username, logger
+                            )

@@ -26,7 +26,7 @@ from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
-from crate.operator.upgrade import upgrade_command
+from crate.operator.upgrade import upgrade_command_data_nodes, upgrade_command_jwt_auth
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
@@ -196,6 +196,33 @@ def test_upgrade_sts_command(total_nodes, old_quorum, data_nodes, new_quorum):
     assert f"-Cgateway.recover_after_nodes={old_quorum}" in cmd
     assert f"-Cgateway.expected_nodes={total_nodes}" in cmd
 
-    new_cmd = upgrade_command(cmd, data_nodes)
+    new_cmd = upgrade_command_data_nodes(cmd, data_nodes)
     assert f"-Cgateway.recover_after_data_nodes={new_quorum}" in new_cmd
     assert f"-Cgateway.expected_data_nodes={data_nodes}" in new_cmd
+
+
+def test_upgrade_sts_command_with_jwt():
+    cmd = get_statefulset_crate_command(
+        namespace="some-namespace",
+        name="cluster1",
+        master_nodes=["node-1"],
+        total_nodes_count=3,
+        data_nodes_count=2,
+        crate_node_name_prefix="node-",
+        cluster_name="my-cluster",
+        node_name="node",
+        node_spec={"resources": {"limits": {"cpu": 1}, "disk": {"count": 1}}},
+        cluster_settings=None,
+        has_ssl=False,
+        is_master=True,
+        is_data=True,
+        crate_version="5.6.5",
+    )
+    assert "-Cauth.host_based.config.98.method=jwt" not in cmd
+    assert "-Cauth.host_based.config.98.protocol=http" not in cmd
+    assert "-Cauth.host_based.config.98.ssl=on" not in cmd
+
+    new_cmd = upgrade_command_jwt_auth(cmd)
+    assert "-Cauth.host_based.config.98.method=jwt" in new_cmd
+    assert "-Cauth.host_based.config.98.protocol=http" in new_cmd
+    assert "-Cauth.host_based.config.98.ssl=on" in new_cmd

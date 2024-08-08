@@ -69,7 +69,13 @@ from crate.operator.create import (
 )
 from crate.operator.utils.formatting import b64decode, format_bitmath
 
-from .utils import CRATE_VERSION, assert_wait_for, do_pods_exist, start_cluster
+from .utils import (
+    CRATE_VERSION,
+    CRATE_VERSION_WITH_JWT,
+    assert_wait_for,
+    do_pods_exist,
+    start_cluster,
+)
 
 
 @pytest.fixture
@@ -714,6 +720,45 @@ class TestStatefulSetCrateCommand:
                 crate_version="4.6.3",
             )
         assert "-Cnode.attr.zone=test" in cmd
+
+    @pytest.mark.parametrize(
+        "crate_version, jwt_expected",
+        [
+            (CRATE_VERSION_WITH_JWT, True),
+            (CRATE_VERSION, False),
+        ],
+    )
+    def test_jwt_auth(self, crate_version, jwt_expected):
+        cmd = get_statefulset_crate_command(
+            namespace="some-namespace",
+            name="cluster1",
+            master_nodes=["node-0", "node-1", "node-2"],
+            total_nodes_count=3,
+            data_nodes_count=3,
+            crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
+            node_name="node",
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
+            cluster_settings=None,
+            has_ssl=True,
+            is_master=True,
+            is_data=True,
+            crate_version=crate_version,
+        )
+        if jwt_expected:
+            assert "-Cauth.host_based.config.98.method=jwt" in cmd
+            assert "-Cauth.host_based.config.98.protocol=http" in cmd
+            assert "-Cauth.host_based.config.98.ssl=on" in cmd
+        else:
+            assert "-Cauth.host_based.config.98.method=jwt" not in cmd
+            assert "-Cauth.host_based.config.98.protocol=http" not in cmd
+            assert "-Cauth.host_based.config.98.ssl=on" not in cmd
 
 
 class TestStatefulSetCrateEnv:

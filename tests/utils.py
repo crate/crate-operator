@@ -63,7 +63,8 @@ from crate.operator.utils.kubeapi import (
 
 logger = logging.getLogger(__name__)
 
-CRATE_VERSION = "5.2.6"
+CRATE_VERSION = "5.6.5"
+CRATE_VERSION_WITH_JWT = "5.7.3"
 DEFAULT_TIMEOUT = 60
 
 
