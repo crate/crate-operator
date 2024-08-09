@@ -462,7 +462,7 @@ async def update_grand_central_deployment_image(
         # This also runs on creation events, so we need to double check that the
         # deployment exists before attempting to do anything.
         deployments = await apps.list_namespaced_deployment(namespace=namespace)
-        deployment = next(
+        deployment: V1Deployment = next(
             (
                 deploy
                 for deploy in deployments.items

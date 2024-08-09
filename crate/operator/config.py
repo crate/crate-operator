@@ -150,6 +150,9 @@ class Config:
     #: and `recover_after_nodes`
     GATEWAY_SETTINGS_DATA_NODES_VERSION: str = "4.7.0"
 
+    #: From which version onwards CrateDB supports JWT authentication
+    CRATEDB_JWT_AUTH_VERSION: str = "5.7.2"
+
     #: Interval in seconds for which the operator will ping CrateDBs for their
     #: current health.
     CRATEDB_STATUS_CHECK_INTERVAL: Optional[int] = 60

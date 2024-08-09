@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added configuration for JWT authentication from CrateDB version 5.7.2 onwards.
+
 2.40.2 (2024-08-01)
 -------------------
 

@@ -28,8 +28,8 @@ from crate.operator.grand_central import (
     create_grand_central_backend,
     create_grand_central_user,
 )
-from crate.operator.operations import get_cratedb_resource
 from crate.operator.utils.kopf import subhandler_partial
+from crate.operator.utils.kubeapi import get_cratedb_resource
 
 logger = logging.getLogger(__name__)
 

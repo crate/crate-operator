@@ -37,6 +37,7 @@ from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
     BeforeClusterUpdateSubHandler,
     RestartSubHandler,
+    RestoreUserJWTAuthSubHandler,
     StartClusterSubHandler,
     SuspendClusterSubHandler,
     set_cronjob_delay,
@@ -288,6 +289,18 @@ def register_restart_handlers(
     depends_on.append(f"{CLUSTER_UPDATE_ID}/restart")
     # Send a webhook success notification after upgrade and restart handlers
     if do_upgrade:
+        kopf.register(
+            fn=RestoreUserJWTAuthSubHandler(
+                namespace,
+                name,
+                change_hash,
+                context,
+                depends_on=depends_on.copy(),
+            )(),
+            id="restore_user_jwt_auth",
+            backoff=get_backoff(),
+        )
+        depends_on.append(f"{CLUSTER_UPDATE_ID}/restore_user_jwt_auth")
         kopf.register(
             fn=AfterUpgradeSubHandler(
                 namespace, name, change_hash, context, depends_on=depends_on.copy()
