@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.41.0 (2024-08-22)
+-------------------
+
 * Added configuration for JWT authentication from CrateDB version 5.7.2 onwards.
 * Bumped version of the JMX Exporter to ``1.2.0``
 
