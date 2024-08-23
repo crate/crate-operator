@@ -52,9 +52,7 @@ setup(
         "aiopg==1.4.0",
         "bitmath==1.3.3.1",
         "kopf==1.35.6",
-        # Careful with 22+ - it is currently not compatible
-        # and results in various "permission denied" errors.
-        "kubernetes-asyncio==21.7.1",
+        "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.20.0",
         "aiohttp==3.10.5",
