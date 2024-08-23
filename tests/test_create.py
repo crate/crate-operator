@@ -341,6 +341,7 @@ class TestStatefulSetContainers:
         assert c_crate.image == "foo/bar:1.2.3"
         assert c_crate.name == "crate"
         assert c_crate.resources.to_dict() == {
+            "claims": None,
             "limits": {"cpu": str(cpus), "memory": memory},
             "requests": {"cpu": str(cpus), "memory": memory},
         }
