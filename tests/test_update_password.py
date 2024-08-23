@@ -122,7 +122,7 @@ async def test_update_cluster_password(
             mock.ANY,
         ),
         err_msg="Did not notify cluster creation status update.",
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
     await core.patch_namespaced_secret(

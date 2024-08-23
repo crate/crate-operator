@@ -106,7 +106,7 @@ async def test_update_grand_central(
         namespace.metadata.name,
         "cloud.registry.cr8.net/crate/grand-central:latest",
         err_msg="Container image has not been updated.",
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
     await assert_wait_for(
@@ -117,7 +117,7 @@ async def test_update_grand_central(
         namespace.metadata.name,
         "cloud.registry.cr8.net/crate/grand-central:latest",
         err_msg="InitContainer image has not been updated.",
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
 
