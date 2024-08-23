@@ -15,6 +15,7 @@ Unreleased
 
 * Added configuration for JWT authentication from CrateDB version 5.7.2 onwards.
 * Bumped version of the JMX Exporter to ``1.2.0``
+* Add ``minDomains`` to ``TopologySpreadConstraint`` to ensure that pods are spread across zones.
 
 2.40.2 (2024-08-01)
 -------------------
