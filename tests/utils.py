@@ -292,13 +292,19 @@ async def is_cluster_healthy(
 async def is_kopf_handler_finished(
     coapi: CustomObjectsApi, name, namespace: str, handler_name: str
 ):
-    cratedb = await coapi.get_namespaced_custom_object(
-        group=API_GROUP,
-        version="v1",
-        plural=RESOURCE_CRATEDB,
-        namespace=namespace,
-        name=name,
-    )
+    try:
+        cratedb = await coapi.get_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+            name=name,
+        )
+    except Exception as e:
+        logger.error(
+            f"Error checking handler for '{name}' in namespace '{namespace}': {e}"
+        )
+        return False
 
     handler_status = cratedb["metadata"].get("annotations", {}).get(handler_name, None)
     return handler_status is None

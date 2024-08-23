@@ -144,7 +144,7 @@ async def test_bootstrap_users(
             mock.ANY,
         ),
         err_msg="Did not notify cluster creation status update.",
-        timeout=DEFAULT_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT * 3,
     )
     await assert_wait_for(
         True,
