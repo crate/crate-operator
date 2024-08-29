@@ -211,11 +211,8 @@ async def ensure_user_password_label(core: CoreV1Api, namespace: str, secret_nam
     await core.patch_namespaced_secret(
         namespace=namespace,
         name=secret_name,
-        body=V1Secret(
-            metadata=V1ObjectMeta(
-                labels={LABEL_USER_PASSWORD: "true"},
-            ),
-        ),
+        body={"metadata": {"labels": {LABEL_USER_PASSWORD: "true"}}},
+        _headers={"Content-Type": "application/strategic-merge-patch+json"}
     )
 
 
