@@ -30,6 +30,8 @@ from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
 from crate.operator.utils.formatting import b64decode
+from crate.operator.utils.jwt import crate_version_supports_jwt
+from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
@@ -62,6 +64,8 @@ async def update_user_password(
     """
     scheme = "https" if has_ssl else "http"
     password = b64decode(new_password)
+    cratedb = await get_cratedb_resource(namespace, cluster_id)
+    crate_version = cratedb["spec"]["cluster"]["version"]
 
     def get_curl_command(payload: dict) -> List[str]:
         return [
@@ -78,6 +82,18 @@ async def update_user_password(
             "\\n",
         ]
 
+    async def pod_exec(cmd):
+        return await core_ws.connect_get_namespaced_pod_exec(
+            namespace=namespace,
+            name=pod_name,
+            command=cmd,
+            container="crate",
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+        )
+
     command_alter_user = get_curl_command(
         {
             "stmt": 'ALTER USER "{}" SET (password = $1)'.format(username),
@@ -88,51 +104,90 @@ async def update_user_password(
 
     async with WsApiClient() as ws_api_client:
         core_ws = CoreV1Api(ws_api_client)
+        if crate_version_supports_jwt(crate_version):
+            # For users with `jwt` and `password` set, we need to reset
+            # `jwt` config first to be able to update the password.
+            iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+
+            command_reset_user_jwt = get_curl_command(
+                {
+                    "stmt": 'ALTER USER "{}" SET (jwt = NULL)'.format(username),
+                    "args": [],
+                }
+            )
+            try:
+                logger.info("Trying to reset user jwt config ...")
+                result = await pod_exec(command_reset_user_jwt)
+            except ApiException as e:
+                exception_logger(
+                    "... failed. Status: %s Reason: %s", e.status, e.reason
+                )
+                raise _temporary_error()
+            except TemporaryError:
+                raise
+            except WSServerHandshakeError as e:
+                exception_logger(
+                    "... failed. Status: %s Message: %s", e.status, e.message
+                )
+                raise _temporary_error()
+            except Exception as e:
+                exception_logger(
+                    "... failed. Unexpected exception. Class: %s. Message: %s",
+                    type(e).__name__,
+                    str(e),
+                )
+                raise _temporary_error()
+            else:
+                if "rowcount" in result:
+                    logger.info("... success")
+                    command_alter_user = get_curl_command(
+                        {
+                            "stmt": (
+                                'ALTER USER "{}" SET (password = $1, jwt = '
+                                '{{"iss" = $2, "username" = $3, "aud" = $4}})'
+                            ).format(username),
+                            "args": [password, iss, username, cluster_id],
+                        }
+                    )
+                else:
+                    logger.info("... error. %s", result)
+                    raise _temporary_error()
+
         try:
             logger.info("Trying to update user password ...")
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=pod_name,
-                command=command_alter_user,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-            if "rowcount" in result:
-                logger.info("... success")
-            else:
-                logger.info("... error. %s", result)
-                raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
-
-            await send_operation_progress_notification(
-                namespace=namespace,
-                name=cluster_id,
-                message="Password updated successfully.",
-                logger=logger,
-                status=WebhookStatus.SUCCESS,
-                operation=WebhookOperation.UPDATE,
-                action=WebhookAction.PASSWORD_UPDATE,
-            )
+            result = await pod_exec(command_alter_user)
         except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
             exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+            raise _temporary_error()
         except TemporaryError:
             raise
+        except WSServerHandshakeError as e:
+            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
+            raise _temporary_error()
         except Exception as e:
             exception_logger(
                 "... failed. Unexpected exception was raised. Class: %s. Message: %s",
                 type(e).__name__,
                 str(e),
             )
-            raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+            raise _temporary_error()
+        else:
+            if "rowcount" in result:
+                logger.info("... success")
+            else:
+                logger.info("... error. %s", result)
+                raise _temporary_error()
+
+        await send_operation_progress_notification(
+            namespace=namespace,
+            name=cluster_id,
+            message="Password updated successfully.",
+            logger=logger,
+            status=WebhookStatus.SUCCESS,
+            operation=WebhookOperation.UPDATE,
+            action=WebhookAction.PASSWORD_UPDATE,
+        )
+
+
+def _temporary_error():
+    return TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)

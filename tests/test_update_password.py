@@ -46,6 +46,7 @@ from crate.operator.webhooks import (
 )
 
 from .utils import (
+    CRATE_VERSION,
     DEFAULT_TIMEOUT,
     assert_wait_for,
     start_cluster,
@@ -182,12 +183,18 @@ async def test_update_cluster_password(
     )
 
 
+@mock.patch("crate.operator.update_user_password.get_cratedb_resource")
 @mock.patch("crate.operator.webhooks.webhook_client.send_notification")
 @mock.patch("kubernetes_asyncio.client.CoreV1Api.connect_get_namespaced_pod_exec")
 async def test_update_cluster_password_errors(
-    mock_pod_exec, mock_send_notification: mock.AsyncMock
+    mock_pod_exec,
+    mock_send_notification: mock.AsyncMock,
+    mock_get_cratedb_resource: mock.AsyncMock,
 ):
     mock_pod_exec.side_effect = Exception("test-exception")
+    mock_get_cratedb_resource.return_value = {
+        "spec": {"cluster": {"version": CRATE_VERSION}}
+    }
     with pytest.raises(Exception) as e:
         await update_user_password(
             namespace="a-namespace",
