@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.41.1 (2024-08-30)
+-------------------
+
 * Fixed password update for users who have ``jwt`` configured.
 
 2.41.0 (2024-08-22)
