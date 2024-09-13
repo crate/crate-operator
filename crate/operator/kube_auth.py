@@ -41,6 +41,7 @@ async def login_via_kubernetes_asyncio(
     will be made to use that config file. In other cases, an in-cluster
     authentication will be tried.
     """
+
     if config.KUBECONFIG:
         logger.info("Authenticating with KUBECONFIG='%s'", config.KUBECONFIG)
         await load_kube_config(config_file=config.KUBECONFIG)
@@ -59,7 +60,7 @@ async def login_via_kubernetes_asyncio(
     # We need the actual auth-provider's token, so we call it instead of
     # accessing api_key.
     # Other keys (token, tokenFile) also end up being retrieved via this method.
-    header: Optional[str] = k8s_config.get_api_key_with_prefix("authorization")
+    header: Optional[str] = k8s_config.get_api_key_with_prefix("BearerToken")
     parts: Sequence[str] = header.split(" ", 1) if header else []
     scheme, token = (
         (None, None)

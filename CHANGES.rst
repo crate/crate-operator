@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Upgrade to kubernetes-asyncio 31.1.0
+
 2.41.1 (2024-08-30)
 -------------------
 
