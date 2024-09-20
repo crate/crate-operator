@@ -6,6 +6,7 @@ Unreleased
 ----------
 
 * Upgrade to kubernetes-asyncio 31.1.0
+* Maintenance: Update to mypy 1.11.2
 
 2.41.1 (2024-08-30)
 -------------------
