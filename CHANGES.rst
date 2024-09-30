@@ -6,6 +6,7 @@ Unreleased
 ----------
 
 * Upgrade to kubernetes-asyncio 31.1.0
+* Maintenance: Update to Python 3.11
 
 * Add ``minDomains`` to ``TopologySpreadConstraint`` to ensure that pods are spread across zones.
 
