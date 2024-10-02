@@ -104,11 +104,10 @@ async def update_user_password(
 
     async with WsApiClient() as ws_api_client:
         core_ws = CoreV1Api(ws_api_client)
-        if crate_version_supports_jwt(crate_version):
+        iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+        if crate_version_supports_jwt(crate_version) and iss:
             # For users with `jwt` and `password` set, we need to reset
             # `jwt` config first to be able to update the password.
-            iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
-
             command_reset_user_jwt = get_curl_command(
                 {
                     "stmt": 'ALTER USER "{}" SET (jwt = NULL)'.format(username),

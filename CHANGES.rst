@@ -9,6 +9,8 @@ Unreleased
 
 * Add ``minDomains`` to ``TopologySpreadConstraint`` to ensure that pods are spread across zones.
 
+* Fixed JWT auth handlers for clusters without users.
+
 2.41.1 (2024-08-30)
 -------------------
 

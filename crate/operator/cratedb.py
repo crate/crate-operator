@@ -104,8 +104,8 @@ async def create_user(
     if not user_exists:
         query = f"CREATE USER {username_ident} WITH (password = %s"
         params = [password]
-        if crate_version_supports_jwt(crate_version):
-            iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+        iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+        if crate_version_supports_jwt(crate_version) and iss:
             query += ', jwt = {"iss" = %s, "username" = %s, "aud" = %s}'
             params.extend([iss, username, name])
 
