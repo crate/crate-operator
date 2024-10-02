@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.42.0 (2024-10-02)
+-------------------
+
 * Upgrade to kubernetes-asyncio 31.1.0
 
 * Add ``minDomains`` to ``TopologySpreadConstraint`` to ensure that pods are spread across zones.
