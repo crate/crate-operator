@@ -1200,9 +1200,8 @@ async def set_user_jwt(
     user_exists = bool(row[0])
 
     username_ident = quote_ident(username, cursor._impl)
-    if user_exists:
-        iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
-
+    iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+    if user_exists and iss:
         query = (
             f"ALTER USER {username_ident} SET "
             f"""(jwt = {{"iss" = '{iss}', "username" = '{username}', """
@@ -1339,7 +1338,9 @@ class RestoreUserJWTAuthSubHandler(StateBasedSubHandler):
         """
         cratedb = await get_cratedb_resource(namespace, name)
         crate_version = cratedb["spec"]["cluster"]["version"]
-        if crate_version_supports_jwt(crate_version):
+        users = cratedb["spec"].get("users")
+        gc_config = cratedb["spec"].get("grandCentral", {})
+        if crate_version_supports_jwt(crate_version) and users and gc_config:
             async with GlobalApiClient() as api_client:
                 core = CoreV1Api(api_client)
                 host = await get_host(core, namespace, name)
@@ -1348,7 +1349,7 @@ class RestoreUserJWTAuthSubHandler(StateBasedSubHandler):
                     host, password, timeout=CONNECT_TIMEOUT
                 ) as conn:
                     async with conn.cursor() as cursor:
-                        for user_spec in cratedb["spec"].get("users"):
+                        for user_spec in users:
                             username = user_spec["name"]
 
                             await set_user_jwt(
