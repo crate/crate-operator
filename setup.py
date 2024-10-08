@@ -73,7 +73,7 @@ setup(
             "pytest-aiohttp==1.0.5",
             "pytest-asyncio==0.24.0",
             "pytest-xdist==3.6.1",  # enables parallel testing
-            "filelock==3.16.0",  # used for locks when running in parallel mode
+            "filelock==3.16.1",  # used for locks when running in parallel mode
         ],
         "develop": [
             "black==22.3.0",
