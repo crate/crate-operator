@@ -54,41 +54,73 @@ class TestBackup:
         deployments = await apps.list_namespaced_deployment(namespace=namespace)
         return name in (d.metadata.name for d in deployments.items)
 
-    async def test_create(self, faker, namespace, api_client):
+    @pytest.mark.parametrize("backup_provider", ["aws", "azure_blob"])
+    async def test_create(self, faker, namespace, api_client, backup_provider):
         apps = AppsV1Api(api_client)
         batch = BatchV1Api(api_client)
         name = faker.domain_word()
 
-        backups_spec = {
-            "aws": {
-                "accessKeyId": {
-                    "secretKeyRef": {
-                        "key": faker.domain_word(),
-                        "name": faker.domain_word(),
+        if backup_provider == "aws":
+            backups_spec = {
+                "aws": {
+                    "accessKeyId": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
+                    },
+                    "basePath": faker.uri_path() + "/",
+                    "cron": "1 2 3 4 5",
+                    "region": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
+                    },
+                    "bucket": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
+                    },
+                    "secretAccessKey": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
                     },
                 },
-                "basePath": faker.uri_path() + "/",
-                "cron": "1 2 3 4 5",
-                "region": {
-                    "secretKeyRef": {
-                        "key": faker.domain_word(),
-                        "name": faker.domain_word(),
+            }
+        if backup_provider == "azure_blob":
+            backups_spec = {
+                "azure_blob": {
+                    "accountName": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
                     },
-                },
-                "bucket": {
-                    "secretKeyRef": {
-                        "key": faker.domain_word(),
-                        "name": faker.domain_word(),
+                    "accountKey": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
                     },
-                },
-                "secretAccessKey": {
-                    "secretKeyRef": {
-                        "key": faker.domain_word(),
-                        "name": faker.domain_word(),
+                    "cron": "1 2 3 4 5",
+                    "container": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
                     },
-                },
-            },
-        }
+                    "region": {
+                        "secretKeyRef": {
+                            "key": faker.domain_word(),
+                            "name": faker.domain_word(),
+                        },
+                    },
+                }
+            }
 
         await create_backups(
             None,
