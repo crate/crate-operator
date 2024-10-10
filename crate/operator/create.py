@@ -32,6 +32,7 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     PolicyV1Api,
+    RbacAuthorizationV1Api,
     RbacV1Subject,
     V1Affinity,
     V1Capabilities,
@@ -950,8 +951,8 @@ async def create_statefulset(
            number of replicas in the StatefulSet. This is required for the
            pre-stop lifecycle hook to work correctly and detect a scale to 0.
         """
-        policy_role = V1PolicyRule(api_client)
-        role_def = V1Role(
+        rule = RbacAuthorizationV1Api(api_client)
+        role = V1Role(
             metadata=V1ObjectMeta(
                 name=f"crate-{name}",
                 owner_references=owner_references,
@@ -965,13 +966,12 @@ async def create_statefulset(
             ],
         )
         await call_kubeapi(
-            policy_role.create_namespaced_role,
+            rule.create_namespaced_role,
             logger,
             continue_on_conflict=True,
-            body=role_def,
+            body=role,
         )
-        role_binding = V1PolicyRule(api_client)
-        role_binding_def = V1RoleBinding(
+        role_binding = V1RoleBinding(
             metadata=V1ObjectMeta(
                 name=f"crate-{name}",
                 owner_references=owner_references,
@@ -990,10 +990,10 @@ async def create_statefulset(
             ],
         )
         await call_kubeapi(
-            role_binding.create_namespaced_role_binding,
+            rule.create_namespaced_role_binding,
             logger,
             continue_on_conflict=True,
-            body=role_binding_def,
+            body=role_binding,
         )
 
 
