@@ -1,0 +1,93 @@
+name: Build and Release dc_util
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Version number for the release (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+       # os: [linux, windows, darwin]
+        os: [linux]
+       # goarch: [amd64, arm64]
+        goarch: [amd64]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Build dc_util
+        run: |
+          mkdir -p build
+          cd utils/dc_util  # Navigate to the directory containing dc_util.go
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.goarch }} go build -o ../../build/dc_util-${{ matrix.os }}-${{ matrix.goarch }}
+
+      - name: Generate SHA256 Checksum
+        run: |
+          cd build
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            sha256sum dc_util-${{ matrix.os }}-${{ matrix.goarch }}.exe > dc_util-${{ matrix.os }}-${{ matrix.goarch }}.exe.sha256
+          else
+            sha256sum dc_util-${{ matrix.os }}-${{ matrix.goarch }} > dc_util-${{ matrix.os }}-${{ matrix.goarch }}.sha256
+          fi
+
+      - name: Upload Binary and Checksum Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}
+          path: build/dc_util-${{ matrix.os }}-${{ matrix.goarch }}*
+
+      - name: Clean Up Build Directory
+        run: |
+          rm -rf build
+
+  release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Download Binary Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}
+          path: ./release
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.release_version }}
+          release_name: Release ${{ github.event.inputs.release_version }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release
+          asset_name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}-${{ github.event.inputs.release_version }}
+          asset_content_type: application/octet-stream
+
+      - name: Clean Up Release Directory
+        run: |
+          rm -rf release

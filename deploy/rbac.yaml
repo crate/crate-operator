@@ -57,6 +57,7 @@ rules:
   - batch
   - policy
   - networking.k8s.io
+  - rbac.authorization.k8s.io
   resources:
   - configmaps
   - cronjobs
@@ -71,6 +72,8 @@ rules:
   - services
   - statefulsets
   - poddisruptionbudgets
+  - rolebindings
+  - roles
   verbs:
   - create
   - delete

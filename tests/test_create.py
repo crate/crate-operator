@@ -25,18 +25,22 @@ from os import walk
 from typing import Set
 from unittest import mock
 
+import aiohttp
 import pytest
 from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     CustomObjectsApi,
     NetworkingV1Api,
+    RbacAuthorizationV1Api,
 )
 
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
+    DCUTIL_BASE_URL,
+    DCUTIL_BINARY,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
@@ -44,6 +48,7 @@ from crate.operator.constants import (
     LABEL_NAME,
     LABEL_PART_OF,
     RESOURCE_CRATEDB,
+    TERMINATION_GRACE_PERIOD_SECONDS,
     CloudProvider,
 )
 from crate.operator.create import (
@@ -1212,6 +1217,54 @@ class TestCreateCustomResource:
             {f"crate-data-hot-{name}-0"},
         )
 
+    async def test_decommission_settings(
+        self, faker, namespace, kopf_runner, api_client
+    ):
+        apps = AppsV1Api(api_client)
+        coapi = CustomObjectsApi(api_client)
+        core = CoreV1Api(api_client)
+        rbac = RbacAuthorizationV1Api(api_client)
+        name = faker.domain_word()
+
+        await start_cluster(name, namespace, core, coapi, 1, wait_for_healthy=False)
+        await assert_wait_for(
+            True,
+            self.does_statefulset_exist,
+            apps,
+            namespace.metadata.name,
+            f"crate-data-hot-{name}",
+        )
+        await assert_wait_for(
+            True,
+            do_pods_exist,
+            core,
+            namespace.metadata.name,
+            {f"crate-data-hot-{name}-0"},
+        )
+        statefulset = await apps.read_namespaced_stateful_set(
+            f"crate-data-hot-{name}", namespace.metadata.name
+        )
+        assert (
+            statefulset.spec.template.spec.termination_grace_period_seconds
+            == TERMINATION_GRACE_PERIOD_SECONDS
+        )
+
+        role = await rbac.read_namespaced_role(f"crate-{name}", namespace.metadata.name)
+        assert any(
+            rule
+            for rule in role.rules
+            if "statefulsets" in rule.resources and "list" in rule.verbs
+        ), "Role does not contain the 'list' verb for 'statefulsets'"
+
+        rolebinding = await rbac.read_namespaced_role_binding(
+            f"crate-{name}", namespace.metadata.name
+        )
+        assert any(
+            subject
+            for subject in rolebinding.subjects
+            if subject.kind == "ServiceAccount" and subject.name == "default"
+        ), "RoleBinding does not contain the expected ServiceAccount subject"
+
     async def test_create_with_svc_annotations(
         self, faker, namespace, kopf_runner, api_client
     ):
@@ -1586,3 +1639,11 @@ def test_get_cluster_resource_limits(node_spec, expected_limits_cpu):
         get_cluster_resource_limits(node_spec, resource_type="cpu", fallback_key="cpus")
         == expected_limits_cpu
     )
+
+
+@pytest.mark.asyncio
+async def test_download_dc_util():
+    url = f"{DCUTIL_BASE_URL}/{DCUTIL_BINARY}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            assert response.status == 200, f"Expected status 200, got {response.status}"
