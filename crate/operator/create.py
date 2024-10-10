@@ -41,10 +41,13 @@ from kubernetes_asyncio.client import (
     V1EmptyDirVolumeSource,
     V1EnvVar,
     V1EnvVarSource,
+    V1ExecAction,
+    V1Handler,
     V1HTTPGetAction,
     V1KeyToPath,
     V1LabelSelector,
     V1LabelSelectorRequirement,
+    V1Lifecycle,
     V1LocalObjectReference,
     V1NodeAffinity,
     V1NodeSelector,
@@ -82,6 +85,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
+    DECOMMISSION_TIMEOUT,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -92,6 +96,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
+    TERMINATION_GRACE_PERIOD_SECONDS,
     CloudProvider,
     Nodepool,
     Port,
@@ -368,6 +373,21 @@ def get_statefulset_containers(
             volume_mounts=crate_volume_mounts,
             security_context=V1SecurityContext(
                 capabilities=V1Capabilities(add=["SYS_CHROOT"])
+            ),
+            life_cycle=V1Lifecycle(
+                pre_stop=V1Handler(
+                    _exec=V1ExecAction(
+                        command=[
+                            "/bin/sh",
+                            "-c",
+                            "curl -O"
+                            "https://cdn.crate.io/downloads/tmp/decommission_util && "
+                            "chmod u+x ./decommission_util && "
+                            "./decommission_util -min-availability PRIMARIES "
+                            f"-timeout {DECOMMISSION_TIMEOUT}",
+                        ]  # noqa: E501
+                    )
+                )
             ),
         ),
     ]
@@ -826,6 +846,7 @@ def get_statefulset(
             ),
             update_strategy=V1StatefulSetUpdateStrategy(type="OnDelete"),
             volume_claim_templates=get_statefulset_pvc(owner_references, node_spec),
+            termination_grace_period_seconds=TERMINATION_GRACE_PERIOD_SECONDS,
         ),
     )
 
