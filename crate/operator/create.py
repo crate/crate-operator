@@ -32,6 +32,8 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     PolicyV1Api,
+    RbacAuthorizationV1Api,
+    RbacV1Subject,
     V1Affinity,
     V1Capabilities,
     V1ConfigMap,
@@ -41,10 +43,13 @@ from kubernetes_asyncio.client import (
     V1EmptyDirVolumeSource,
     V1EnvVar,
     V1EnvVarSource,
+    V1ExecAction,
     V1HTTPGetAction,
     V1KeyToPath,
     V1LabelSelector,
     V1LabelSelectorRequirement,
+    V1Lifecycle,
+    V1LifecycleHandler,
     V1LocalObjectReference,
     V1NodeAffinity,
     V1NodeSelector,
@@ -60,8 +65,12 @@ from kubernetes_asyncio.client import (
     V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
+    V1PolicyRule,
     V1Probe,
     V1ResourceRequirements,
+    V1Role,
+    V1RoleBinding,
+    V1RoleRef,
     V1Secret,
     V1SecretKeySelector,
     V1SecretVolumeSource,
@@ -82,6 +91,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
+    DECOMMISSION_TIMEOUT,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -92,6 +102,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
+    TERMINATION_GRACE_PERIOD_SECONDS,
     CloudProvider,
     Nodepool,
     Port,
@@ -368,6 +379,23 @@ def get_statefulset_containers(
             volume_mounts=crate_volume_mounts,
             security_context=V1SecurityContext(
                 capabilities=V1Capabilities(add=["SYS_CHROOT"])
+            ),
+            lifecycle=V1Lifecycle(
+                pre_stop=(
+                    V1LifecycleHandler(
+                        _exec=V1ExecAction(
+                            command=[
+                                "/bin/sh",
+                                "-c",
+                                "curl -O"
+                                "https://cdn.crate.io/downloads/tmp/decommission_util && "  # noqa
+                                "chmod u+x ./decommission_util && "
+                                "./decommission_util -min-availability PRIMARIES "
+                                f"-timeout {DECOMMISSION_TIMEOUT}",
+                            ]
+                        )
+                    )
+                )
             ),
         ),
     ]
@@ -826,6 +854,7 @@ def get_statefulset(
             ),
             update_strategy=V1StatefulSetUpdateStrategy(type="OnDelete"),
             volume_claim_templates=get_statefulset_pvc(owner_references, node_spec),
+            termination_grace_period_seconds=TERMINATION_GRACE_PERIOD_SECONDS,
         ),
     )
 
@@ -916,6 +945,55 @@ async def create_statefulset(
             continue_on_conflict=True,
             namespace=namespace,
             body=pdb,
+        )
+        """
+           A ClusterRole is required to allow the POD to access the
+           number of replicas in the StatefulSet. This is required for the
+           pre-stop lifecycle hook to work correctly and detect a scale to 0.
+        """
+        rule = RbacAuthorizationV1Api(api_client)
+        role = V1Role(
+            metadata=V1ObjectMeta(
+                name=f"crate-{name}",
+                owner_references=owner_references,
+            ),
+            rules=[
+                V1PolicyRule(
+                    api_groups=["apps"],
+                    resources=["statefulsets"],
+                    verbs=["get", "list", "watch"],
+                )
+            ],
+        )
+        await call_kubeapi(
+            rule.create_namespaced_role,
+            logger,
+            continue_on_conflict=True,
+            body=role,
+        )
+        role_binding = V1RoleBinding(
+            metadata=V1ObjectMeta(
+                name=f"crate-{name}",
+                owner_references=owner_references,
+            ),
+            role_ref=V1RoleRef(
+                api_group="rbac.authorization.k8s.io",
+                kind="ClusterRole",
+                name=f"crate-{name}",
+            ),
+            subjects=[
+                RbacV1Subject(
+                    kind="ServiceAccount",
+                    name="default",
+                    namespace=namespace,
+                )
+            ],
+        )
+        await call_kubeapi(
+            rule.create_namespaced_role_binding,
+            logger,
+            continue_on_conflict=True,
+            body=role_binding,
         )
 
 
