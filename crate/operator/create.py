@@ -42,12 +42,12 @@ from kubernetes_asyncio.client import (
     V1EnvVar,
     V1EnvVarSource,
     V1ExecAction,
-    V1Handler,
     V1HTTPGetAction,
     V1KeyToPath,
     V1LabelSelector,
     V1LabelSelectorRequirement,
     V1Lifecycle,
+    V1LifecycleHandler,
     V1LocalObjectReference,
     V1NodeAffinity,
     V1NodeSelector,
@@ -374,18 +374,20 @@ def get_statefulset_containers(
             security_context=V1SecurityContext(
                 capabilities=V1Capabilities(add=["SYS_CHROOT"])
             ),
-            life_cycle=V1Lifecycle(
-                pre_stop=V1Handler(
-                    _exec=V1ExecAction(
-                        command=[
-                            "/bin/sh",
-                            "-c",
-                            "curl -O"
-                            "https://cdn.crate.io/downloads/tmp/decommission_util && "
-                            "chmod u+x ./decommission_util && "
-                            "./decommission_util -min-availability PRIMARIES "
-                            f"-timeout {DECOMMISSION_TIMEOUT}",
-                        ]  # noqa: E501
+            lifecycle=V1Lifecycle(
+                pre_stop=(
+                    V1LifecycleHandler(
+                        _exec=V1ExecAction(
+                            command=[
+                                "/bin/sh",
+                                "-c",
+                                "curl -O"
+                                "https://cdn.crate.io/downloads/tmp/decommission_util && "  # noqa
+                                "chmod u+x ./decommission_util && "
+                                "./decommission_util -min-availability PRIMARIES "
+                                f"-timeout {DECOMMISSION_TIMEOUT}",
+                            ]
+                        )
                     )
                 )
             ),
