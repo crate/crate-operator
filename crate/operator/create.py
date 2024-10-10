@@ -32,6 +32,7 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     PolicyV1Api,
+    RbacV1Subject,
     V1Affinity,
     V1Capabilities,
     V1ConfigMap,
@@ -63,8 +64,12 @@ from kubernetes_asyncio.client import (
     V1PodDisruptionBudgetSpec,
     V1PodSpec,
     V1PodTemplateSpec,
+    V1PolicyRule,
     V1Probe,
     V1ResourceRequirements,
+    V1Role,
+    V1RoleBinding,
+    V1RoleRef,
     V1Secret,
     V1SecretKeySelector,
     V1SecretVolumeSource,
@@ -939,6 +944,56 @@ async def create_statefulset(
             continue_on_conflict=True,
             namespace=namespace,
             body=pdb,
+        )
+        """
+           A ClusterRole is required to allow the POD to access the
+           number of replicas in the StatefulSet. This is required for the
+           pre-stop lifecycle hook to work correctly and detect a scale to 0.
+        """
+        policy_role = V1PolicyRule(api_client)
+        role_def = V1Role(
+            metadata=V1ObjectMeta(
+                name=f"crate-{name}",
+                owner_references=owner_references,
+            ),
+            rules=[
+                V1PolicyRule(
+                    api_groups=["apps"],
+                    resources=["statefulsets"],
+                    verbs=["get", "list", "watch"],
+                )
+            ],
+        )
+        await call_kubeapi(
+            policy_role.create_namespaced_role,
+            logger,
+            continue_on_conflict=True,
+            body=role_def,
+        )
+        role_binding = V1PolicyRule(api_client)
+        role_binding_def = V1RoleBinding(
+            metadata=V1ObjectMeta(
+                name=f"crate-{name}",
+                owner_references=owner_references,
+            ),
+            role_ref=V1RoleRef(
+                api_group="rbac.authorization.k8s.io",
+                kind="ClusterRole",
+                name=f"crate-{name}",
+            ),
+            subjects=[
+                RbacV1Subject(
+                    kind="ServiceAccount",
+                    name="default",
+                    namespace=namespace,
+                )
+            ],
+        )
+        await call_kubeapi(
+            role_binding.create_namespaced_role_binding,
+            logger,
+            continue_on_conflict=True,
+            body=role_binding_def,
         )
 
 
