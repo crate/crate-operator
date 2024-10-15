@@ -51,9 +51,7 @@ from .utils import (
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @mock.patch("crate.operator.webhooks.webhook_client._send")
-async def test_upgrade_cluster(
-    mock_send_notification, faker, namespace, kopf_runner, api_client
-):
+async def test_upgrade_cluster(mock_send_notification, faker, namespace, api_client):
     version_from = "5.2.3"
     version_to = CRATE_VERSION
     coapi = CustomObjectsApi(api_client)

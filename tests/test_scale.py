@@ -21,6 +21,7 @@
 
 import asyncio
 import sys
+import time
 from unittest import mock
 
 import pytest
@@ -31,6 +32,7 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1Namespace,
 )
+from psycopg2 import OperationalError
 
 from crate.operator.constants import (
     API_GROUP,
@@ -64,6 +66,23 @@ from tests.utils import (
     start_cluster,
     was_notification_sent,
 )
+
+from .utils import MAX_RETRIES, RETRY_DELAY
+
+
+def connect_with_retries(host, password):
+    retries = 0
+    delay = RETRY_DELAY
+    while retries < MAX_RETRIES:
+        try:
+            conn_factory = connection_factory(host, password)
+            return conn_factory
+        except OperationalError:
+            retries += 1
+            if retries >= MAX_RETRIES:
+                raise
+            time.sleep(delay)
+            delay *= 2  # Exponential backoff
 
 
 @pytest.mark.parametrize(
@@ -165,7 +184,15 @@ async def test_scale_cluster(
         repl_hot_from,
     )
 
-    conn_factory = connection_factory(host, password)
+    # conn_factory = connection_factory(host, password)
+    try:
+        conn_factory = connect_with_retries(host, password)
+        return conn_factory
+    except OperationalError as e:
+        pytest.fail(
+            f"Failed to connect to the database after {MAX_RETRIES} retries: {e}"
+        )
+
     await create_test_sys_jobs_table(conn_factory)
 
     await _scale_cluster(coapi, name, namespace, repl_hot_to)
