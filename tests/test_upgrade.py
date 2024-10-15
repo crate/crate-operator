@@ -18,8 +18,10 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+import time
 from unittest import mock
 
+import aiohttp
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
@@ -32,6 +34,8 @@ from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from .utils import (
     CRATE_VERSION,
     DEFAULT_TIMEOUT,
+    MAX_RETRIES,
+    RETRY_DELAY,
     assert_wait_for,
     cluster_routing_allocation_enable_equals,
     create_test_sys_jobs_table,
@@ -56,7 +60,18 @@ async def test_upgrade_cluster(
     core = CoreV1Api(api_client)
     name = faker.domain_word()
 
-    host, password = await start_cluster(name, namespace, core, coapi, 3, version_from)
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            host, password = await start_cluster(
+                name, namespace, core, coapi, 3, version_from
+            )
+            break
+        except aiohttp.client_exceptions.ClientConnectorError as e:
+            retries += 1
+            time.sleep(RETRY_DELAY)
+            if retries >= MAX_RETRIES:
+                pytest.fail(f"Connection error after {MAX_RETRIES} retries: {e}")
 
     await assert_wait_for(
         True,

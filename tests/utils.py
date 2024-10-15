@@ -66,6 +66,8 @@ logger = logging.getLogger(__name__)
 CRATE_VERSION = "5.6.5"
 CRATE_VERSION_WITH_JWT = "5.7.3"
 DEFAULT_TIMEOUT = 60
+MAX_RETRIES = 5
+RETRY_DELAY = 10
 
 
 async def assert_wait_for(
