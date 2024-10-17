@@ -23,6 +23,13 @@ expected to use upper case letters and must be prefixed with
    in one availability zone (AZ) of that corresponding AWS region. If all
    copies of some shard were located in the same AZ, an outage of that AZ would
    imply some data being unavailable in CrateDB.
+   This variable is optional. If it is set, make sure that the underlying
+   Kubernetes Nodes are configured with availability zones.
+   The operator will then use this information to ensure that CrateDB nodes are
+   spread across different availability zones. This is done by setting the
+   ``node.attr.zone`` attribute on CrateDB nodes.
+   The operator also sets annotations on the Kubernetes Loadbalancers, based on
+   ``CLOUD_PROVIDER``.
 
    To ensure CrateDB properly replicates shards to other nodes in different
    availability zones, one can make use of CrateDB's :ref:`routing allocation

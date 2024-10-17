@@ -14,6 +14,8 @@ Unreleased
 
 * Fixed JWT auth handlers for clusters without users.
 
+* Clarify usage of ``CLOUD_PROVIDER`` in the documentation.
+
 2.41.1 (2024-08-30)
 -------------------
 
