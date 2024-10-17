@@ -65,7 +65,7 @@ setup(
             # Pinning this as 0.18 does not work
             "docutils==0.17.1",
             "Jinja2<3.1",
-            "alabaster==0.7.13",
+            "alabaster==1.0.0",
         ],
         "testing": [
             "faker==18.3.1",
