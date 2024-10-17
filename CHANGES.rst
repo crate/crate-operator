@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Add preStop hook to the CrateDB pods to ensure that the CrateDB process is
+  stopped gracefully.
+
 2.42.0 (2024-10-02)
 -------------------
 
