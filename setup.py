@@ -55,7 +55,7 @@ setup(
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.21.0",
-        "aiohttp==3.10.9",
+        "aiohttp==3.10.10",
         "wrapt==1.16.0",
     ],
     extras_require={
