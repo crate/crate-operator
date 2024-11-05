@@ -60,12 +60,9 @@ setup(
     ],
     extras_require={
         "docs": [
-            "sphinx>=5,<7",
-            "sphinx-autodoc-typehints",
-            # Pinning this as 0.18 does not work
-            "docutils==0.17.1",
-            "Jinja2<3.1",
-            "alabaster==0.7.13",
+            "alabaster<2",
+            "sphinx>=5,<9",
+            "sphinx-autodoc-typehints<3",
         ],
         "testing": [
             "faker==18.3.1",
