@@ -8,6 +8,8 @@ Unreleased
 * Add azure backup cronjob and metrics-exporter for clusters that are deployed
   in an azure region.
 
+* Bump ``sql_exporter`` to ``0.16.0``
+
 2.42.0 (2024-10-02)
 -------------------
 
