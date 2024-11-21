@@ -387,11 +387,13 @@ def get_statefulset_containers(
                             command=[
                                 "/bin/sh",
                                 "-c",
-                                "ARCH=$(uname -m) && "
-                                "curl -O "
-                                "https://cdn.crate.io/downloads/dc_util_$ARCH && "  # noqa
-                                "chmod u+x ./dc_util_$ARCH && \n"
-                                "./dc_util_$ARCH -min-availability PRIMARIES "
+                                "curl -sLO "
+                                "https://raw.githubusercontent.com/crate/crate-operator/master/dc_util && "  # noqa
+                                "curl -sLO "
+                                "https://raw.githubusercontent.com/crate/crate-operator/master/dc_util && "  # noqa
+                                "sha256sum -c dc_util.sha256 && "
+                                "chmod u+x ./dc_util && \n"
+                                "./dc_util -min-availability PRIMARIES "
                                 f"-timeout {DECOMMISSION_TIMEOUT}",
                             ]
                         )

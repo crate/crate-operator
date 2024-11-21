@@ -1641,7 +1641,7 @@ def test_get_cluster_resource_limits(node_spec, expected_limits_cpu):
 
 @pytest.mark.asyncio
 async def test_download_dc_util():
-    url = "https://cdn.crate.io/downloads/dc_util_x86_64"
+    url = "https://raw.githubusercontent.com/crate/crate-operator/master/dc_util"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             assert response.status == 200, f"Expected status 200, got {response.status}"
