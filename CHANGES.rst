@@ -10,6 +10,8 @@ Unreleased
 
 * Bump ``sql_exporter`` to ``0.16.0``
 
+* Set CORS annotations in ``grand-central`` ingress.
+
 2.42.0 (2024-10-02)
 -------------------
 

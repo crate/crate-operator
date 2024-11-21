@@ -168,6 +168,32 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
         ingress.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
         == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
     )
+    assert (
+        ingress.metadata.annotations[
+            "nginx.ingress.kubernetes.io/cors-allow-credentials"
+        ]
+        == "true"
+    )
+    assert (
+        ingress.metadata.annotations["nginx.ingress.kubernetes.io/enable-cors"]
+        == "true"
+    )
+    assert (
+        ingress.metadata.annotations["nginx.ingress.kubernetes.io/cors-allow-origin"]
+        == "$http_origin"
+    )
+    assert (
+        ingress.metadata.annotations["nginx.ingress.kubernetes.io/cors-allow-methods"]
+        == "GET,POST,PUT,PATCH,OPTIONS,DELETE"
+    )
+    assert (
+        ingress.metadata.annotations["nginx.ingress.kubernetes.io/cors-allow-headers"]
+        == "Content-Type,Authorization"
+    )
+    assert (
+        ingress.metadata.annotations["nginx.ingress.kubernetes.io/cors-max-age"]
+        == "7200"
+    )
 
     await assert_wait_for(
         True,
