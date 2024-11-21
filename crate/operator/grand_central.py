@@ -307,7 +307,12 @@ def get_grand_central_ingress(
     name: str,
     labels: LabelType,
     hostname: str,
+    spec: kopf.Spec,
 ) -> V1Ingress:
+    allow_origin = (
+        spec["cluster"].get("settings", {}).get("http.cors.allow-origin")
+        or "$http_origin"
+    )
     return V1Ingress(
         metadata=V1ObjectMeta(
             name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
@@ -325,17 +330,22 @@ def get_grand_central_ingress(
                     more_set_headers "X-XSS-Protection: 1;mode=block"
                                     "X-Frame-Options: DENY"
                                     "X-Content-Type-Options: nosniff"
-                                    "Access-Control-Allow-Origin: $http_origin"
-                                    "Access-Control-Allow-Headers: Content-Type,Authorization"
-                                    "Access-Control-Allow-Credentials: true"
-                                    "Access-Control-Max-Age: 7200"
-                                    "Access-Control-Allow-Methods: GET,POST,PUT,PATCH,OPTIONS,DELETE"
                                     "Referrer-Policy: strict-origin-when-cross-origin"
                                     ;
                     """  # noqa
                 ),
                 "nginx.ingress.kubernetes.io/proxy-buffer-size": "64k",
                 "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+                "nginx.ingress.kubernetes.io/enable-cors": "true",
+                "nginx.ingress.kubernetes.io/cors-allow-credentials": "true",
+                "nginx.ingress.kubernetes.io/cors-allow-origin": allow_origin,
+                "nginx.ingress.kubernetes.io/cors-allow-methods": (
+                    "GET,POST,PUT,PATCH,OPTIONS,DELETE"
+                ),
+                "nginx.ingress.kubernetes.io/cors-allow-headers": (
+                    "Content-Type,Authorization"
+                ),
+                "nginx.ingress.kubernetes.io/cors-max-age": "7200",
             },
         ),
         spec=V1IngressSpec(
@@ -427,7 +437,9 @@ async def create_grand_central_backend(
             logger,
             continue_on_conflict=True,
             namespace=namespace,
-            body=get_grand_central_ingress(owner_references, name, labels, hostname),
+            body=get_grand_central_ingress(
+                owner_references, name, labels, hostname, spec
+            ),
         )
 
 
