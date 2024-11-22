@@ -437,9 +437,14 @@ async def test_restore_backup_create_repo_fails(
         (
             SnapshotRestoreType.SECTIONS,
             "TABLES,USERS,PRIVILEGES",
-            ("tables", "users", "privileges"),
+            ["tables", "users", "privileges"],
         ),
-        (SnapshotRestoreType.TABLES, "TABLE table1,table2", ("table1", "table2")),
+        (SnapshotRestoreType.TABLES, 'TABLE "doc"."table1"', ["doc.table1"]),
+        (
+            SnapshotRestoreType.TABLES,
+            'TABLE "doc"."table1","doc"."my-table","doc"."my-table-name_!@^"',
+            ['"doc"."table1"', "doc.my-table", "doc.my-table-name_!@^"],
+        ),
         (
             SnapshotRestoreType.PARTITIONS,
             (
@@ -463,13 +468,23 @@ async def test_restore_backup_create_repo_fails(
     ],
 )
 def test_get_restore_type_keyword(restore_type, expected_keyword, params):
-    func_kwargs = {}
-    if params:
-        func_kwargs[restore_type.value] = params
-    restore_keyword = RestoreType.create(
-        restore_type.value, **func_kwargs
-    ).get_restore_keyword()
-    assert restore_keyword == expected_keyword
+    cursor = mock.AsyncMock()
+
+    def mock_quote_ident(value, connection):
+        if value.startswith('"') and value.endswith('"'):
+            return value
+        return f'"{value}"'
+
+    with mock.patch(
+        "crate.operator.restore_backup.quote_ident", side_effect=mock_quote_ident
+    ):
+        func_kwargs = {}
+        if params:
+            func_kwargs[restore_type.value] = params
+        restore_keyword = RestoreType.create(
+            restore_type.value, **func_kwargs
+        ).get_restore_keyword(cursor=cursor)
+        assert restore_keyword == expected_keyword
 
 
 async def patch_cluster_spec(

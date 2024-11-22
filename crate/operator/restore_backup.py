@@ -340,7 +340,7 @@ class RestoreType(abc.ABC):
         return cls.subclasses[restore_type](*args, **kwargs)
 
     @abc.abstractmethod
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         """
         Each subclass needs to return the keyword to be used in the
         ``RESTORE SNAPSHOT`` command based on the type of restore operation.
@@ -361,13 +361,31 @@ class RestoreType(abc.ABC):
 
 @RestoreType.register_subclass(SnapshotRestoreType.TABLES.value)
 class RestoreTables(RestoreType):
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         tables = self.tables or []
         # keep this check for backwards compatibility
         if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
             return "ALL"
 
-        return f'TABLE {",".join(tables)}'
+        def quote_table(table):
+            """
+            Ensure table names are correctly quoted. If it contains a schema
+            (e.g., 'doc.nyc_taxi'), quote both the schema and the table using
+            psycopg2.extensions.quote_ident.
+            """
+            if "." in table:
+                schema, table_name = table.split(".", 1)
+            else:
+                schema, table_name = None, table
+
+            quoted_schema = quote_ident(schema, cursor._impl) if schema else None
+            quoted_table = quote_ident(table_name, cursor._impl)
+
+            return f"{quoted_schema}.{quoted_table}" if quoted_schema else quoted_table
+
+        formatted_tables = [quote_table(table.strip()) for table in tables]
+
+        return f'TABLE {",".join(formatted_tables)}'
 
     async def validate_restore_complete(
         self, *, conn_factory, snapshot: str, logger: logging.Logger, **_kwargs
@@ -378,7 +396,7 @@ class RestoreTables(RestoreType):
 
 @RestoreType.register_subclass(SnapshotRestoreType.METADATA.value)
 class RestoreMetadata(RestoreType):
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         return "METADATA"
 
     async def validate_restore_complete(
@@ -389,7 +407,7 @@ class RestoreMetadata(RestoreType):
 
 @RestoreType.register_subclass(SnapshotRestoreType.ALL.value)
 class RestoreAll(RestoreType):
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         return "ALL"
 
     async def validate_restore_complete(
@@ -403,7 +421,7 @@ class RestoreAll(RestoreType):
 class RestoreDataSections(RestoreType):
     DATA_SECTION_TABLES: str = "tables"
 
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         sections = self.sections or []
         sections = [s.upper() for s in sections]
         return ",".join(sections)
@@ -419,7 +437,7 @@ class RestoreDataSections(RestoreType):
 
 @RestoreType.register_subclass(SnapshotRestoreType.PARTITIONS.value)
 class RestorePartitions(RestoreType):
-    def get_restore_keyword(self):
+    def get_restore_keyword(self, *, cursor: Cursor):
         partitions = self.partitions or []
         table_idents = []
         for partition in partitions:
@@ -688,13 +706,16 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         :param partitions: The list of partitions that should be restored.
         :param sections: The list of sections that should be restored.
         """
-        restore_keyword = RestoreType.create(
-            restore_type, tables=tables, sections=sections, partitions=partitions
-        ).get_restore_keyword()
-
         try:
             async with conn_factory() as conn:
                 async with conn.cursor() as cursor:
+                    restore_keyword = RestoreType.create(
+                        restore_type,
+                        tables=tables,
+                        sections=sections,
+                        partitions=partitions,
+                    ).get_restore_keyword(cursor=cursor)
+
                     repository_ident = quote_ident(repository, cursor._impl)
                     snapshot_ident = quote_ident(snapshot, cursor._impl)
 
