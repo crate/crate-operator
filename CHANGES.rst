@@ -14,6 +14,9 @@ Unreleased
 
 * Update ``-CProccessors`` on scale compute.
 
+* Added support for quoting schema and table names when generating the keyword
+  for restoring a snapshot.
+
 2.42.0 (2024-10-02)
 -------------------
 
