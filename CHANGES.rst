@@ -12,6 +12,8 @@ Unreleased
 
 * Set CORS annotations in ``grand-central`` ingress.
 
+* Update ``-CProccessors`` on scale compute.
+
 2.42.0 (2024-10-02)
 -------------------
 

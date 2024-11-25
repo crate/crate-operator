@@ -24,6 +24,7 @@ from unittest import mock
 
 import pytest
 from kubernetes_asyncio.client import (
+    AppsV1Api,
     CoreV1Api,
     CustomObjectsApi,
     V1NodeAffinity,
@@ -280,6 +281,8 @@ async def test_change_compute_from_request_to_limit(
     ), "A success notification was expected but was not sent"
 
 
+@pytest.mark.k8s
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "old_cpu_limit, old_memory_limit, old_cpu_request, old_memory_request, "
     "new_cpu_limit, new_memory_limit, new_cpu_request, new_memory_request, "
@@ -291,7 +294,7 @@ async def test_change_compute_from_request_to_limit(
         (1, "2Gi", None, None, 3, "5Gi", 5, "8Gi", "shared", "shared"),
     ],
 )
-def test_generate_body_patch(
+async def test_generate_body_patch(
     old_cpu_limit,
     old_memory_limit,
     old_cpu_request,
@@ -303,6 +306,9 @@ def test_generate_body_patch(
     old_nodepool,
     new_nodepool,
     faker,
+    kopf_runner,
+    api_client,
+    namespace,
 ):
     compute_change_data = WebhookChangeComputePayload(
         old_cpu_limit=old_cpu_limit,
@@ -319,13 +325,34 @@ def test_generate_body_patch(
         new_nodepool=new_nodepool,
     )
 
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    apps = AppsV1Api(api_client)
     name = faker.domain_word()
+
+    # Start a cluster with requests set to half the original limits
+    crate_resources = {
+        "limits": {"cpu": old_cpu_limit, "memory": old_memory_limit},
+        "requests": {"cpu": old_cpu_request, "memory": old_memory_request},
+    }
+    host, password = await start_cluster(
+        name, namespace, core, coapi, 1, resource_requests=crate_resources
+    )
+
     with mock.patch("crate.operator.create.config.TESTING", False):
-        body = generate_body_patch(
-            name, compute_change_data, logging.getLogger(__name__)
+        body = await generate_body_patch(
+            apps,
+            name,
+            namespace.metadata.name,
+            compute_change_data,
+            logging.getLogger(__name__),
         )
 
     resources = body["spec"]["template"]["spec"]["containers"][0]["resources"]
+    command = body["spec"]["template"]["spec"]["containers"][0]["command"]
+
+    assert f"-Cprocessors={new_cpu_limit}" in command
+
     assert resources["limits"]["cpu"] == new_cpu_limit
     assert resources["limits"]["memory"] == new_memory_limit
 
