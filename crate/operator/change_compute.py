@@ -19,7 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 import logging
-from typing import Any
+from typing import Any, List
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
@@ -33,6 +33,7 @@ from crate.operator.create import (
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.webhooks import (
     WebhookChangeComputePayload,
     WebhookEvent,
@@ -109,6 +110,40 @@ def generate_change_compute_payload(old, body):
     )
 
 
+async def update_cprocessor_crate_settings(
+    apps: AppsV1Api,
+    namespace: str,
+    sts_name: str,
+    processors: int,
+) -> List[str]:
+    """
+    Call the Kubernetes API, update the -Cprocessors value in the crate
+    container command, and return the updated command list.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param sts_name: The name of the Kubernetes StatefulSet to update.
+    :param processors: The new number of processors.
+    :return: The updated command list.
+    """
+    stateful_set = await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=sts_name
+    )
+
+    for container in stateful_set.spec.template.spec.containers:
+        if container.name == "crate":
+            updated_command = []
+            for cmd in container.command:
+                if cmd.startswith("-Cprocessors=") and processors is not None:
+                    updated_command.append(f"-Cprocessors={processors}")
+                else:
+                    updated_command.append(cmd)
+            container.command = updated_command
+            return container.command
+
+    raise ValueError("Container 'crate' not found in the StatefulSet.")
+
+
 async def change_cluster_compute(
     apps: AppsV1Api,
     namespace: str,
@@ -119,7 +154,7 @@ async def change_cluster_compute(
     """
     Patches the statefulset with the new cpu and memory requests and limits.
     """
-    body = generate_body_patch(name, compute_change_data, logger)
+    body = await generate_body_patch(apps, name, namespace, compute_change_data, logger)
 
     # Note only the stateful set is updated. Pods will become updated on restart
     sts_name = f"crate-data-hot-{name}"
@@ -132,8 +167,10 @@ async def change_cluster_compute(
     pass
 
 
-def generate_body_patch(
+async def generate_body_patch(
+    apps: AppsV1Api,
     name: str,
+    namespace: str,
     compute_change_data: WebhookChangeComputePayload,
     logger: logging.Logger,
 ) -> dict:
@@ -142,8 +179,30 @@ def generate_body_patch(
     That patch modifies cpu/memory requests/limits based on compute_change_data.
     It also patches affinity as needed based on the existence or not of requests data.
     """
+
+    crd = await get_cratedb_resource(namespace, name)
+    if crd is None:
+        raise ValueError(f"CRD {name} not found in namespace {namespace}")
+
+    try:
+        sts_name = f"crate-data-{crd['spec']['nodes']['data'][0]['name']}-{name}"
+    except (KeyError, IndexError) as e:
+        logger.error(f"Failed to construct sts_name: {e}")
+        raise ValueError(f"Failed to construct sts_name: {e}")
+
+    # sts_name = sts_name + f"-{name}"
+
+    updated_command = await update_cprocessor_crate_settings(
+        apps=apps,
+        namespace=namespace,
+        sts_name=sts_name,
+        # sts_name=f"crate-data-hot-{name}",
+        processors=compute_change_data["new_cpu_limit"],
+    )
+
     node_spec = {
         "name": "crate",
+        "command": updated_command,
         "env": [
             get_statefulset_env_crate_heap(
                 memory=compute_change_data["new_memory_limit"],
@@ -167,6 +226,7 @@ def generate_body_patch(
             },
         },
     }
+
     body = {
         "spec": {
             "template": {

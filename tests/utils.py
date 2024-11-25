@@ -156,10 +156,20 @@ async def start_cluster(
     }
 
     if resource_requests:
-        body["spec"]["nodes"]["data"][0]["resources"]["requests"] = {
-            "cpu": resource_requests["cpu"],
-            "memory": resource_requests["memory"],
-        }
+        if "limits" in resource_requests and "requests" in resource_requests:
+            body["spec"]["nodes"]["data"][0]["resources"]["limits"] = {
+                "cpu": resource_requests.get("limits", {}).get("cpu", "2"),
+                "memory": resource_requests.get("limits", {}).get("memory", "4Gi"),
+            }
+            body["spec"]["nodes"]["data"][0]["resources"]["requests"] = {
+                "cpu": resource_requests.get("requests", {}).get("cpu", "2"),
+                "memory": resource_requests.get("requests", {}).get("memory", "4Gi"),
+            }
+        else:
+            body["spec"]["nodes"]["data"][0]["resources"]["requests"] = {
+                "cpu": resource_requests.get("cpu", "2"),
+                "memory": resource_requests.get("memory", "4Gi"),
+            }
 
     if backups_spec:
         body["spec"]["backups"] = backups_spec
