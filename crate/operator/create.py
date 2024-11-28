@@ -388,12 +388,12 @@ def get_statefulset_containers(
                                 "/bin/sh",
                                 "-c",
                                 "curl -sLO "
-                                "https://raw.githubusercontent.com/crate/crate-operator/master/dc_util && "  # noqa
+                                "https://github.com/crate/crate-operator/releases/download/dcutil-0.0.1/dc_util-linux-amd64 && "  # noqa
                                 "curl -sLO "
-                                "https://raw.githubusercontent.com/crate/crate-operator/master/dc_util && "  # noqa
-                                "sha256sum -c dc_util.sha256 && "
-                                "chmod u+x ./dc_util && \n"
-                                "./dc_util -min-availability PRIMARIES "
+                                "https://github.com/crate/crate-operator/releases/download/dcutil-0.0.1/dc_util-linux-amd64.sha256 && "  # noqa
+                                "sha256sum -c dc_util-linux-amd64.sha256 && "
+                                "chmod u+x ./dc_util-linux-amd64 && \n"
+                                "./dc_util-linux-amd64 -min-availability PRIMARIES "
                                 f"-timeout {DECOMMISSION_TIMEOUT}",
                             ]
                         )

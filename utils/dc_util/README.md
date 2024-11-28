@@ -29,7 +29,7 @@ to the ServiceAccount:
 This needs to be created/setup manually, or by the crate-operator.
 
 When the decommission is sent to the cluster the command almost immediately returns. Nevertheless
-cratedb started the decommissioning in the background andwe need to wait until cratedb
+cratedb started the decommissioning in the background and we need to wait until cratedb
 exit's.
 After that control is _returned_ to`kubelet` which continues by sending SIGTERM.
 `Termination Grace Period` needs to be set longer than the decomission timeout, as
@@ -50,11 +50,11 @@ to the cratedb containers configuration:
               - /bin/sh
               - -c
               - |
-                curl -sLO https://raw.githubusercontent.com/crate/crate-operator/master/dc_util && \
-                curl -sLO https://raw.githubusercontent.com/crate/crate-operator/master/dc_util.sha256 && \
-                sha256sum -c dc_util.sha256 && \
-                chmod u+x ./dc_util && \
-                ./dc_util -min-availability PRIMARIES
+                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64 && \
+                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64.sha256 && \
+                sha256sum -c dc_util-linux-amd64.sha256 && \
+                chmod u+x ./dc_util-linux-amd64 && \
+                ./dc_util-linux-amd64 -min-availability PRIMARIES
 
         terminationGracePeriodSeconds: 7230
 
