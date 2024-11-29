@@ -151,3 +151,4 @@ Please refer to the `Working on the operator`_ section of the documentation.
 .. _Working on the operator: ./docs/source/development.rst
 .. _CRD Helm Chart: ./deploy/charts/crate-operator-crds/README.md
 .. _Operator Helm Chart: ./deploy/charts/crate-operator/README.md
+
