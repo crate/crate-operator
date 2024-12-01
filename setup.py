@@ -56,7 +56,7 @@ setup(
         "PyYAML<7.0",
         "prometheus_client==0.21.0",
         "aiohttp==3.10.10",
-        "wrapt==1.16.0",
+        "wrapt==1.17.0",
     ],
     extras_require={
         "docs": [
