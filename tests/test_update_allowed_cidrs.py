@@ -193,6 +193,8 @@ async def _are_source_ranges_updated(core, name, namespace, cidr_list):
     ingress = await read_grand_central_ingress(namespace=namespace, name=name)
     actual = cidr_list if len(cidr_list) > 0 else None
 
+    assert ingress, "`ingress` is None"
+
     return (
         service.spec.load_balancer_source_ranges == actual
         and ingress.metadata.annotations.get(

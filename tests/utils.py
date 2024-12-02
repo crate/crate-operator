@@ -23,7 +23,7 @@ import asyncio
 import logging
 import os
 from functools import reduce
-from typing import Any, Callable, List, Mapping, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
 import psycopg2
@@ -449,7 +449,7 @@ async def cluster_routing_allocation_enable_equals(
 
 
 async def was_notification_sent(
-    mock_send_notification: mock.AsyncMock, call: mock.call
+    mock_send_notification: mock.AsyncMock, call: mock._Call
 ):
     if mock_send_notification.call_count == 0:
         return False
@@ -469,7 +469,7 @@ async def is_cronjob_schedule_matching(
 
 
 async def mocked_coro_func_called_with(
-    mocked_coro_func: mock.AsyncMock, call: mock.call
+    mocked_coro_func: mock.AsyncMock, call: mock._Call
 ) -> bool:
     if mocked_coro_func.call_count == 0:
         return False
@@ -484,7 +484,7 @@ async def mocked_coro_func_called_with(
 async def cluster_setting_equals(
     conn_factory: Callable[[], Connection],
     setting: str,
-    expected_value: Union[str, int],
+    expected_value: Dict[Any, Any],
 ) -> bool:
     try:
         async with conn_factory() as conn:

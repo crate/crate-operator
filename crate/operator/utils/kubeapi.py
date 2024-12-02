@@ -44,8 +44,8 @@ async def call_kubeapi(
     *,
     continue_on_absence=False,
     continue_on_conflict=False,
-    namespace: str = None,
-    body: K8sModel = None,
+    namespace: Optional[str] = None,
+    body: Optional[K8sModel] = None,
     **kwargs,
 ) -> Optional[Awaitable[K8sModel]]:
     """

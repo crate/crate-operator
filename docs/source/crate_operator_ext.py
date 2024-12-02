@@ -47,7 +47,7 @@ def run_apidoc(_):
 
 def missing_reference(
     app: Sphinx, env: BuildEnvironment, node: pending_xref, contnode: Element
-) -> Element:
+) -> None:
     """
     Remove or resolve references to third party packages.
 
