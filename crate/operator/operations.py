@@ -482,7 +482,6 @@ async def restart_cluster(
     :param old: The old resource body.
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
-    logger.info(f"Initial pending_pods: {pending_pods}")
     if not pending_pods:
         if "master" in old["spec"]["nodes"]:
             pending_pods.extend(
@@ -493,21 +492,16 @@ async def restart_cluster(
                 await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
             )
         patch.status["pendingPods"] = pending_pods
-        logger.info(f"Updated pending_pods: {pending_pods}")
 
     if not pending_pods:
         # We're all done
         patch.status["pendingPods"] = None  # Remove attribute from status stanza
-        logger.info("All done: no pending pods remain.")
         return
 
     next_pod_uid = pending_pods[0]["uid"]
     next_pod_name = pending_pods[0]["name"]
-    logger.info(f"Next pod UID: {next_pod_uid}, Next pod Name: {next_pod_name}")
 
     all_pod_uids, all_pod_names = await get_pods_in_cluster(core, namespace, name)
-    logger.info(f"All pod UIDs in cluster: {all_pod_uids}")
-    logger.info(f"All pod Names in cluster: {all_pod_names}")
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
@@ -525,17 +519,12 @@ async def restart_cluster(
         # Trigger deletion of Pod.
         # This may take a while as it tries to gracefully stop the containers
         # of the Pod.
-        logger.info("Triggering deletion of pod '%s'.", next_pod_name)
         await core.delete_namespaced_pod(namespace=namespace, name=next_pod_name)
         raise kopf.TemporaryError(
             f"Waiting for pod {next_pod_name} ({next_pod_uid}) to be terminated.",
             delay=15,
         )
     elif next_pod_name in all_pod_names:
-        logger.info(
-            "Next pod '%s' found in all pod names, proceeding to restart.",
-            next_pod_name,
-        )
         total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
         await send_operation_progress_notification(
@@ -559,7 +548,6 @@ async def restart_cluster(
 
             if pending_pods:
                 patch.status["pendingPods"] = pending_pods
-                logger.info(f"Pending pods remaining: {pending_pods}")
 
                 raise kopf.TemporaryError(
                     "Scheduling rerun because there are pods to be restarted", delay=5
@@ -567,18 +555,12 @@ async def restart_cluster(
             else:
                 # We're all done
                 patch.status["pendingPods"] = None  # Remove attribute from `.status`
-                logger.info("All pending pods are restarted. Task complete.")
                 return
         else:
-            logger.info("Cluster is not healthy. Retrying health check.")
             raise kopf.TemporaryError(
                 "Cluster is not healthy yet.", delay=config.HEALTH_CHECK_RETRY_DELAY
             )
     else:
-        logger.info(
-            "Pod '%s' not found in either all pod UIDs or names.",
-            next_pod_name,
-        )
         raise kopf.TemporaryError(
             "Scheduling rerun because there are pods to be restarted", delay=15
         )
