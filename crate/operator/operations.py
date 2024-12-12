@@ -482,7 +482,7 @@ async def restart_cluster(
     :param old: The old resource body.
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
-    logger.info("Initial pending_pods: %s", pending_pods)
+    logger.info(f"Initial pending_pods: {pending_pods}")
     if not pending_pods:
         if "master" in old["spec"]["nodes"]:
             pending_pods.extend(
@@ -493,7 +493,7 @@ async def restart_cluster(
                 await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
             )
         patch.status["pendingPods"] = pending_pods
-        logger.info("Updated pending_pods: %s", pending_pods)
+        logger.info(f"Updated pending_pods: {pending_pods}")
 
     if not pending_pods:
         # We're all done
@@ -503,11 +503,11 @@ async def restart_cluster(
 
     next_pod_uid = pending_pods[0]["uid"]
     next_pod_name = pending_pods[0]["name"]
-    logger.info("Next pod UID: %s, Next pod Name: %s", next_pod_uid, next_pod_name)
+    logger.info(f"Next pod UID: {next_pod_uid}, Next pod Name: {next_pod_name}")
 
     all_pod_uids, all_pod_names = await get_pods_in_cluster(core, namespace, name)
-    logger.info("All pod UIDs in cluster: %s", all_pod_uids)
-    logger.info("All pod Names in cluster: %s", all_pod_names)
+    logger.info(f"All pod UIDs in cluster: {all_pod_uids}")
+    logger.info(f"All pod Names in cluster: {all_pod_names}")
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
@@ -559,7 +559,7 @@ async def restart_cluster(
 
             if pending_pods:
                 patch.status["pendingPods"] = pending_pods
-                logger.info("Pending pods remaining: %s", pending_pods)
+                logger.info(f"Pending pods remaining: {pending_pods}")
 
                 raise kopf.TemporaryError(
                     "Scheduling rerun because there are pods to be restarted", delay=5
