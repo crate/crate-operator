@@ -17,6 +17,8 @@ Unreleased
 * Added support for quoting schema and table names when generating the keyword
   for restoring a snapshot.
 
+* Change sql_exporter ``min_interval`` to 60s to avoid scraping every 15s.
+
 2.42.0 (2024-10-02)
 -------------------
 
