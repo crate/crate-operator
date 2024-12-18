@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.43.0 (2024-12-18)
+-------------------
+
 * Add azure backup cronjob and metrics-exporter for clusters that are deployed
   in an azure region.
 
