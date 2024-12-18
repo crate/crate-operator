@@ -48,8 +48,8 @@ def test_payload_serialization_scale():
         namespace="some-namespace",
         cluster="some-cluster",
         scale_data=WebhookScalePayload(
-            old_data_replicas={"a": 1},
-            new_data_replicas={"a": 2},
+            old_data_replicas=[{"name": "a", "replicas": "1"}],
+            new_data_replicas=[{"name": "a", "replicas": "2"}],
             old_master_replicas=3,
             new_master_replicas=4,
         ),
@@ -68,8 +68,8 @@ def test_payload_serialization_scale():
         "namespace": "some-namespace",
         "cluster": "some-cluster",
         "scale_data": {
-            "old_data_replicas": {"a": 1},
-            "new_data_replicas": {"a": 2},
+            "old_data_replicas": [{"name": "a", "replicas": "1"}],
+            "new_data_replicas": [{"name": "a", "replicas": "2"}],
             "old_master_replicas": 3,
             "new_master_replicas": 4,
         },
@@ -136,8 +136,11 @@ async def test_configure():
     assert c._url == "http://localhost:1234/some/path"
     assert c._session._default_headers["Content-Type"] == "application/json"
     assert c._session._default_headers["User-Agent"].startswith("cratedb-operator/")
-    assert c._session._default_auth.login == "itsme"
-    assert c._session._default_auth.password == "secr3t password"
+    assert c._session._default_auth and c._session._default_auth.login == "itsme"
+    assert (
+        c._session._default_auth
+        and c._session._default_auth.password == "secr3t password"
+    )
 
 
 @pytest.mark.asyncio
@@ -173,8 +176,8 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "my-cluster",
             WebhookEvent.SCALE,
             WebhookScalePayload(
-                old_data_replicas={"a": 1},
-                new_data_replicas={"a": 2},
+                old_data_replicas=[{"name": "a", "replicas": "1"}],
+                new_data_replicas=[{"name": "a", "replicas": "2"}],
                 old_master_replicas=3,
                 new_master_replicas=4,
             ),
@@ -192,8 +195,8 @@ class TestWebhookClientSending(AioHTTPTestCase):
                 "namespace": "my-namespace",
                 "cluster": "my-cluster",
                 "scale_data": {
-                    "old_data_replicas": {"a": 1},
-                    "new_data_replicas": {"a": 2},
+                    "old_data_replicas": [{"name": "a", "replicas": "1"}],
+                    "new_data_replicas": [{"name": "a", "replicas": "2"}],
                     "old_master_replicas": 3,
                     "new_master_replicas": 4,
                 },
