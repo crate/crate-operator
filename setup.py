@@ -55,7 +55,7 @@ setup(
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.21.0",
-        "aiohttp==3.10.11",
+        "aiohttp==3.11.10",
         "wrapt==1.17.0",
         "python-json-logger==2.0.7",
     ],
