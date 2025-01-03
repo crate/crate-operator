@@ -319,10 +319,12 @@ async def get_cluster_admin_username(conn_factory, logger) -> Optional[str]:
         async with conn.cursor() as cursor:
             try:
                 # Retrieve the admin username.
-                # It should be the only admin that was created by system.
+                # Except gc_admin, it should be the only admin that was created
+                # by system.
                 await cursor.execute(
                     "SELECT grantee FROM sys.privileges"
-                    " where grantor = 'system' limit 1"
+                    " where grantor = 'system'"
+                    f" and grantee != '{GC_USERNAME}' limit 1"
                 )
                 row = await cursor.fetchone()
                 return row[0] if row else None

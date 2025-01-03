@@ -78,11 +78,13 @@ from tests.utils import (
 @mock.patch(
     "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
 )
+@pytest.mark.parametrize("gc_enabled", [True, False])
 async def test_restore_backup(
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
     mock_send_notification,
+    gc_enabled,
     faker,
     namespace,
     kopf_runner,
@@ -116,12 +118,25 @@ async def test_restore_backup(
         ),
     )
 
+    if gc_enabled:
+        grand_central_spec = {
+            "backendEnabled": True,
+            "backendImage": "cloud.registry.cr8.net/crate/grand-central:latest",
+            "apiUrl": "https://my-cratedb-api.cloud/",
+            "jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/",
+        }
+        additional_cluster_spec = {
+            "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net.",
+        }
+
     host, password = await start_cluster(
         name,
         namespace,
         core,
         coapi,
         number_of_nodes,
+        additional_cluster_spec=(additional_cluster_spec if gc_enabled else None),
+        grand_central_spec=(grand_central_spec if gc_enabled else None),
     )
 
     conn_factory = connection_factory(host, password)
