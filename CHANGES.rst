@@ -4,6 +4,9 @@ Changelog
 
 Unreleased
 ----------
+* Add preStop hook to the CrateDB pods to ensure that the CrateDB process is
+  stopped gracefully.
+
 
 - Fixed ``get_cluster_admin_username`` when grand-central is enabled.
 
