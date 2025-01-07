@@ -57,7 +57,7 @@ setup(
         "prometheus_client==0.21.1",
         "aiohttp==3.10.11",
         "wrapt==1.17.0",
-        "python-json-logger==2.0.7",
+        "python-json-logger==3.2.1",
     ],
     extras_require={
         "docs": [
