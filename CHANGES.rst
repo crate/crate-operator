@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.43.1 (2025-01-08)
+-------------------
+
 - Fixed ``get_cluster_admin_username`` when grand-central is enabled.
 
 2.43.0 (2024-12-18)
