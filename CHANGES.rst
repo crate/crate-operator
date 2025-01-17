@@ -6,7 +6,7 @@ Unreleased
 ----------
 * Add preStop hook to the CrateDB pods to ensure that the CrateDB process is
   stopped gracefully.
-
+* Change nginx ``proxy-body-size`` annotation value as it has stricter validations now
 
 2.43.1 (2025-01-08)
 -------------------

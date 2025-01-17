@@ -320,7 +320,7 @@ def get_grand_central_ingress(
             owner_references=owner_references,
             annotations={
                 "external-dns.alpha.kubernetes.io/hostname": hostname,
-                "nginx.ingress.kubernetes.io/proxy-body-size": "1Gi",
+                "nginx.ingress.kubernetes.io/proxy-body-size": "1G",
                 "nginx.ingress.kubernetes.io/configuration-snippet": (
                     """
                     gzip on;
