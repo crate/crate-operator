@@ -19,6 +19,8 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+# mypy: disable-error-code="attr-defined, arg-type, union-attr"
+
 import logging
 import time
 
