@@ -192,8 +192,6 @@ class Config:
                 f"Invalid {self._prefix}BOOTSTRAP_TIMEOUT="
                 f"'{bootstrap_timeout}'. Needs to be a positive integer or 0."
             )
-        if self.BOOTSTRAP_TIMEOUT == 0:
-            self.BOOTSTRAP_TIMEOUT = None
 
         bootstrap_delay = self.env(
             "BOOTSTRAP_RETRY_DELAY", default=str(self.BOOTSTRAP_RETRY_DELAY)
