@@ -56,7 +56,7 @@ setup(
         "PyYAML<7.0",
         "prometheus_client==0.21.1",
         "aiohttp==3.11.11",
-        "wrapt==1.17.0",
+        "wrapt==1.17.2",
         "python-json-logger==3.2.1",
     ],
     extras_require={
