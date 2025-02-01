@@ -63,7 +63,7 @@ setup(
         "docs": [
             "alabaster<2",
             "sphinx>=5,<9",
-            "sphinx-autodoc-typehints<3",
+            "sphinx-autodoc-typehints<4",
         ],
         "testing": [
             "faker==18.3.1",
