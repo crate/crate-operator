@@ -4,6 +4,10 @@ Changelog
 
 Unreleased
 ----------
+
+2.44.0 (2025-02-04)
+-------------------
+
 * Add preStop hook to the CrateDB pods to ensure that the CrateDB process is
   stopped gracefully.
 * Change nginx ``proxy-body-size`` annotation value as it has stricter validations now
