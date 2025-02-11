@@ -52,7 +52,7 @@ setup(
         "aiopg==1.4.0",
         "bitmath==1.3.3.1",
         "importlib-metadata; python_version<'3.8'",
-        "kopf==1.36.2",
+        "kopf==1.37.4",
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.21.1",
@@ -92,6 +92,7 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
     use_scm_version=True,
 )
