@@ -505,12 +505,12 @@ async def restart_cluster(
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
+        node_index = int(next_pod_name[next_pod_name.rindex("-") + 1 :])
+        node_progress = f"{node_index + 1}/{len(all_pod_uids)}"
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
-            message="Waiting for node "
-            f"{int(next_pod_name[next_pod_name.rindex('-')+1:])+1}/{len(all_pod_uids)}"
-            " to be terminated...",
+            message=f"Waiting for node {node_progress} to be terminated.",
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
@@ -527,12 +527,12 @@ async def restart_cluster(
     elif next_pod_name in all_pod_names:
         total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
+        node_index = int(next_pod_name[next_pod_name.rindex("-") + 1 :])
+        node_progress = f"{node_index + 1}/{len(all_pod_uids)}"
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
-            message="Waiting for node "
-            f"{int(next_pod_name[next_pod_name.rindex('-')+1:])+1}/{len(all_pod_uids)}"
-            " to be restarted...",
+            message=f"Waiting for node {node_progress} to be restarted.",
             logger=logger,
             status=WebhookStatus.IN_PROGRESS,
             operation=WebhookOperation.UPDATE,
