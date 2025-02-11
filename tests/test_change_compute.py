@@ -362,7 +362,7 @@ async def test_generate_body_patch(
     affinity = body["spec"]["template"]["spec"]["affinity"]
     tolerations = body["spec"]["template"]["spec"]["tolerations"]
     if new_cpu_request or new_memory_request:
-        assert type(affinity.node_affinity) == V1NodeAffinity
+        assert type(affinity.node_affinity) is V1NodeAffinity
         assert affinity.pod_anti_affinity == {"$patch": "delete"}
         assert len(tolerations) == 1
         assert tolerations[0].to_dict() == {
@@ -373,7 +373,7 @@ async def test_generate_body_patch(
             "value": "shared",
         }
     else:
-        assert type(affinity.pod_anti_affinity) == V1PodAntiAffinity
+        assert type(affinity.pod_anti_affinity) is V1PodAntiAffinity
         assert affinity.node_affinity == {"$patch": "delete"}
         assert len(tolerations) == 1
         assert tolerations[0].to_dict() == {
