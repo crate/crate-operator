@@ -430,7 +430,7 @@ class TestStatefulSetCrateCommand:
             crate_version="4.6.3",
         )
         assert (
-            f"-Cnode.name={crate_node_name_prefix}$(hostname | rev | cut -d- -f1 | rev)"
+            f"-Cnode.name={crate_node_name_prefix}$(hostname | awk -F- '{{print $NF}}')"
             in cmd
         )
         assert f"-Cnode.attr.node_name={node_name}" in cmd
@@ -661,7 +661,7 @@ class TestStatefulSetCrateCommand:
             (
                 CloudProvider.GCP,
                 "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
-                " -H 'Metadata-Flavor: Google' | rev | cut -d '/' -f 1 | rev",
+                " -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}'",
             ),
         ],
     )

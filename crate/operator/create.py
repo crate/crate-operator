@@ -437,23 +437,7 @@ def get_statefulset_crate_command(
     settings = {
         "-Cstats.enabled": "true",
         "-Ccluster.name": cluster_name,
-        # This is a clever way of doing string split in SH and picking the last
-        # item. Here's how it works:
-        #
-        # `hostname` is e.g. `crate-data-hot-11111111-1111-1111-1111-111111111111-12`
-        # for a StatefulSet that has at least 13 replicas (hence the 12 a the
-        # end). What we want now is to get the `12` from the end. In Bash, one
-        # would do `${$(hostname)##*-}` to do a greedy prefix removal. However,
-        # such string manipulations don't exist in SH.
-        # We can, however, make use of the `cut` command that allows splitting
-        # a string at an arbitrary delimiter and allows picking a field.
-        # However, fields can only be picked from the beginning; there's no
-        # negative indexing to get the last field.
-        # Now, by reversing the hostname, then taking the first field, we get
-        # `21`. We can again reverse that to get what we want.
-        #
-        # https://stackoverflow.com/a/9125818
-        "-Cnode.name": f"{crate_node_name_prefix}$(hostname | rev | cut -d- -f1 | rev)",
+        "-Cnode.name": f"{crate_node_name_prefix}$(hostname | awk -F- '{{print $NF}}')",
         "-Ccluster.initial_master_nodes": ",".join(master_nodes),
         "-Cdiscovery.seed_providers": "srv",
         "-Cdiscovery.srv.query": f"_cluster._tcp.crate-discovery-{name}.{namespace}.svc.cluster.local",  # noqa
@@ -520,7 +504,7 @@ def get_statefulset_crate_command(
         # projects/<account-id>/zones/us-central1-a
         settings[
             "-Cnode.attr.zone"
-        ] = f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | rev | cut -d '/' -f 1 | rev)"  # noqa
+        ] = f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
 
     if cluster_settings:
         for k, v in cluster_settings.items():
