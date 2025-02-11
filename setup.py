@@ -51,11 +51,13 @@ setup(
     install_requires=[
         "aiopg==1.4.0",
         "bitmath==1.3.3.1",
+        "importlib-metadata; python_version<'3.8'",
         "kopf==1.36.2",
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.21.1",
         "aiohttp==3.11.11",
+        "verlib2==0.3.1",
         "wrapt==1.17.0",
         "python-json-logger==3.2.1",
     ],
@@ -89,6 +91,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
     use_scm_version=True,
 )
