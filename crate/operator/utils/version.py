@@ -20,8 +20,9 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import re
-from distutils.version import Version
 from typing import Optional, Tuple, Union, cast
+
+from verlib2.distutils.version import Version
 
 
 class CrateVersion(Version):
