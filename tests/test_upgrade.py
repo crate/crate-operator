@@ -23,10 +23,14 @@ from unittest import mock
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
-from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
+from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB, CloudProvider
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
-from crate.operator.upgrade import upgrade_command_data_nodes, upgrade_command_jwt_auth
+from crate.operator.upgrade import (
+    upgrade_command_data_nodes,
+    upgrade_command_hostname_and_zone,
+    upgrade_command_jwt_auth,
+)
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 
 from .utils import (
@@ -226,3 +230,39 @@ def test_upgrade_sts_command_with_jwt():
     assert "-Cauth.host_based.config.98.method=jwt" in new_cmd
     assert "-Cauth.host_based.config.98.protocol=http" in new_cmd
     assert "-Cauth.host_based.config.98.ssl=on" in new_cmd
+
+
+@pytest.mark.parametrize(
+    "provider", [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+)
+def test_upgrade_sts_command_hostname_zone(provider):
+    cmd = [
+        "-Cnode.name=data-hot-$(hostname | rev | cut -d- -f1 | rev)",
+    ]
+    if provider == CloudProvider.GCP:
+        cmd.append(
+            "-Cnode.attr.zone=$(curl -s 'http://123.123.123.123/computeMetadata/v1/instance/zone' "  # noqa
+            "-H 'Metadata-Flavor: Google' | rev | cut -d '/' -f 1 | rev)",
+        )
+    with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider.value):
+        assert "-Cnode.name=data-hot-$(hostname | rev | cut -d- -f1 | rev)" in cmd
+        assert "-Cnode.name=data-hot-$(hostname | awk -F- '{print $NF}')" not in cmd
+        if provider == CloudProvider.GCP:
+            assert any(
+                item.startswith("-Cnode.attr.zone=")
+                and "rev | cut -d '/' -f 1 | rev" in item
+                for item in cmd
+            ), "initial GCP cmd does not contain rev | cut"
+
+        new_cmd = upgrade_command_hostname_and_zone(cmd)
+        assert (
+            "-Cnode.name=data-hot-$(hostname | rev | cut -d- -f1 | rev)" not in new_cmd
+        )
+        assert "-Cnode.name=data-hot-$(hostname | awk -F- '{print $NF}')" in new_cmd
+
+        if provider == CloudProvider.GCP:
+            assert any(
+                item.startswith("-Cnode.attr.zone=")
+                and "awk -F'/' '{print $NF}'" in item
+                for item in new_cmd
+            ), "replacement in GCP cmd did not occur as expected"

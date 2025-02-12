@@ -86,6 +86,34 @@ def upgrade_command_jwt_auth(command: List[str]) -> List[str]:
     return command
 
 
+def upgrade_command_hostname_and_zone(old_command: List[str]) -> List[str]:
+    """
+    Replace old patterns using ``rev | cut`` with new awk-based equivalents.
+
+    Return the list making up the new CrateDB command.
+
+    :param old_command: The command used to start-up CrateDB inside a
+        Kubernetes container. This consists of the path to the Docker
+        entrypoint script, the ``crate`` command argument and any additional
+        settings.
+    :return: The list forming the new CrateDB command.
+    """
+    new_command = []
+    for item in old_command:
+        if item.startswith("-Cnode.name=") and "rev | cut -d- -f1 | rev" in item:
+            # Replace rev-based extraction with awk.
+            item = item.replace("rev | cut -d- -f1 | rev", "awk -F- '{print $NF}'")
+        elif (
+            item.startswith("-Cnode.attr.zone=")
+            and "rev | cut -d '/' -f 1 | rev" in item
+        ):
+            item = item.replace(
+                "rev | cut -d '/' -f 1 | rev", "awk -F'/' '{print $NF}'"
+            )
+        new_command.append(item)
+    return new_command
+
+
 async def update_statefulset(
     apps: AppsV1Api,
     namespace: str,
@@ -113,6 +141,12 @@ async def update_statefulset(
             }
         }
     }
+    statefulset = await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=sts_name
+    )
+    crate_container = get_container(statefulset)
+    command = crate_container.command
+
     if CrateVersion(old_version) < CrateVersion(
         config.GATEWAY_SETTINGS_DATA_NODES_VERSION
     ) and CrateVersion(new_version) >= CrateVersion(
@@ -120,27 +154,23 @@ async def update_statefulset(
     ):
         # upgrading to a version >= 4.7 requires changing the gateway settings
         # names and using the number of data nodes instead of total nodes.
-        statefulset = await apps.read_namespaced_stateful_set(
-            namespace=namespace, name=sts_name
-        )
-        crate_container = get_container(statefulset)
-        new_command = upgrade_command_data_nodes(
-            crate_container.command, data_nodes_count
-        )
-        logger.info("upgraded sts command: %s", new_command)
-        body["spec"]["template"]["spec"]["containers"][0]["command"] = new_command
+        command = upgrade_command_data_nodes(command, data_nodes_count)
+        logger.info("upgraded data nodes sts command: %s", command)
 
     if CrateVersion(old_version) < CrateVersion(
         config.CRATEDB_JWT_AUTH_VERSION
     ) and CrateVersion(new_version) >= CrateVersion(config.CRATEDB_JWT_AUTH_VERSION):
         # upgrading to a version >= 5.7.2 requires changing the auth config
-        statefulset = await apps.read_namespaced_stateful_set(
-            namespace=namespace, name=sts_name
-        )
-        crate_container = get_container(statefulset)
-        new_command = upgrade_command_jwt_auth(crate_container.command)
-        logger.info("upgraded sts command: %s", new_command)
-        body["spec"]["template"]["spec"]["containers"][0]["command"] = new_command
+        command = upgrade_command_jwt_auth(command)
+        logger.info("upgraded jwt auth sts command: %s", command)
+
+    if any("rev | cut" in item for item in command):
+        # Apply the hostname and zone command upgrade if the old rev pattern is present.
+        command = upgrade_command_hostname_and_zone(command)
+        logger.info("upgraded hostname and zone sts command: %s", command)
+
+    body["spec"]["template"]["spec"]["containers"][0]["command"] = command
+
     await apps.patch_namespaced_stateful_set(
         namespace=namespace,
         name=sts_name,

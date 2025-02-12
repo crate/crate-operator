@@ -6,9 +6,15 @@ Unreleased
 ----------
 * Add preStop hook to the CrateDB pods to ensure that the CrateDB process is
   stopped gracefully.
+
 * Change nginx ``proxy-body-size`` annotation value as it has stricter validations now
+
 * Bump ``sql_exporter`` to ``0.17.0`` and fix ``cluster_last_user_activity`` NULL warning.
+
 * Switch to ``awk`` for zone and node name extraction.
+
+* Replaced ``rev`` in STS command with an ``awk``-based equivalent during upgrades.
+
 
 2.43.1 (2025-01-08)
 -------------------
