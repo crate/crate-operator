@@ -15,6 +15,7 @@ Unreleased
 
 * Replaced ``rev`` in STS command with an ``awk``-based equivalent during upgrades.
 
+* Bump ``mypy`` to ``1.13.0``.
 
 2.43.1 (2025-01-08)
 -------------------

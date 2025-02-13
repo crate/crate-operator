@@ -55,11 +55,7 @@ async def create_cratedb(
     status: kopf.Status,
     logger: logging.Logger,
 ):
-    context = status.get(CLUSTER_CREATE_ID)
-    if context is None:
-        raise RuntimeError(
-            f"Operation context is empty or unknown: {CLUSTER_CREATE_ID}"
-        )
+    context = status.get(CLUSTER_CREATE_ID) or {}
     hash = hashlib.md5(str(spec).encode("utf-8")).hexdigest()
     name = meta["name"]
     base_labels = {

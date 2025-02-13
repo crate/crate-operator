@@ -19,16 +19,15 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-# mypy: disable-error-code="arg-type, attr-defined, list-item, operator"
-
 import enum
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional, TypedDict
 
 from prometheus_client import REGISTRY, Info
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.metrics_core import CounterMetricFamily
+from prometheus_client.registry import Collector
 
 from crate.operator import __version__
 from crate.operator.utils.k8s_api_client import GlobalApiClient
@@ -42,7 +41,6 @@ i.info(
     }
 )
 
-CLUSTER_METRICS = {}
 LAST_SEEN_THRESHOLD = 300
 
 
@@ -51,6 +49,16 @@ class PrometheusClusterStatus(enum.Enum):
     YELLOW = 1
     RED = 2
     UNREACHABLE = 3
+
+
+class ClusterMetrics(TypedDict):
+    namespace: str
+    cluster_name: str
+    status: PrometheusClusterStatus
+    last_reported: int
+
+
+CLUSTER_METRICS: Dict[str, ClusterMetrics] = {}
 
 
 def report_cluster_status(
@@ -68,7 +76,13 @@ def report_cluster_status(
     }
 
 
-class ClusterCollector:
+class ClusterCollector(Collector):
+    """
+    A custom Prometheus collector for CrateDB cluster metrics.
+
+    Inherits from :class:`prometheus_client.registry.Collector`.
+    """
+
     def collect(self):
         now = time.time()
         cloud_clusters_health = GaugeMetricFamily(
