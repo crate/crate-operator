@@ -54,6 +54,7 @@ exclude_patterns: List[str] = []
 nitpick_ignore = [
     # undoc'd; https://docs.python.org/3/distutils/apiref.html#module-distutils.version
     ("py:class", "distutils.version.Version"),
+    ("py:class", "prometheus_client.registry.Collector"),
 ]
 
 
