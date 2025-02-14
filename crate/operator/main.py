@@ -98,12 +98,14 @@ async def startup(settings: kopf.OperatorSettings, **_kwargs):
     settings.watching.server_timeout = 300
     # Total number of seconds for a whole watch request per aiohttp:
     # https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientTimeout.total
-    settings.watching.client_timeout = 300
+    settings.watching.client_timeout = (
+        310  # slightly higher to avoid early disconnection
+    )
     # Timeout for attempting to connect to the peer per aiohttp:
     # https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientTimeout.sock_connect
     settings.watching.connect_timeout = 30
     # Wait for that many seconds between watching events
-    settings.watching.reconnect_backoff = 1
+    settings.watching.reconnect_backoff = 2.0
 
     # Only start the prometheus server in non-testing mode.
     if not config.TESTING:
