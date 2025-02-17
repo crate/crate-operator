@@ -51,7 +51,7 @@ setup(
     install_requires=[
         "aiopg==1.4.0",
         "bitmath==1.3.3.1",
-        "kopf==1.35.6",
+        "kopf==1.36.2",
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
         "prometheus_client==0.21.1",
@@ -80,12 +80,13 @@ setup(
             "mypy==1.13.0",
         ],
     },
-    python_requires=">=3.10",
+    python_requires=">=3.10,<3.12",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
     ],
     use_scm_version=True,
 )
