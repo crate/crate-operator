@@ -423,6 +423,7 @@ def get_statefulset_crate_command(
     is_master: bool,
     is_data: bool,
     crate_version: str,
+    cloud_settings: Optional[Dict[str, str]],
 ) -> List[str]:
     expected_nodes_setting_name = "gateway.expected_nodes"
     recover_after_nodes_setting_name = "gateway.recover_after_nodes"
@@ -483,6 +484,19 @@ def get_statefulset_crate_command(
                 "-Cauth.host_based.config.98.method": "jwt",
                 "-Cauth.host_based.config.98.protocol": "http",
                 "-Cauth.host_based.config.98.ssl": "on",
+            }
+        )
+
+    if (
+        CrateVersion(crate_version)
+        >= CrateVersion(config.CRATEDB_JWT_GLOBAL_CONFIG_VERSION)
+        and cloud_settings
+        and cloud_settings.get("jwkUrl")
+    ):
+        settings.update(
+            {
+                "-Cauth.host_based.jwt.iss": cloud_settings.get("jwkUrl") or "",
+                "-Cauth.host_based.jwt.aud": name,
             }
         )
 
@@ -768,6 +782,7 @@ def get_statefulset(
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    cloud_settings: Optional[Dict[str, str]],
     logger: logging.Logger,
 ) -> V1StatefulSet:
     node_annotations = node_spec.get("annotations", {})
@@ -804,6 +819,7 @@ def get_statefulset(
             is_master=treat_as_master,
             is_data=treat_as_data,
             crate_version=version,
+            cloud_settings=cloud_settings,
         ),
         get_statefulset_crate_env(node_spec, jmx_port, prometheus_port, ssl),
         get_statefulset_crate_volume_mounts(node_spec, ssl),
@@ -872,6 +888,7 @@ async def create_statefulset(
     ssl: Optional[Dict[str, Any]],
     cluster_settings: Optional[Dict[str, str]],
     image_pull_secrets: Optional[List[V1LocalObjectReference]],
+    cloud_settings: Optional[Dict[str, str]],
     logger: logging.Logger,
 ) -> None:
     async with GlobalApiClient() as api_client:
@@ -904,6 +921,7 @@ async def create_statefulset(
                 ssl,
                 cluster_settings,
                 image_pull_secrets,
+                cloud_settings,
                 logger,
             ),
         )
@@ -1366,6 +1384,7 @@ class CreateStatefulsetSubHandler(StateBasedSubHandler):
         ssl: Optional[Dict[str, Any]],
         cluster_settings: Optional[Dict[str, str]],
         image_pull_secrets: Optional[List[V1LocalObjectReference]],
+        cloud_settings: Optional[Dict[str, str]],
         logger: logging.Logger,
         **kwargs: Any,
     ):
@@ -1392,5 +1411,6 @@ class CreateStatefulsetSubHandler(StateBasedSubHandler):
             ssl,
             cluster_settings,
             image_pull_secrets,
+            cloud_settings,
             logger,
         )

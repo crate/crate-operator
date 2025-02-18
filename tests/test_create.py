@@ -76,6 +76,7 @@ from crate.operator.utils.formatting import b64decode, format_bitmath
 
 from .utils import (
     CRATE_VERSION,
+    CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG,
     CRATE_VERSION_WITH_JWT,
     assert_wait_for,
     do_pods_exist,
@@ -387,6 +388,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert ["/docker-entrypoint.sh", "crate"] == cmd[0:2]
 
@@ -413,6 +415,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert f"-Ccluster.name={cluster_name}" in cmd
 
@@ -440,6 +443,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert (
             f"-Cnode.name={crate_node_name_prefix}$(hostname | awk -F- '{{print $NF}}')"
@@ -474,6 +478,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.7.0",
+            cloud_settings={},
         )
         assert f"-Cgateway.recover_after_data_nodes={quorum}" in cmd
         assert f"-Cgateway.expected_data_nodes={data_nodes}" in cmd
@@ -503,6 +508,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert f"-Cgateway.recover_after_nodes={quorum}" in cmd
         assert f"-Cgateway.expected_nodes={total}" in cmd
@@ -530,6 +536,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         arg = "-Cpath.data=" + ",".join(f"/data/data{i}" for i in range(count))
         assert arg in cmd
@@ -557,6 +564,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert f"-Cprocessors={ceiled}" in cmd
 
@@ -584,6 +592,7 @@ class TestStatefulSetCrateCommand:
             is_master=master,
             is_data=data,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert f"-Cnode.master={str(master).lower()}" in cmd
         assert f"-Cnode.data={str(data).lower()}" in cmd
@@ -611,6 +620,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         if ssl:
             assert "-Cssl.http.enabled=true" in cmd
@@ -650,6 +660,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version="4.6.3",
+            cloud_settings={},
         )
         assert "-Cauth.host_based.enabled=node-override" in cmd
         assert "-Cnode.attr.node_setting=node-override" in cmd
@@ -700,6 +711,7 @@ class TestStatefulSetCrateCommand:
                 is_master=True,
                 is_data=True,
                 crate_version="4.6.3",
+                cloud_settings={},
             )
         assert f"-Cnode.attr.zone=$(curl -s {url}{header})" in cmd
 
@@ -736,6 +748,7 @@ class TestStatefulSetCrateCommand:
                 is_master=True,
                 is_data=True,
                 crate_version="4.6.3",
+                cloud_settings={},
             )
         assert "-Cnode.attr.zone=test" in cmd
 
@@ -768,6 +781,7 @@ class TestStatefulSetCrateCommand:
             is_master=True,
             is_data=True,
             crate_version=crate_version,
+            cloud_settings={},
         )
         if jwt_expected:
             assert "-Cauth.host_based.config.98.method=jwt" in cmd
@@ -777,6 +791,50 @@ class TestStatefulSetCrateCommand:
             assert "-Cauth.host_based.config.98.method=jwt" not in cmd
             assert "-Cauth.host_based.config.98.protocol=http" not in cmd
             assert "-Cauth.host_based.config.98.ssl=on" not in cmd
+
+    @pytest.mark.parametrize(
+        "crate_version, jwt_expected",
+        [
+            (CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG, True),
+            (CRATE_VERSION, False),
+        ],
+    )
+    def test_global_jwt_config(self, crate_version, jwt_expected):
+        cmd = get_statefulset_crate_command(
+            namespace="some-namespace",
+            name="cluster1",
+            master_nodes=["node-0", "node-1", "node-2"],
+            total_nodes_count=3,
+            data_nodes_count=3,
+            crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
+            node_name="node",
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": 1},
+                }
+            },
+            cluster_settings=None,
+            has_ssl=True,
+            is_master=True,
+            is_data=True,
+            crate_version=crate_version,
+            cloud_settings={"jwkUrl": "https://my-crate-api.cloud/api/v2/meta/jwk/"},
+        )
+        if jwt_expected:
+            assert (
+                "-Cauth.host_based.jwt.iss=https://my-crate-api.cloud/api/v2/meta/jwk/"
+                in cmd
+            )
+            assert "-Cauth.host_based.jwt.aud=cluster1" in cmd
+        else:
+            assert (
+                "-Cauth.host_based.jwt.iss=https://my-crate-api.cloud/api/v2/meta/jwk/"
+                not in cmd
+            )
+            assert "-Cauth.host_based.jwt.aud=cluster1" not in cmd
 
 
 class TestStatefulSetCrateEnv:
@@ -1000,6 +1058,7 @@ class TestStatefulSet:
             },
             {},
             [],
+            {},
             logging.getLogger(__name__),
         )
         await assert_wait_for(

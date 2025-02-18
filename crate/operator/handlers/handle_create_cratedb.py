@@ -102,6 +102,7 @@ async def create_cratedb(
     treat_as_master = True
     cluster_name = spec["cluster"]["name"]
     source_ranges = spec["cluster"].get("allowedCIDRs", None)
+    cloud_settings = spec.get("grandCentral", {})
     kopf.register(
         fn=CreateSqlExporterConfigSubHandler(namespace, name, hash, context)(
             owner_references=owner_references, cratedb_labels=cratedb_labels
@@ -155,6 +156,7 @@ async def create_cratedb(
                 ssl=spec["cluster"].get("ssl"),
                 cluster_settings=spec["cluster"].get("settings"),
                 image_pull_secrets=image_pull_secrets,
+                cloud_settings=cloud_settings,
             ),
             id="statefulset_master",
         )
@@ -184,6 +186,7 @@ async def create_cratedb(
                 ssl=spec["cluster"].get("ssl"),
                 cluster_settings=spec["cluster"].get("settings"),
                 image_pull_secrets=image_pull_secrets,
+                cloud_settings=cloud_settings,
             ),
             id=f"statefulset_data_{node_name}",
         )

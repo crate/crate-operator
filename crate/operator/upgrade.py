@@ -21,7 +21,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
@@ -86,6 +86,21 @@ def upgrade_command_jwt_auth(command: List[str]) -> List[str]:
     return command
 
 
+def upgrade_command_global_jwt_config(
+    command: List[str], name: str, cloud_settings: Dict[str, str]
+) -> List[str]:
+    global_jwt_config = {
+        "-Cauth.host_based.jwt.iss": cloud_settings.get("jwkUrl"),
+        "-Cauth.host_based.jwt.aud": name,
+    }
+
+    for key, value in global_jwt_config.items():
+        if not any(item.startswith(key) for item in command):
+            command.append(f"{key}={value}")
+
+    return command
+
+
 def upgrade_command_hostname_and_zone(old_command: List[str]) -> List[str]:
     """
     Replace old patterns using ``rev | cut`` with new awk-based equivalents.
@@ -122,6 +137,8 @@ async def update_statefulset(
     old_version: str,
     new_version: str,
     data_nodes_count: int,
+    name: str,
+    cloud_settings: Optional[Dict[str, str]],
     logger: logging.Logger,
 ):
     await apps.patch_namespaced_stateful_set(
@@ -163,6 +180,15 @@ async def update_statefulset(
         # upgrading to a version >= 5.7.2 requires changing the auth config
         command = upgrade_command_jwt_auth(command)
         logger.info("upgraded jwt auth sts command: %s", command)
+
+    if (
+        CrateVersion(new_version)
+        >= CrateVersion(config.CRATEDB_JWT_GLOBAL_CONFIG_VERSION)
+        and cloud_settings
+        and cloud_settings.get("jwkUrl")
+    ):
+        command = upgrade_command_global_jwt_config(command, name, cloud_settings)
+        logger.info("upgraded jwt global jwt sts command: %s", command)
 
     if any("rev | cut" in item for item in command):
         # Apply the hostname and zone command upgrade if the old rev pattern is present.
@@ -215,6 +241,8 @@ async def upgrade_cluster(
                 old_version,
                 body.spec["cluster"]["version"],
                 data_nodes_count,
+                name,
+                body.spec.get("grandCentral", {}),
                 logger,
             )
         )
@@ -228,6 +256,8 @@ async def upgrade_cluster(
                 old_version,
                 body.spec["cluster"]["version"],
                 data_nodes_count,
+                name,
+                body.spec.get("grandCentral", {}),
                 logger,
             )
             for node_spec in body.spec["nodes"]["data"]

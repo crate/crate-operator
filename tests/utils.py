@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 CRATE_VERSION = "5.6.5"
 CRATE_VERSION_WITH_JWT = "5.7.3"
+CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG = "5.10.1"
 DEFAULT_TIMEOUT = 60
 
 
