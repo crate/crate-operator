@@ -28,6 +28,7 @@ from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.upgrade import (
     upgrade_command_data_nodes,
+    upgrade_command_global_jwt_config,
     upgrade_command_hostname_and_zone,
     upgrade_command_jwt_auth,
 )
@@ -196,6 +197,7 @@ def test_upgrade_sts_command(total_nodes, old_quorum, data_nodes, new_quorum):
         is_master=True,
         is_data=True,
         crate_version="4.6.3",
+        cloud_settings={},
     )
     assert f"-Cgateway.recover_after_nodes={old_quorum}" in cmd
     assert f"-Cgateway.expected_nodes={total_nodes}" in cmd
@@ -221,6 +223,7 @@ def test_upgrade_sts_command_with_jwt():
         is_master=True,
         is_data=True,
         crate_version="5.6.5",
+        cloud_settings={},
     )
     assert "-Cauth.host_based.config.98.method=jwt" not in cmd
     assert "-Cauth.host_based.config.98.protocol=http" not in cmd
@@ -266,3 +269,37 @@ def test_upgrade_sts_command_hostname_zone(provider):
                 and "awk -F'/' '{print $NF}'" in item
                 for item in new_cmd
             ), "replacement in GCP cmd did not occur as expected"
+
+
+def test_upgrade_sts_command_with_global_jwt_config():
+    cluster_name = "cluster1"
+    cloud_settings = {"jwkUrl": "https://my-cratedb-api.cloud/api/v2/meta/jwk/"}
+    cmd = get_statefulset_crate_command(
+        namespace="some-namespace",
+        name=cluster_name,
+        master_nodes=["node-1"],
+        total_nodes_count=3,
+        data_nodes_count=2,
+        crate_node_name_prefix="node-",
+        cluster_name="my-cluster",
+        node_name="node",
+        node_spec={"resources": {"limits": {"cpu": 1}, "disk": {"count": 1}}},
+        cluster_settings=None,
+        has_ssl=False,
+        is_master=True,
+        is_data=True,
+        crate_version="5.6.5",
+        cloud_settings=cloud_settings,
+    )
+    assert (
+        "-Cauth.host_based.jwt.iss=https://my-cratedb-api.cloud/api/v2/meta/jwk/"
+        not in cmd
+    )
+    assert "-Cauth.host_based.jwt.aud=cluster1" not in cmd
+
+    new_cmd = upgrade_command_global_jwt_config(cmd, cluster_name, cloud_settings)
+    assert (
+        "-Cauth.host_based.jwt.iss=https://my-cratedb-api.cloud/api/v2/meta/jwk/"
+        in new_cmd
+    )
+    assert "-Cauth.host_based.jwt.aud=cluster1" in new_cmd

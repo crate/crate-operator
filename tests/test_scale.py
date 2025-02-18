@@ -102,6 +102,7 @@ def test_patch_sts_command(total, quorum, new_total, new_quorum):
         is_master=True,
         is_data=True,
         crate_version="4.7.0",
+        cloud_settings={},
     )
     new_cmd = patch_command(cmd, new_total)
     assert f"-Cgateway.recover_after_data_nodes={new_quorum}" in new_cmd
@@ -128,6 +129,7 @@ def test_patch_sts_command_deprecated(total, quorum, new_total, new_quorum):
         is_master=True,
         is_data=True,
         crate_version="4.6.3",
+        cloud_settings={},
     )
     new_cmd = patch_command(cmd, new_total)
     assert f"-Cgateway.recover_after_nodes={new_quorum}" in new_cmd
