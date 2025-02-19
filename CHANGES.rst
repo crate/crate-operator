@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.45.0 (2025-02-19)
+-------------------
+
 * Enabled global settings for JWT authentication from CrateDB version 5.10.1 onwards.
 
 2.44.0 (2025-02-17)
