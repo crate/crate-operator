@@ -6,7 +6,7 @@ import os
 import sys
 from typing import List
 
-from pkg_resources import get_distribution
+from crate.operator import __version__
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -26,7 +26,7 @@ project = "CrateDB Kubernetes Operator"
 copyright = "2020, Crate.io"
 author = "Crate.io"
 
-version = release = get_distribution("crate-operator").version
+version = release = __version__
 
 
 # -- General configuration ---------------------------------------------------
@@ -55,6 +55,7 @@ nitpick_ignore = [
     # undoc'd; https://docs.python.org/3/distutils/apiref.html#module-distutils.version
     ("py:class", "distutils.version.Version"),
     ("py:class", "prometheus_client.registry.Collector"),
+    ("py:class", "verlib2.distutils.version.Version"),
 ]
 
 
