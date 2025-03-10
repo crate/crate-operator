@@ -79,6 +79,6 @@ intersphinx_mapping = {
     "bitmath": ("https://bitmath.readthedocs.io/en/stable/", None),
     "cratedb": ("https://crate.io/docs/crate/reference/en/stable/", None),
     "kopf": ("https://kopf.readthedocs.io/en/stable/", None),
-    "python": ("https://docs.python.org/3.10/", None),
+    "python": ("https://docs.python.org/3.11/", None),
 }
 always_document_param_types = True

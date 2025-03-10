@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Updated Python version to ``3.11``.
+
 2.45.0 (2025-02-19)
 -------------------
 

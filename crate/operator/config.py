@@ -473,7 +473,7 @@ class Config:
             if default is UNDEFINED:
                 # raise from None - so that the traceback of the original
                 # exception (KeyError) is not printed
-                # https://docs.python.org/3.10/reference/simple_stmts.html#the-raise-statement
+                # https://docs.python.org/3.11/reference/simple_stmts.html#the-raise-statement
                 raise ConfigurationError(
                     f"Required environment variable '{full_name}' is not set."
                 ) from None
