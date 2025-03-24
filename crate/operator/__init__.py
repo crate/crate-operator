@@ -18,10 +18,18 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
-from pkg_resources import DistributionNotFound, get_distribution
 
 try:
-    __version__ = get_distribution("crate-operator").version
-except DistributionNotFound:
-    # package is not installed
-    pass
+    from importlib.metadata import PackageNotFoundError, version
+except (ImportError, ModuleNotFoundError):  # pragma:nocover
+    from importlib_metadata import (  # type: ignore[assignment,no-redef,unused-ignore]
+        PackageNotFoundError,
+        version,
+    )
+
+__appname__ = "crate-operator"
+
+try:
+    __version__ = version(__appname__)
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "unknown"

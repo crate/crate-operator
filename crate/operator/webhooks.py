@@ -26,8 +26,8 @@ from typing import List, Optional, TypedDict
 import aiohttp
 import kopf
 from aiohttp import TCPConnector
-from pkg_resources import get_distribution
 
+from crate.operator import __version__
 from crate.operator.utils.crd import has_compute_changed
 
 
@@ -225,11 +225,10 @@ class WebhookClient:
         :param password: All requests will include HTTP Basic Auth credentials.
             This is the password for that.
         """
-        version = get_distribution("crate-operator").version
         self._url = url
         self._session = aiohttp.ClientSession(
             headers={
-                "User-Agent": f"cratedb-operator/{version}",
+                "User-Agent": f"cratedb-operator/{__version__}",
                 "Content-Type": "application/json",
             },
             auth=aiohttp.BasicAuth(username, password),
