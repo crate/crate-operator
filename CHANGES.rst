@@ -10,6 +10,10 @@ Unreleased
 
 * Updated Python version to ``3.11``.
 
+* Bumped ``kopf`` to ``1.36.2`` to fix an issue where the operator stopped watching
+  CrateDB resources after receiving a ``429 Too Many Requests`` response from the
+  Kubernetes API.
+
 2.45.0 (2025-02-19)
 -------------------
 
