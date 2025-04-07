@@ -1,0 +1,15 @@
+---
+collector_name: cratedb_large_translogs_collector
+# Detect unusually large translogs. In these cases, upgrades
+# should only proceed in a controlled manner,
+# as they are likely to result in prolonged recovery times.
+metrics:
+- help: "Number of translogs larger than 1GB."
+  metric_name: cratedb_num_large_translogs
+  query: |-
+    SELECT COUNT(*) as cratedb_num_large_translogs
+    FROM sys.shards
+    where "translog_stats"['size'] > POWER(1024,3);
+  type: gauge
+  values: [cratedb_num_large_translogs]
+min_interval: 60m
