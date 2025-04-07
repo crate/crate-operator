@@ -14,6 +14,8 @@ Unreleased
   CrateDB resources after receiving a ``429 Too Many Requests`` response from the
   Kubernetes API.
 
+* Add collector for translog size monitoring to the sql_exporter.
+
 2.45.0 (2025-02-19)
 -------------------
 
