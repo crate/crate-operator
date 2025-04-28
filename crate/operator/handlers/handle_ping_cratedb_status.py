@@ -20,8 +20,10 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
+from asyncio import TimeoutError
 
 import kopf
+from aiohttp.client_exceptions import ClientConnectorError
 from kubernetes_asyncio.client import CoreV1Api
 
 from crate.operator.cratedb import connection_factory, get_healthiness
@@ -57,15 +59,17 @@ async def ping_cratedb_status(
         patch.status[CLUSTER_STATUS_KEY] = {"health": "SUSPENDED"}
         return
 
-    async with GlobalApiClient() as api_client:
-        core = CoreV1Api(api_client)
-        host = await get_host(core, namespace, name)
-        password = await get_system_user_password(core, namespace, name)
-    conn_factory = connection_factory(host, password)
-
     try:
-        async with conn_factory() as conn:
-            async with conn.cursor() as cursor:
+        async with GlobalApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            host = await get_host(core, namespace, name)
+            password = await get_system_user_password(core, namespace, name)
+        conn_factory = connection_factory(host, password)
+        connection = conn_factory()
+
+        async with connection as conn:
+            cursor_cm = await conn.cursor()
+            async with cursor_cm as cursor:
                 healthiness = await get_healthiness(cursor)
                 # If there are no tables in the cluster, get_healthiness returns
                 # none: default to `Green`, as cluster is reachable
@@ -73,7 +77,19 @@ async def ping_cratedb_status(
                     healthiness, PrometheusClusterStatus.GREEN
                 )
     except Exception as e:
-        logger.warning("Failed to ping cluster.", exc_info=e)
+        if isinstance(e, ClientConnectorError):
+            error_msg = (
+                "Transient Kubernetes API connection error during health check: %s"
+            )
+            logger.warning(error_msg, e)
+        elif isinstance(e, TimeoutError):
+            error_msg = "Timeout while connecting to CrateDB during health check: %s"
+            logger.warning(error_msg, e)
+        else:
+            logger.warning(
+                "Unexpected error during CrateDB health check.", exc_info=True
+            )
+
         status = PrometheusClusterStatus.UNREACHABLE
 
     report_cluster_status(name, cluster_name, namespace, status)
