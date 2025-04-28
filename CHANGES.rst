@@ -9,6 +9,8 @@ Unreleased
 
 * Upgraded ``kopf`` to ``1.37.5``.
 
+* Log transient connection and timeout errors as warnings to reduce log noise.
+
 2.46.0 (2025-03-17)
 -------------------
 

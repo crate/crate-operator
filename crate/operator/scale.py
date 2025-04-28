@@ -213,9 +213,11 @@ async def check_nodes_present_or_gone(
                         logger=logger,
                         status=WebhookStatus.IN_PROGRESS,
                         operation=WebhookOperation.UPDATE,
-                        action=WebhookAction.SUSPEND
-                        if old_replicas == 0
-                        else WebhookAction.SCALE,
+                        action=(
+                            WebhookAction.SUSPEND
+                            if old_replicas == 0
+                            else WebhookAction.SCALE
+                        ),
                     )
 
                     raise kopf.TemporaryError(
@@ -234,9 +236,11 @@ async def check_nodes_present_or_gone(
                         logger=logger,
                         status=WebhookStatus.IN_PROGRESS,
                         operation=WebhookOperation.UPDATE,
-                        action=WebhookAction.SUSPEND
-                        if new_replicas == 0
-                        else WebhookAction.SCALE,
+                        action=(
+                            WebhookAction.SUSPEND
+                            if new_replicas == 0
+                            else WebhookAction.SCALE
+                        ),
                     )
                     raise kopf.TemporaryError(
                         f"Waiting for nodes {excess_nodes} to be gone.", delay=15
