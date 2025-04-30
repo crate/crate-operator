@@ -65,9 +65,7 @@ async def login_via_kubernetes_asyncio(
     scheme, token = (
         (None, None)
         if len(parts) == 0
-        else (None, parts[0])
-        if len(parts) == 1
-        else (parts[0], parts[1])
+        else (None, parts[0]) if len(parts) == 1 else (parts[0], parts[1])
     )  # RFC-7235, Appendix C.
 
     # Interpret the k8s_config object for our own minimalistic credentials.

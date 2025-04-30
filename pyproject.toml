@@ -1,5 +1,6 @@
 [tool.black]
-target-version = ['py38']
+target-version = ['py313']
+line-length = 88
 
 [build-system]
 requires = ["setuptools>=58", "wheel", "setuptools_scm>=6.2"]

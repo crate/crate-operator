@@ -527,9 +527,9 @@ class BeforeRestoreBackupSubHandler(StateBasedSubHandler):
                             )
                         )
                         patch.status["maxBytesPerSec"] = max_bytes_per_sec
-                        patch.status[
-                            "clusterConcurrentRebalance"
-                        ] = cluster_concurrent_rebalance
+                        patch.status["clusterConcurrentRebalance"] = (
+                            cluster_concurrent_rebalance
+                        )
                         # update the settings during restore operation
                         await set_cluster_setting(
                             conn_factory,

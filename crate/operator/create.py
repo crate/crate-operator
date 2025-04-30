@@ -516,9 +516,9 @@ def get_statefulset_crate_command(
     elif config.CLOUD_PROVIDER == CloudProvider.GCP:
         url = "http://169.254.169.254/computeMetadata/v1/instance/zone"  # noqa
         # projects/<account-id>/zones/us-central1-a
-        settings[
-            "-Cnode.attr.zone"
-        ] = f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
+        settings["-Cnode.attr.zone"] = (
+            f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
+        )
 
     if cluster_settings:
         for k, v in cluster_settings.items():

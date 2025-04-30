@@ -11,6 +11,8 @@ Unreleased
 
 * Log transient connection and timeout errors as warnings to reduce log noise.
 
+* Upgraded ``black`` to ``25.1.0```.
+
 2.46.0 (2025-03-17)
 -------------------
 
