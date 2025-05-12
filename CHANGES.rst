@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.47.0 (2025-05-12)
+-------------------
+
 * Updated Python version to ``3.13``.
 
 * Upgraded ``kopf`` to ``1.37.5``.
