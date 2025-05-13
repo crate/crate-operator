@@ -4,7 +4,7 @@ Working on the operator
 Local installation
 ------------------
 
-The ``crate-operator`` package requires **Python 3.13**.
+The ``crate-operator`` package requires **Python 3.12**.
 
 It is recommended to use a virtual environment to the operator and its
 dependencies for local development.
@@ -17,7 +17,7 @@ dependencies for local development.
 
 .. code-block:: console
 
-   $ python3.13 -m venv env
+   $ python3.12 -m venv env
    $ source env/bin/activate
    (env)$ python -m pip install -e .
 
@@ -57,7 +57,7 @@ test dependencies. This is typically done inside a Python virtual environment:
 
 .. code-block:: console
 
-   $ python3.13 -m venv env
+   $ python3.12 -m venv env
    $ source env/bin/activate
    (env)$ python -m pip install -e '.[testing]'
    Successfully installed ... crate-operator ...
