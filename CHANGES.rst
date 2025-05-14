@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.47.1 (2025-05-14)
+-------------------
+
 * Downgraded Python version from ``3.13`` to ``3.12`` to avoid SSL certificate
   verification issues caused by stricter behavior in ``urllib3``, which is used
   indirectly by project dependencies.
