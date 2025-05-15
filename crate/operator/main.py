@@ -283,7 +283,7 @@ async def service_backup_schedule_update(
     **_kwargs,
 ):
     """
-    Handles updates to the backup schedule for AWS s3 backups.
+    Handles updates to the backup schedule for AWS S3 / Azure Storage backups.
     """
     await raise_on_namespace_terminating(namespace)
     await update_backup_schedule(namespace, name, diff, logger)

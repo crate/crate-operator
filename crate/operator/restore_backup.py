@@ -23,6 +23,7 @@ import abc
 import asyncio
 import logging
 import re
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
 import kopf
@@ -35,6 +36,7 @@ from psycopg2.extensions import AsIs, QuotedString, quote_ident
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    DEFAULT_BACKUP_STORAGE_TYPE,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
     SnapshotRestoreType,
@@ -70,17 +72,35 @@ from crate.operator.webhooks import (
     WebhookStatus,
 )
 
-RESTORE_BACKUP_SECRETS: List[str] = [
-    "bucket",
-    "secretAccessKey",
-    "basePath",
-    "accessKeyId",
-]
 RESTORE_MAX_BYTES_PER_SEC: str = "200mb"
 RESTORE_CLUSTER_CONCURRENT_REBALANCE: int = 6
 DEFAULT_MAX_BYTES_PER_SEC: str = "40mb"
 DEFAULT_CLUSTER_CONCURRENT_REBALANCE: int = 2
 CRASH_COMMAND_DELAY: int = 30
+
+
+@dataclass
+class BackupRepositoryData:
+    """
+    A dataclass to store the backup repository data.
+    """
+
+    accessKeyId: str = field(metadata={"secret": True})
+    secretAccessKey: str = field(metadata={"secret": True})
+    bucket: str = field(metadata={"secret": True})
+    basePath: str = field(metadata={"secret": True})
+    storage_type: str = DEFAULT_BACKUP_STORAGE_TYPE
+
+    @staticmethod
+    def get_secrets_keys() -> list[str]:
+        """
+        Returns a list of all the secrets keys.
+        """
+        return [
+            field.name
+            for field in fields(BackupRepositoryData)
+            if field.metadata.get("secret", False)
+        ]
 
 
 def is_valid_snapshot(new: kopf.Body, **kwargs) -> bool:
@@ -178,7 +198,7 @@ async def get_source_backup_repository_data(
     namespace: str,
     name: str,
     logger: logging.Logger,
-) -> dict:
+) -> BackupRepositoryData:
     """
     Read the secret values to access the backup repository of the source
     cluster defined by ``secretKeyRef`` in ``restoreSnapshot``.
@@ -188,14 +208,14 @@ async def get_source_backup_repository_data(
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param logger: the logger on which we're logging
     """
-    data = {}
+    data_dict = {}
     cratedb = await get_cratedb_resource(namespace, name)
-    for key in RESTORE_BACKUP_SECRETS:
+    for key in BackupRepositoryData.get_secrets_keys():
         try:
             secret_key_ref = cratedb["spec"]["cluster"]["restoreSnapshot"][key][
                 "secretKeyRef"
             ]
-            data[key] = await resolve_secret_key_ref(
+            data_dict[key] = await resolve_secret_key_ref(
                 core,
                 namespace,
                 secret_key_ref,
@@ -207,6 +227,7 @@ async def get_source_backup_repository_data(
             )
         except KeyError:
             raise kopf.PermanentError(f"Key {key} not found in secret.")
+    data = BackupRepositoryData(**data_dict)
 
     return data
 
@@ -565,6 +586,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         repository: str,
         snapshot: str,
         restore_type: str,
+        storage_type: str,
         tables: List[str],
         partitions: List[Dict],
         sections: List[str],
@@ -579,6 +601,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 name,
                 logger,
             )
+            data.storage_type = storage_type
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
                 get_host(core, namespace, name),
@@ -606,7 +629,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
     async def _create_backup_repository(
         conn_factory,
         repository: str,
-        data: dict,
+        data: BackupRepositoryData,
         logger: logging.Logger,
     ):
         """
@@ -629,15 +652,17 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                     if not row:
                         repository_ident = quote_ident(repository, cursor._impl)
                         await cursor.execute(
-                            f"CREATE REPOSITORY {repository_ident} type s3 with "
+                            f"CREATE REPOSITORY {repository_ident} "
+                            "type %s with "
                             "(access_key = %s, secret_key = %s, bucket = %s, "
-                            "base_path = %s, readonly=true,"
+                            "base_path = %s, readonly=true, "
                             "max_restore_bytes_per_sec = '240mb')",
                             (
-                                data["accessKeyId"],
-                                data["secretAccessKey"],
-                                data["bucket"],
-                                data["basePath"],
+                                data.storage_type,
+                                data.accessKeyId,
+                                data.secretAccessKey,
+                                data.bucket,
+                                data.basePath,
                             ),
                         )
         except DatabaseError as e:

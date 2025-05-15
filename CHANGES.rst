@@ -11,6 +11,7 @@ Unreleased
 
 * Bumped setuptools to 78.1.1 to fix CVE-2025-47273.
 
+* Added support to restore a snapshot from a Azure storage.
 
 2.47.1 (2025-05-14)
 -------------------

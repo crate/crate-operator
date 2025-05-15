@@ -27,7 +27,7 @@ from typing import List
 import kopf
 
 from crate.operator.config import config
-from crate.operator.constants import SnapshotRestoreType
+from crate.operator.constants import DEFAULT_BACKUP_STORAGE_TYPE, SnapshotRestoreType
 from crate.operator.handlers.handle_update_cratedb import get_backoff
 from crate.operator.operations import (
     AfterClusterUpdateSubHandler,
@@ -76,6 +76,7 @@ async def restore_backup(
     tables = new.get("tables", [])
     partitions = new.get("partitions", [])
     sections = new.get("sections", [])
+    storage_type = new.get("storage_type", DEFAULT_BACKUP_STORAGE_TYPE)
 
     scheme = get_crash_scheme(cratedb)
     pod_name = get_crash_pod_name(cratedb, name)
@@ -102,6 +103,7 @@ async def restore_backup(
         repository,
         snapshot,
         restore_type,
+        storage_type,
         tables,
         partitions,
         sections,
@@ -192,6 +194,7 @@ def register_restore_handlers(
     repository: str,
     snapshot: str,
     restore_type: str,
+    storage_type: str,
     tables: list,
     partitions: list,
     sections: list,
@@ -207,6 +210,7 @@ def register_restore_handlers(
             repository=repository,
             snapshot=snapshot,
             restore_type=restore_type,
+            storage_type=storage_type,
             tables=tables,
             partitions=partitions,
             sections=sections,
