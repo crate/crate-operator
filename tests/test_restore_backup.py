@@ -18,6 +18,7 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+import logging
 from unittest import mock
 
 import kopf
@@ -33,6 +34,7 @@ from kubernetes_asyncio.client import (
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    DEFAULT_BACKUP_STORAGE_TYPE,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
     SnapshotRestoreType,
@@ -41,6 +43,8 @@ from crate.operator.cratedb import connection_factory
 from crate.operator.restore_backup import (
     RESTORE_CLUSTER_CONCURRENT_REBALANCE,
     RESTORE_MAX_BYTES_PER_SEC,
+    BackupRepositoryData,
+    RestoreBackupSubHandler,
     RestoreType,
 )
 from crate.operator.utils.formatting import b64encode
@@ -202,6 +206,12 @@ async def test_restore_backup(
         err_msg="Backup metrics has not been scaled down.",
         timeout=DEFAULT_TIMEOUT,
     )
+    backup_repository_data = BackupRepositoryData(
+        basePath=base_path,
+        bucket=bucket,
+        accessKeyId=access_key_id,
+        secretAccessKey=secret_access_key,
+    )
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
@@ -209,12 +219,7 @@ async def test_restore_backup(
         mock.call(
             mock.ANY,
             mock.ANY,
-            {
-                "basePath": base_path,
-                "bucket": bucket,
-                "accessKeyId": access_key_id,
-                "secretAccessKey": secret_access_key,
-            },
+            backup_repository_data,
             mock.ANY,
         ),
         err_msg="Expected create repository call not found.",
@@ -500,6 +505,72 @@ def test_get_restore_type_keyword(restore_type, expected_keyword, params):
             restore_type.value, **func_kwargs
         ).get_restore_keyword(cursor=cursor)
         assert restore_keyword == expected_keyword
+
+
+@pytest.fixture
+def mock_cratedb_connection():
+    mock_cursor_cm = mock.MagicMock()
+    mock_cursor = mock.AsyncMock()
+    mock_cursor_cm.return_value.__aenter__.return_value = mock_cursor
+    mock_cursor_cm.return_value.__aexit__.return_value = None
+    mock_cursor.fetchone.return_value = None
+
+    mock_conn_cm = mock.MagicMock()
+    mock_conn = mock.AsyncMock()
+    mock_conn_cm.return_value.__aenter__.return_value = mock_conn
+    mock_conn_cm.return_value.__aexit__.return_value = None
+    mock_conn.cursor = mock_cursor_cm
+
+    return {
+        "mock_conn_context_manager": mock_conn_cm,
+        "mock_conn": mock_conn,
+        "mock_cursor_context_manager": mock_cursor_cm,
+        "mock_cursor": mock_cursor,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("storage_type", ["s3", "azure", None])
+async def test_create_backup_repository(storage_type, faker, mock_cratedb_connection):
+    mock_conn_cm = mock_cratedb_connection["mock_conn_context_manager"]
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    bucket = faker.domain_word()
+    base_path = faker.uri_path()
+    secret_access_key = faker.domain_word()
+    access_key_id = faker.domain_word()
+    repository = faker.domain_word()
+    mock_logger = mock.Mock(spec=logging.Logger)
+
+    data = BackupRepositoryData(
+        basePath=base_path,
+        bucket=bucket,
+        accessKeyId=access_key_id,
+        secretAccessKey=secret_access_key,
+    )
+    if storage_type:
+        data.storage_type = storage_type
+
+    with mock.patch(
+        "crate.operator.restore_backup.quote_ident", return_value=repository
+    ):
+        await RestoreBackupSubHandler._create_backup_repository(
+            mock_conn_cm, repository, data, mock_logger
+        )
+
+    # Make sure that it uses the default value if the storage type isn't specified
+    expected_type = storage_type or DEFAULT_BACKUP_STORAGE_TYPE
+    mock_cursor.execute.assert_has_awaits(
+        [
+            mock.call("SELECT * FROM sys.repositories WHERE name=%s", (repository,)),
+            mock.call(
+                f"CREATE REPOSITORY {repository} type %s with (access_key = %s, "
+                "secret_key = %s, bucket = %s, base_path = %s, readonly=true, "
+                "max_restore_bytes_per_sec = '240mb')",
+                (expected_type, access_key_id, secret_access_key, bucket, base_path),
+            ),
+        ]
+    )
 
 
 async def patch_cluster_spec(
