@@ -23,7 +23,7 @@ import abc
 import functools
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Optional, TypedDict
 
@@ -141,7 +141,7 @@ class StateBasedSubHandler(abc.ABC):
                 self.__class__.__name__
             ] = {
                 "ref": self.ref,
-                "started": int(datetime.utcnow().timestamp()),
+                "started": int(datetime.now(timezone.utc).timestamp()),
             }
             # If running in testing mode (i.e. running ITs) we can reduce the delay
             # significantly as things generally move fast.
@@ -265,7 +265,10 @@ class StateBasedSubHandler(abc.ABC):
         ):
             patch.status.setdefault("subhandlerStartedAt", {})[
                 self.__class__.__name__
-            ] = {"started": int(datetime.utcnow().timestamp()), "ref": self.ref}
+            ] = {
+                "started": int(datetime.now(timezone.utc).timestamp()),
+                "ref": self.ref,
+            }
 
 
 async def send_webhook_notification(

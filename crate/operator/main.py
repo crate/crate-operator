@@ -379,7 +379,7 @@ async def enable_cronjob_after_delay(
     delay_start_time = status.get(DELAY_CRONJOB_START)
     if delay_start_time:
         delay = (
-            datetime.datetime.utcnow()
+            datetime.datetime.now(datetime.timezone.utc)
             - datetime.timedelta(
                 seconds=5 if config.TESTING else config.RE_ENABLING_CRONJOB_DELAY
             )
