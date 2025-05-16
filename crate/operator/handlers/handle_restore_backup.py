@@ -76,7 +76,7 @@ async def restore_backup(
     tables = new.get("tables", [])
     partitions = new.get("partitions", [])
     sections = new.get("sections", [])
-    storage_type = new.get("storage_type", DEFAULT_BACKUP_STORAGE_TYPE)
+    storage_type = new.get("storageType", DEFAULT_BACKUP_STORAGE_TYPE)
 
     scheme = get_crash_scheme(cratedb)
     pod_name = get_crash_pod_name(cratedb, name)

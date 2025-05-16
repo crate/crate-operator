@@ -82,13 +82,16 @@ from tests.utils import (
 @mock.patch(
     "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
 )
-@pytest.mark.parametrize("gc_enabled", [True, False])
+@pytest.mark.parametrize(
+    "gc_enabled, storage_type", [(True, "s3"), (False, None), (False, "azure")]
+)
 async def test_restore_backup(
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
     mock_send_notification,
     gc_enabled,
+    storage_type,
     faker,
     namespace,
     kopf_runner,
@@ -157,7 +160,9 @@ async def test_restore_backup(
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
-    await patch_cluster_spec(coapi, namespace.metadata.name, name, snapshot, faker)
+    await patch_cluster_spec(
+        coapi, namespace.metadata.name, name, snapshot, faker, storage_type
+    )
 
     await assert_wait_for(
         True,
@@ -212,6 +217,8 @@ async def test_restore_backup(
         accessKeyId=access_key_id,
         secretAccessKey=secret_access_key,
     )
+    if storage_type:
+        backup_repository_data.storage_type = storage_type
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
@@ -574,7 +581,12 @@ async def test_create_backup_repository(storage_type, faker, mock_cratedb_connec
 
 
 async def patch_cluster_spec(
-    coapi: CustomObjectsApi, namespace: str, name: str, snapshot: str, faker
+    coapi: CustomObjectsApi,
+    namespace: str,
+    name: str,
+    snapshot: str,
+    faker,
+    storage_type: str | None = None,
 ):
     restore_snapshot_spec = {
         "accessKeyId": {
@@ -604,6 +616,9 @@ async def patch_cluster_spec(
         "snapshot": snapshot,
         "type": "all",
     }
+    if storage_type:
+        restore_snapshot_spec["storageType"] = storage_type
+
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
         version="v1",

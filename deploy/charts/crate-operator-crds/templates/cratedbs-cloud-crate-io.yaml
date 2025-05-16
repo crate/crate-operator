@@ -420,6 +420,10 @@ spec:
                           - columns
                           type: object
                         type: array
+                      storageType:
+                        description: The type of storage where the snapshot is located.
+                        type: string
+                        enum: ["azure", "s3"]
                     required:
                     - snapshot
                     - bucket
