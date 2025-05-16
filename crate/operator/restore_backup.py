@@ -23,8 +23,8 @@ import abc
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, field, fields
-from typing import Any, Dict, List, Optional
+from dataclasses import fields
+from typing import Any, Dict, List, Optional, Tuple
 
 import kopf
 from aiopg import Cursor
@@ -36,9 +36,9 @@ from psycopg2.extensions import AsIs, QuotedString, quote_ident
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
-    DEFAULT_BACKUP_STORAGE_TYPE,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
+    BackupStorageType,
     SnapshotRestoreType,
 )
 from crate.operator.cratedb import (
@@ -53,6 +53,7 @@ from crate.operator.operations import (
     run_crash_command,
     scale_backup_metrics_deployment,
 )
+from crate.operator.restore_backup_repository_data import BackupRepositoryData
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
@@ -77,30 +78,6 @@ RESTORE_CLUSTER_CONCURRENT_REBALANCE: int = 6
 DEFAULT_MAX_BYTES_PER_SEC: str = "40mb"
 DEFAULT_CLUSTER_CONCURRENT_REBALANCE: int = 2
 CRASH_COMMAND_DELAY: int = 30
-
-
-@dataclass
-class BackupRepositoryData:
-    """
-    A dataclass to store the backup repository data.
-    """
-
-    accessKeyId: str = field(metadata={"secret": True})
-    secretAccessKey: str = field(metadata={"secret": True})
-    bucket: str = field(metadata={"secret": True})
-    basePath: str = field(metadata={"secret": True})
-    storage_type: str = DEFAULT_BACKUP_STORAGE_TYPE
-
-    @staticmethod
-    def get_secrets_keys() -> list[str]:
-        """
-        Returns a list of all the secrets keys.
-        """
-        return [
-            field.name
-            for field in fields(BackupRepositoryData)
-            if field.metadata.get("secret", False)
-        ]
 
 
 def is_valid_snapshot(new: kopf.Body, **kwargs) -> bool:
@@ -197,6 +174,7 @@ async def get_source_backup_repository_data(
     core: CoreV1Api,
     namespace: str,
     name: str,
+    storage_type: BackupStorageType,
     logger: logging.Logger,
 ) -> BackupRepositoryData:
     """
@@ -210,7 +188,7 @@ async def get_source_backup_repository_data(
     """
     data_dict = {}
     cratedb = await get_cratedb_resource(namespace, name)
-    for key in BackupRepositoryData.get_secrets_keys():
+    for key in BackupRepositoryData.get_secrets_keys(storage_type):
         try:
             secret_key_ref = cratedb["spec"]["cluster"]["restoreSnapshot"][key][
                 "secretKeyRef"
@@ -227,7 +205,9 @@ async def get_source_backup_repository_data(
             )
         except KeyError:
             raise kopf.PermanentError(f"Key {key} not found in secret.")
-    data = BackupRepositoryData(**data_dict)
+
+    data_cls = BackupRepositoryData.get_class_from_storage_type(storage_type)
+    data = BackupRepositoryData(storage_type=storage_type, data=data_cls(**data_dict))
 
     return data
 
@@ -599,9 +579,9 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 core,
                 namespace,
                 name,
+                BackupStorageType(storage_type),
                 logger,
             )
-            data.storage_type = storage_type
             password, host = await asyncio.gather(
                 get_system_user_password(core, namespace, name),
                 get_host(core, namespace, name),
@@ -651,20 +631,30 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                     row = await cursor.fetchone()
                     if not row:
                         repository_ident = quote_ident(repository, cursor._impl)
-                        await cursor.execute(
-                            f"CREATE REPOSITORY {repository_ident} "
-                            "type %s with "
-                            "(access_key = %s, secret_key = %s, bucket = %s, "
-                            "base_path = %s, readonly=true, "
-                            "max_restore_bytes_per_sec = '240mb')",
-                            (
-                                data.storage_type,
-                                data.accessKeyId,
-                                data.secretAccessKey,
-                                data.bucket,
-                                data.basePath,
-                            ),
+
+                        create_repo_settings: list[Tuple[str, str]] = [
+                            ("max_restore_bytes_per_sec", "'240mb'"),
+                            ("readonly", "true"),
+                        ]
+                        try:
+                            repository_data = data.data
+                            for field in fields(repository_data):
+                                param = field.metadata["query_param"]
+                                value = getattr(repository_data, field.name)
+                                create_repo_settings.append((param, value))
+                        except KeyError as e:
+                            logger.warning(
+                                "Cannot build repository parameters.", exc_info=e
+                            )
+
+                        settings = ", ".join(
+                            f"{k} = %s" for k, _ in create_repo_settings
                         )
+                        stmt = (
+                            f"CREATE REPOSITORY {repository_ident} TYPE "
+                            f"{data.storage_type} WITH ({settings})"
+                        )
+                        await cursor.execute(stmt, [v for _, v in create_repo_settings])
         except DatabaseError as e:
             logger.warning("DatabaseError in _create_backup_repository", exc_info=e)
             raise kopf.PermanentError("Backup repository could not be created.")
