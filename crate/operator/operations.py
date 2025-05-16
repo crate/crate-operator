@@ -516,6 +516,22 @@ async def restart_cluster(
             operation=WebhookOperation.UPDATE,
             action=action,
         )
+        try:
+            conn_factory = await _get_connection_factory(core, namespace, name)
+
+            await set_cluster_setting(
+                conn_factory,
+                logger,
+                setting="cluster.routing.allocation.enable",
+                value="new_primaries",
+                mode="PERSISTENT",
+            )
+        except Exception as e:
+            logger.info(
+                "Setting cluster allocation to 'new_primaries' failed: %s",
+                str(e),
+            )
+
         # Trigger deletion of Pod.
         # This may take a while as it tries to gracefully stop the containers
         # of the Pod.
@@ -557,6 +573,19 @@ async def restart_cluster(
                 patch.status["pendingPods"] = None  # Remove attribute from `.status`
                 return
         else:
+            try:
+                conn_factory = await _get_connection_factory(core, namespace, name)
+
+                await reset_cluster_setting(
+                    conn_factory,
+                    logger,
+                    setting="cluster.routing.allocation.enable",
+                )
+            except Exception as e:
+                logger.info(
+                    "Resetting cluster allocation failed: %s",
+                    str(e),
+                )
             raise kopf.TemporaryError(
                 "Cluster is not healthy yet.", delay=config.HEALTH_CHECK_RETRY_DELAY
             )
