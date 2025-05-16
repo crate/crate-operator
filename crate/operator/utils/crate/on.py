@@ -20,7 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 
 import kopf
@@ -98,7 +98,7 @@ def timeout(*, timeout: float) -> Callable:
                 real start time stored in `status.subhandlerStartedAt`.
                 """
                 if instance:
-                    now = int(datetime.utcnow().timestamp())
+                    now = int(datetime.now(timezone.utc).timestamp())
                     runtime = 0
                     status = (
                         kwargs["status"]
