@@ -38,7 +38,7 @@ from crate.operator.constants import (
     API_GROUP,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
-    BackupStorageType,
+    BackupStorageProvider,
     SnapshotRestoreType,
 )
 from crate.operator.cratedb import (
@@ -174,7 +174,7 @@ async def get_source_backup_repository_data(
     core: CoreV1Api,
     namespace: str,
     name: str,
-    storage_type: BackupStorageType,
+    backup_provider: BackupStorageProvider,
     logger: logging.Logger,
 ) -> BackupRepositoryData:
     """
@@ -188,7 +188,7 @@ async def get_source_backup_repository_data(
     """
     data_dict = {}
     cratedb = await get_cratedb_resource(namespace, name)
-    for key in BackupRepositoryData.get_secrets_keys(storage_type):
+    for key in BackupRepositoryData.get_secrets_keys(backup_provider):
         try:
             secret_key_ref = cratedb["spec"]["cluster"]["restoreSnapshot"][key][
                 "secretKeyRef"
@@ -206,8 +206,10 @@ async def get_source_backup_repository_data(
         except KeyError:
             raise kopf.PermanentError(f"Key {key} not found in secret.")
 
-    data_cls = BackupRepositoryData.get_class_from_storage_type(storage_type)
-    data = BackupRepositoryData(storage_type=storage_type, data=data_cls(**data_dict))
+    data_cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
+    data = BackupRepositoryData(
+        backup_provider=backup_provider, data=data_cls(**data_dict)
+    )
 
     return data
 
@@ -566,7 +568,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
         repository: str,
         snapshot: str,
         restore_type: str,
-        storage_type: str,
+        backup_provider: str,
         tables: List[str],
         partitions: List[Dict],
         sections: List[str],
@@ -579,7 +581,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 core,
                 namespace,
                 name,
-                BackupStorageType(storage_type),
+                BackupStorageProvider(backup_provider),
                 logger,
             )
             password, host = await asyncio.gather(
@@ -652,7 +654,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         )
                         stmt = (
                             f"CREATE REPOSITORY {repository_ident} TYPE "
-                            f"{backup_repository_data.storage_type.value} "
+                            f"{backup_repository_data.backup_provider.value} "
                             f"WITH ({settings});"
                         )
                         await cursor.execute(stmt, [v for _, v in create_repo_settings])

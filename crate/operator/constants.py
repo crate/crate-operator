@@ -95,9 +95,9 @@ class Nodepool(str, enum.Enum):
     DEDICATED = "dedicated"
 
 
-class BackupStorageType(str, enum.Enum):
+class BackupStorageProvider(str, enum.Enum):
     S3 = "s3"
-    AZURE = "azure"
+    AZURE_BLOB = "azure_blob"
 
 
-DEFAULT_BACKUP_STORAGE_TYPE = BackupStorageType.S3
+DEFAULT_BACKUP_STORAGE_PROVIDER = BackupStorageProvider.S3

@@ -478,10 +478,10 @@ spec:
                           - columns
                           type: object
                         type: array
-                      storageType:
+                      backupProvider:
                         description: The type of storage where the snapshot is located.
                         type: string
-                        enum: ["azure", "s3"]
+                        enum: ["azure_blob", "s3"]
                     required:
                     - snapshot
                     type: object
