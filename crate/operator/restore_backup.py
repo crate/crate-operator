@@ -609,7 +609,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
     async def _create_backup_repository(
         conn_factory,
         repository: str,
-        data: BackupRepositoryData,
+        backup_repository_data: BackupRepositoryData,
         logger: logging.Logger,
     ):
         """
@@ -637,10 +637,10 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                             ("readonly", "true"),
                         ]
                         try:
-                            repository_data = data.data
-                            for field in fields(repository_data):
+                            data = backup_repository_data.data
+                            for field in fields(data):
                                 param = field.metadata["query_param"]
-                                value = getattr(repository_data, field.name)
+                                value = getattr(data, field.name)
                                 create_repo_settings.append((param, value))
                         except KeyError as e:
                             logger.warning(
@@ -652,7 +652,8 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         )
                         stmt = (
                             f"CREATE REPOSITORY {repository_ident} TYPE "
-                            f"{data.storage_type} WITH ({settings})"
+                            f"{backup_repository_data.storage_type.value} "
+                            f"WITH ({settings});"
                         )
                         await cursor.execute(stmt, [v for _, v in create_repo_settings])
         except DatabaseError as e:
