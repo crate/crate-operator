@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field, fields
 from typing import Type
 
-from crate.operator.constants import DEFAULT_BACKUP_STORAGE_TYPE, BackupStorageType
+from crate.operator.constants import (
+    DEFAULT_BACKUP_STORAGE_PROVIDER,
+    BackupStorageProvider,
+)
 
 
 @dataclass
@@ -23,12 +26,12 @@ class S3BackupRepositoryData:
 @dataclass
 class BackupRepositoryData:
     data: AzureBackupRepositoryData | S3BackupRepositoryData
-    storage_type: BackupStorageType = DEFAULT_BACKUP_STORAGE_TYPE
+    backup_provider: BackupStorageProvider = DEFAULT_BACKUP_STORAGE_PROVIDER
 
     # Validate that all fields are provided and are of string type
     def __post_init__(self):
-        if not isinstance(self.storage_type, BackupStorageType):
-            raise ValueError("storage_type must be a valide backup storage provider")
+        if not isinstance(self.backup_provider, BackupStorageProvider):
+            raise ValueError("backup_provider must be a valide backup storage provider")
 
         if not isinstance(
             self.data, (AzureBackupRepositoryData, S3BackupRepositoryData)
@@ -42,22 +45,22 @@ class BackupRepositoryData:
                 raise ValueError(f"Field `{current_field.name}` must be of string type")
 
     @staticmethod
-    def get_class_from_storage_type(
-        storage_type: BackupStorageType,
+    def get_class_from_backup_provider(
+        backup_provider: BackupStorageProvider,
     ) -> Type["AzureBackupRepositoryData"] | Type["S3BackupRepositoryData"]:
         """
         Retrieve the backup repository data class corresponding
         to the given storage type. Use S3 as a default value.
         """
-        if storage_type == BackupStorageType.AZURE:
+        if backup_provider == BackupStorageProvider.AZURE_BLOB:
             return AzureBackupRepositoryData
         else:
             return S3BackupRepositoryData
 
     @staticmethod
-    def get_secrets_keys(storage_type: BackupStorageType) -> list[str]:
+    def get_secrets_keys(backup_provider: BackupStorageProvider) -> list[str]:
         """
         Returns a list of all the secrets keys per provider.
         """
-        cls = BackupRepositoryData.get_class_from_storage_type(storage_type)
+        cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
         return [field.name for field in fields(cls)]

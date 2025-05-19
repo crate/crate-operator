@@ -37,7 +37,7 @@ from crate.operator.constants import (
     API_GROUP,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
-    BackupStorageType,
+    BackupStorageProvider,
     SnapshotRestoreType,
 )
 from crate.operator.cratedb import connection_factory
@@ -78,13 +78,13 @@ from tests.utils import (
 @pytest.fixture
 def backup_repository_data(faker):
     return {
-        BackupStorageType.S3: {
+        BackupStorageProvider.S3: {
             "basePath": faker.uri_path(),
             "bucket": faker.domain_word(),
             "accessKeyId": faker.domain_word(),
             "secretAccessKey": faker.domain_word(),
         },
-        BackupStorageType.AZURE: {
+        BackupStorageProvider.AZURE_BLOB: {
             "accountKey": faker.domain_word(),
             "accountName": faker.domain_word(),
             "basePath": faker.uri_path(),
@@ -105,14 +105,16 @@ def backup_repository_data(faker):
 @mock.patch(
     "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
 )
-@pytest.mark.parametrize("gc_enabled, storage_type_str", [(True, "s3"), (False, None)])
+@pytest.mark.parametrize(
+    "gc_enabled, backup_provider_str", [(True, "s3"), (False, None)]
+)
 async def test_restore_backup_s3(
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
     mock_send_notification,
     gc_enabled,
-    storage_type_str,
+    backup_provider_str,
     faker,
     namespace,
     kopf_runner,
@@ -126,7 +128,7 @@ async def test_restore_backup_s3(
     number_of_nodes = 1
 
     snapshot = faker.domain_word()
-    data = backup_repository_data[BackupStorageType.S3]
+    data = backup_repository_data[BackupStorageProvider.S3]
 
     await core.create_namespaced_secret(
         namespace=namespace.metadata.name,
@@ -180,7 +182,7 @@ async def test_restore_backup_s3(
     )
 
     await patch_cluster_spec(
-        coapi, namespace.metadata.name, name, snapshot, faker, storage_type_str
+        coapi, namespace.metadata.name, name, snapshot, faker, backup_provider_str
     )
 
     await assert_wait_for(
@@ -231,8 +233,10 @@ async def test_restore_backup_s3(
         timeout=DEFAULT_TIMEOUT,
     )
     expected_repository_data = BackupRepositoryData(data=S3BackupRepositoryData(**data))
-    if storage_type_str:
-        expected_repository_data.storage_type = BackupStorageType(storage_type_str)
+    if backup_provider_str:
+        expected_repository_data.backup_provider = BackupStorageProvider(
+            backup_provider_str
+        )
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
@@ -340,7 +344,7 @@ async def test_restore_backup_s3(
     "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
 )
 @pytest.mark.parametrize("gc_enabled", [True, False])
-async def test_restore_backup_azure(
+async def test_restore_backup_azure_blob(
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -359,7 +363,7 @@ async def test_restore_backup_azure(
     number_of_nodes = 1
 
     snapshot = faker.domain_word()
-    data = backup_repository_data[BackupStorageType.AZURE]
+    data = backup_repository_data[BackupStorageProvider.AZURE_BLOB]
 
     await core.create_namespaced_secret(
         namespace=namespace.metadata.name,
@@ -418,7 +422,7 @@ async def test_restore_backup_azure(
         name,
         snapshot,
         faker,
-        BackupStorageType.AZURE.value,
+        BackupStorageProvider.AZURE_BLOB.value,
     )
 
     await assert_wait_for(
@@ -469,7 +473,7 @@ async def test_restore_backup_azure(
         timeout=DEFAULT_TIMEOUT,
     )
     expected_repository_data = BackupRepositoryData(
-        storage_type=BackupStorageType.AZURE,
+        backup_provider=BackupStorageProvider.AZURE_BLOB,
         data=AzureBackupRepositoryData(**data),
     )
     await assert_wait_for(
@@ -791,10 +795,11 @@ def mock_cratedb_connection():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "storage_type", [BackupStorageType.S3, BackupStorageType.AZURE, None]
+    "backup_provider",
+    [BackupStorageProvider.S3, BackupStorageProvider.AZURE_BLOB, None],
 )
 async def test_create_backup_repository(
-    storage_type, faker, mock_cratedb_connection, backup_repository_data
+    backup_provider, faker, mock_cratedb_connection, backup_repository_data
 ):
     mock_conn_cm = mock_cratedb_connection["mock_conn_context_manager"]
     mock_cursor = mock_cratedb_connection["mock_cursor"]
@@ -802,12 +807,12 @@ async def test_create_backup_repository(
     repository = faker.domain_word()
     mock_logger = mock.Mock(spec=logging.Logger)
 
-    data_dict = backup_repository_data[storage_type or BackupStorageType.S3]
-    data_cls = BackupRepositoryData.get_class_from_storage_type(storage_type)
+    data_dict = backup_repository_data[backup_provider or BackupStorageProvider.S3]
+    data_cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
     data = BackupRepositoryData(data=data_cls(**data_dict))
     # If the storage provider is not specified, it should default to S3
-    if storage_type:
-        data.storage_type = storage_type
+    if backup_provider:
+        data.backup_provider = backup_provider
 
     with mock.patch(
         "crate.operator.restore_backup.quote_ident", return_value=repository
@@ -816,9 +821,10 @@ async def test_create_backup_repository(
             mock_conn_cm, repository, data, mock_logger
         )
 
-    if storage_type == BackupStorageType.AZURE:
+    if backup_provider == BackupStorageProvider.AZURE_BLOB:
         expected_stmt = (
-            f"CREATE REPOSITORY {repository} TYPE {BackupStorageType.AZURE.value} "
+            f"CREATE REPOSITORY {repository} "
+            f"TYPE {BackupStorageProvider.AZURE_BLOB.value} "
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "key = %s, account = %s, base_path = %s, container = %s);"
         )
@@ -833,7 +839,7 @@ async def test_create_backup_repository(
     # Make sure that it uses S3 as a default if the storage type isn't specified
     else:
         expected_stmt = (
-            f"CREATE REPOSITORY {repository} TYPE {BackupStorageType.S3.value} "
+            f"CREATE REPOSITORY {repository} TYPE {BackupStorageProvider.S3.value} "
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "access_key = %s, base_path = %s, bucket = %s, secret_key = %s);"
         )
@@ -854,7 +860,7 @@ async def test_create_backup_repository(
     )
 
 
-def get_azure_secrets(name: str) -> dict[str, Any]:
+def get_azure_blob_secrets(name: str) -> dict[str, Any]:
     return {
         "container": {
             "secretKeyRef": {
@@ -918,19 +924,19 @@ async def patch_cluster_spec(
     name: str,
     snapshot: str,
     faker,
-    storage_type_str: str | None = None,
+    backup_provider_str: str | None = None,
 ):
     restore_snapshot_spec = {
         "snapshot": snapshot,
         "type": "all",
     }
-    if storage_type_str == BackupStorageType.AZURE.value:
-        restore_snapshot_spec.update(get_azure_secrets(name))
+    if backup_provider_str == BackupStorageProvider.AZURE_BLOB.value:
+        restore_snapshot_spec.update(get_azure_blob_secrets(name))
     else:
         restore_snapshot_spec.update(get_s3_secrets(name))
 
-    if storage_type_str:
-        restore_snapshot_spec["storageType"] = storage_type_str
+    if backup_provider_str:
+        restore_snapshot_spec["backupProvider"] = backup_provider_str
 
     await coapi.patch_namespaced_custom_object(
         group=API_GROUP,
