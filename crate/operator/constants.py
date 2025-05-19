@@ -100,4 +100,4 @@ class BackupStorageType(str, enum.Enum):
     AZURE = "azure"
 
 
-DEFAULT_BACKUP_STORAGE_TYPE = BackupStorageType.S3.value
+DEFAULT_BACKUP_STORAGE_TYPE = BackupStorageType.S3
