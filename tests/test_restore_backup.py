@@ -87,7 +87,6 @@ def backup_repository_data(faker):
         BackupStorageProvider.AZURE_BLOB: {
             "accountKey": faker.domain_word(),
             "accountName": faker.domain_word(),
-            "basePath": faker.uri_path(),
             "container": faker.domain_word(),
         },
     }
@@ -372,7 +371,6 @@ async def test_restore_backup_azure_blob(
                 "container": b64encode(data["container"]),
                 "account-key": b64encode(data["accountKey"]),
                 "account-name": b64encode(data["accountName"]),
-                "base-path": b64encode(data["basePath"]),
             },
             metadata=V1ObjectMeta(
                 name=config.RESTORE_BACKUP_SECRET_NAME.format(name=name)
@@ -826,14 +824,13 @@ async def test_create_backup_repository(
             f"CREATE REPOSITORY {repository} "
             f"TYPE {BackupStorageProvider.AZURE_BLOB.value} "
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
-            "key = %s, account = %s, base_path = %s, container = %s);"
+            "key = %s, account = %s, container = %s);"
         )
         expected_values = [
             "'240mb'",
             "true",
             data_dict["accountKey"],
             data_dict["accountName"],
-            data_dict["basePath"],
             data_dict["container"],
         ]
     # Make sure that it uses S3 as a default if the storage type isn't specified

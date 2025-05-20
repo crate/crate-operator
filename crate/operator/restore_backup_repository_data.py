@@ -11,7 +11,6 @@ from crate.operator.constants import (
 class AzureBackupRepositoryData:
     accountKey: str = field(metadata={"query_param": "key"})
     accountName: str = field(metadata={"query_param": "account"})
-    basePath: str = field(metadata={"query_param": "base_path"})
     container: str = field(metadata={"query_param": "container"})
 
 
