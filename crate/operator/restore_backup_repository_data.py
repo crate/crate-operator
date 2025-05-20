@@ -6,6 +6,11 @@ from crate.operator.constants import (
     BackupStorageProvider,
 )
 
+REPOSITORY_TYPE_MAP = {
+    BackupStorageProvider.AZURE_BLOB: "azure",
+    BackupStorageProvider.AWS: "s3",
+}
+
 
 @dataclass
 class AzureBackupRepositoryData:
@@ -15,7 +20,7 @@ class AzureBackupRepositoryData:
 
 
 @dataclass
-class S3BackupRepositoryData:
+class AwsBackupRepositoryData:
     accessKeyId: str = field(metadata={"query_param": "access_key"})
     basePath: str = field(metadata={"query_param": "base_path"})
     bucket: str = field(metadata={"query_param": "bucket"})
@@ -24,7 +29,7 @@ class S3BackupRepositoryData:
 
 @dataclass
 class BackupRepositoryData:
-    data: AzureBackupRepositoryData | S3BackupRepositoryData
+    data: AzureBackupRepositoryData | AwsBackupRepositoryData
     backup_provider: BackupStorageProvider = DEFAULT_BACKUP_STORAGE_PROVIDER
 
     # Validate that all fields are provided and are of string type
@@ -33,11 +38,11 @@ class BackupRepositoryData:
             raise ValueError("backup_provider must be a valide backup storage provider")
 
         if not isinstance(
-            self.data, (AzureBackupRepositoryData, S3BackupRepositoryData)
+            self.data, (AzureBackupRepositoryData, AwsBackupRepositoryData)
         ):
             raise ValueError(
                 "data must be of type AzureBackupRepositoryData or "
-                "S3BackupRepositoryData"
+                "AwsBackupRepositoryData"
             )
         for current_field in fields(self.data):
             if not isinstance(getattr(self.data, current_field.name), str):
@@ -46,15 +51,15 @@ class BackupRepositoryData:
     @staticmethod
     def get_class_from_backup_provider(
         backup_provider: BackupStorageProvider,
-    ) -> Type["AzureBackupRepositoryData"] | Type["S3BackupRepositoryData"]:
+    ) -> Type["AzureBackupRepositoryData"] | Type["AwsBackupRepositoryData"]:
         """
         Retrieve the backup repository data class corresponding
-        to the given storage type. Use S3 as a default value.
+        to the given storage type. Use AWS S3 as a default value.
         """
         if backup_provider == BackupStorageProvider.AZURE_BLOB:
             return AzureBackupRepositoryData
         else:
-            return S3BackupRepositoryData
+            return AwsBackupRepositoryData
 
     @staticmethod
     def get_secrets_keys(backup_provider: BackupStorageProvider) -> list[str]:
@@ -63,3 +68,10 @@ class BackupRepositoryData:
         """
         cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
         return [field.name for field in fields(cls)]
+
+    @staticmethod
+    def get_repository_type(backup_provider: BackupStorageProvider) -> str:
+        """
+        Returns the repository type per provider.
+        """
+        return REPOSITORY_TYPE_MAP[backup_provider]

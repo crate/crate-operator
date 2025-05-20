@@ -633,6 +633,9 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                     row = await cursor.fetchone()
                     if not row:
                         repository_ident = quote_ident(repository, cursor._impl)
+                        repository_type = BackupRepositoryData.get_repository_type(
+                            backup_repository_data.backup_provider
+                        )
 
                         create_repo_settings: list[Tuple[str, str]] = [
                             ("max_restore_bytes_per_sec", "'240mb'"),
@@ -654,7 +657,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         )
                         stmt = (
                             f"CREATE REPOSITORY {repository_ident} TYPE "
-                            f"{backup_repository_data.backup_provider.value} "
+                            f"{repository_type} "
                             f"WITH ({settings});"
                         )
                         await cursor.execute(stmt, [v for _, v in create_repo_settings])

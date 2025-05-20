@@ -96,8 +96,8 @@ class Nodepool(str, enum.Enum):
 
 
 class BackupStorageProvider(str, enum.Enum):
-    S3 = "s3"
+    AWS = "aws"
     AZURE_BLOB = "azure_blob"
 
 
-DEFAULT_BACKUP_STORAGE_PROVIDER = BackupStorageProvider.S3
+DEFAULT_BACKUP_STORAGE_PROVIDER = BackupStorageProvider.AWS

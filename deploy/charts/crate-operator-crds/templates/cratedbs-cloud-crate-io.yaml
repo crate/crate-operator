@@ -479,9 +479,9 @@ spec:
                           type: object
                         type: array
                       backupProvider:
-                        description: The type of storage where the snapshot is located.
+                        description: Specifies the storage provider where the snapshot is stored.
                         type: string
-                        enum: ["azure_blob", "s3"]
+                        enum: ["azure_blob", "aws"]
                     required:
                     - snapshot
                     type: object
