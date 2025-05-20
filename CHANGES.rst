@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added support to restore a snapshot from a Azure storage.
+
 2.47.1 (2025-05-14)
 -------------------
 

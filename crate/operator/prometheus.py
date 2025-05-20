@@ -21,7 +21,7 @@
 
 import enum
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, TypedDict
 
 from prometheus_client import REGISTRY, Info
@@ -37,7 +37,7 @@ i.info(
     {
         "name": "crate-operator",
         "version": __version__,
-        "started": datetime.utcnow().isoformat(),
+        "started": datetime.now(timezone.utc).isoformat(),
     }
 )
 

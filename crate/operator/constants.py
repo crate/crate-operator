@@ -93,3 +93,11 @@ class SnapshotRestoreType(enum.Enum):
 class Nodepool(str, enum.Enum):
     SHARED = "shared"
     DEDICATED = "dedicated"
+
+
+class BackupStorageProvider(str, enum.Enum):
+    AWS = "aws"
+    AZURE_BLOB = "azure_blob"
+
+
+DEFAULT_BACKUP_STORAGE_PROVIDER = BackupStorageProvider.AWS
