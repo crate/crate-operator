@@ -48,9 +48,9 @@ from crate.operator.restore_backup import (
     RestoreType,
 )
 from crate.operator.restore_backup_repository_data import (
+    AwsBackupRepositoryData,
     AzureBackupRepositoryData,
     BackupRepositoryData,
-    S3BackupRepositoryData,
 )
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
@@ -78,7 +78,7 @@ from tests.utils import (
 @pytest.fixture
 def backup_repository_data(faker):
     return {
-        BackupStorageProvider.S3: {
+        BackupStorageProvider.AWS: {
             "basePath": faker.uri_path(),
             "bucket": faker.domain_word(),
             "accessKeyId": faker.domain_word(),
@@ -105,9 +105,9 @@ def backup_repository_data(faker):
     "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
 )
 @pytest.mark.parametrize(
-    "gc_enabled, backup_provider_str", [(True, "s3"), (False, None)]
+    "gc_enabled, backup_provider_str", [(True, "aws"), (False, None)]
 )
-async def test_restore_backup_s3(
+async def test_restore_backup_aws(
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -127,7 +127,7 @@ async def test_restore_backup_s3(
     number_of_nodes = 1
 
     snapshot = faker.domain_word()
-    data = backup_repository_data[BackupStorageProvider.S3]
+    data = backup_repository_data[BackupStorageProvider.AWS]
 
     await core.create_namespaced_secret(
         namespace=namespace.metadata.name,
@@ -231,7 +231,9 @@ async def test_restore_backup_s3(
         err_msg="Backup metrics has not been scaled down.",
         timeout=DEFAULT_TIMEOUT,
     )
-    expected_repository_data = BackupRepositoryData(data=S3BackupRepositoryData(**data))
+    expected_repository_data = BackupRepositoryData(
+        data=AwsBackupRepositoryData(**data)
+    )
     if backup_provider_str:
         expected_repository_data.backup_provider = BackupStorageProvider(
             backup_provider_str
@@ -794,7 +796,7 @@ def mock_cratedb_connection():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "backup_provider",
-    [BackupStorageProvider.S3, BackupStorageProvider.AZURE_BLOB, None],
+    [BackupStorageProvider.AWS, BackupStorageProvider.AZURE_BLOB, None],
 )
 async def test_create_backup_repository(
     backup_provider, faker, mock_cratedb_connection, backup_repository_data
@@ -805,10 +807,10 @@ async def test_create_backup_repository(
     repository = faker.domain_word()
     mock_logger = mock.Mock(spec=logging.Logger)
 
-    data_dict = backup_repository_data[backup_provider or BackupStorageProvider.S3]
+    data_dict = backup_repository_data[backup_provider or BackupStorageProvider.AWS]
     data_cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
     data = BackupRepositoryData(data=data_cls(**data_dict))
-    # If the storage provider is not specified, it should default to S3
+    # If the storage provider is not specified, it should default to AWS S3
     if backup_provider:
         data.backup_provider = backup_provider
 
@@ -821,8 +823,7 @@ async def test_create_backup_repository(
 
     if backup_provider == BackupStorageProvider.AZURE_BLOB:
         expected_stmt = (
-            f"CREATE REPOSITORY {repository} "
-            f"TYPE {BackupStorageProvider.AZURE_BLOB.value} "
+            f"CREATE REPOSITORY {repository} TYPE azure "
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "key = %s, account = %s, container = %s);"
         )
@@ -833,10 +834,10 @@ async def test_create_backup_repository(
             data_dict["accountName"],
             data_dict["container"],
         ]
-    # Make sure that it uses S3 as a default if the storage type isn't specified
+    # Make sure that it uses AWS S3 as a default if the storage type isn't specified
     else:
         expected_stmt = (
-            f"CREATE REPOSITORY {repository} TYPE {BackupStorageProvider.S3.value} "
+            f"CREATE REPOSITORY {repository} TYPE s3 "
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "access_key = %s, base_path = %s, bucket = %s, secret_key = %s);"
         )
@@ -877,16 +878,10 @@ def get_azure_blob_secrets(name: str) -> dict[str, Any]:
                 "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
             },
         },
-        "basePath": {
-            "secretKeyRef": {
-                "key": "base-path",
-                "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
-            },
-        },
     }
 
 
-def get_s3_secrets(name: str) -> dict[str, Any]:
+def get_aws_secrets(name: str) -> dict[str, Any]:
     return {
         "accessKeyId": {
             "secretKeyRef": {
@@ -930,7 +925,7 @@ async def patch_cluster_spec(
     if backup_provider_str == BackupStorageProvider.AZURE_BLOB.value:
         restore_snapshot_spec.update(get_azure_blob_secrets(name))
     else:
-        restore_snapshot_spec.update(get_s3_secrets(name))
+        restore_snapshot_spec.update(get_aws_secrets(name))
 
     if backup_provider_str:
         restore_snapshot_spec["backupProvider"] = backup_provider_str
