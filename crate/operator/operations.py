@@ -576,16 +576,14 @@ async def restart_cluster(
             try:
                 conn_factory = await _get_connection_factory(core, namespace, name)
 
-                await set_cluster_setting(
+                await reset_cluster_setting(
                     conn_factory,
                     logger,
                     setting="cluster.routing.allocation.enable",
-                    value="all",
-                    mode="PERSISTENT",
                 )
             except Exception as e:
                 logger.info(
-                    "Setting cluster allocation to 'new_primaries' failed: %s",
+                    "Resetting cluster allocation failed: %s",
                     str(e),
                 )
             raise kopf.TemporaryError(
