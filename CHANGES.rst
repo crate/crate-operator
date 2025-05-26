@@ -9,6 +9,8 @@ Unreleased
   deleting each pod and reset it after the pod has restarted. This ensures more
   controlled shard allocation during rolling restarts.
 
+* Bumped setuptools to 78.1.1 to fix CVE-2025-47273.
+
 
 2.47.1 (2025-05-14)
 -------------------
