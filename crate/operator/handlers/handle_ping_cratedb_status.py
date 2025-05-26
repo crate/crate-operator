@@ -68,8 +68,7 @@ async def ping_cratedb_status(
         connection = conn_factory()
 
         async with connection as conn:
-            cursor_cm = await conn.cursor()
-            async with cursor_cm as cursor:
+            async with conn.cursor() as cursor:
                 healthiness = await get_healthiness(cursor)
                 # If there are no tables in the cluster, get_healthiness returns
                 # none: default to `Green`, as cluster is reachable

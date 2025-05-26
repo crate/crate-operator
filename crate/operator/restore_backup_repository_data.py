@@ -45,8 +45,11 @@ class BackupRepositoryData:
                 "AwsBackupRepositoryData"
             )
         for current_field in fields(self.data):
-            if not isinstance(getattr(self.data, current_field.name), str):
-                raise ValueError(f"Field `{current_field.name}` must be of string type")
+            value = getattr(self.data, current_field.name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(
+                    f"Field `{current_field.name}` must be a non-empty string"
+                )
 
     @staticmethod
     def get_class_from_backup_provider(

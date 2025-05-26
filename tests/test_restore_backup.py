@@ -771,28 +771,6 @@ def test_get_restore_type_keyword(restore_type, expected_keyword, params):
         assert restore_keyword == expected_keyword
 
 
-@pytest.fixture
-def mock_cratedb_connection():
-    mock_cursor_cm = mock.MagicMock()
-    mock_cursor = mock.AsyncMock()
-    mock_cursor_cm.return_value.__aenter__.return_value = mock_cursor
-    mock_cursor_cm.return_value.__aexit__.return_value = None
-    mock_cursor.fetchone.return_value = None
-
-    mock_conn_cm = mock.MagicMock()
-    mock_conn = mock.AsyncMock()
-    mock_conn_cm.return_value.__aenter__.return_value = mock_conn
-    mock_conn_cm.return_value.__aexit__.return_value = None
-    mock_conn.cursor = mock_cursor_cm
-
-    return {
-        "mock_conn_context_manager": mock_conn_cm,
-        "mock_conn": mock_conn,
-        "mock_cursor_context_manager": mock_cursor_cm,
-        "mock_cursor": mock_cursor,
-    }
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "backup_provider",
@@ -801,11 +779,12 @@ def mock_cratedb_connection():
 async def test_create_backup_repository(
     backup_provider, faker, mock_cratedb_connection, backup_repository_data
 ):
-    mock_conn_cm = mock_cratedb_connection["mock_conn_context_manager"]
     mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor.fetchone.return_value = None
 
     repository = faker.domain_word()
     mock_logger = mock.Mock(spec=logging.Logger)
+    conn_factory = connection_factory("host", "password")
 
     data_dict = backup_repository_data[backup_provider or BackupStorageProvider.AWS]
     data_cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
@@ -818,7 +797,7 @@ async def test_create_backup_repository(
         "crate.operator.restore_backup.quote_ident", return_value=repository
     ):
         await RestoreBackupSubHandler._create_backup_repository(
-            mock_conn_cm, repository, data, mock_logger
+            conn_factory, repository, data, mock_logger
         )
 
     if backup_provider == BackupStorageProvider.AZURE_BLOB:
