@@ -638,7 +638,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         )
 
                         create_repo_settings: list[Tuple[str, str]] = [
-                            ("max_restore_bytes_per_sec", "'240mb'"),
+                            ("max_restore_bytes_per_sec", "240mb"),
                             ("readonly", "true"),
                         ]
                         try:
@@ -660,7 +660,14 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                             f"{repository_type} "
                             f"WITH ({settings});"
                         )
-                        await cursor.execute(stmt, [v for _, v in create_repo_settings])
+                        logger.debug(f"create repository stmt: {stmt}")
+                        logger.debug(
+                            "create repository values: "
+                            f"{tuple(v for _, v in create_repo_settings)}"
+                        )
+                        await cursor.execute(
+                            stmt, tuple(v for _, v in create_repo_settings)
+                        )
         except DatabaseError as e:
             logger.warning("DatabaseError in _create_backup_repository", exc_info=e)
             raise kopf.PermanentError("Backup repository could not be created.")

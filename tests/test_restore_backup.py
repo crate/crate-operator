@@ -806,13 +806,13 @@ async def test_create_backup_repository(
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "key = %s, account = %s, container = %s);"
         )
-        expected_values = [
-            "'240mb'",
+        expected_values_azure = (
+            "240mb",
             "true",
             data_dict["accountKey"],
             data_dict["accountName"],
             data_dict["container"],
-        ]
+        )
     # Make sure that it uses AWS S3 as a default if the storage type isn't specified
     else:
         expected_stmt = (
@@ -820,15 +820,20 @@ async def test_create_backup_repository(
             "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
             "access_key = %s, base_path = %s, bucket = %s, secret_key = %s);"
         )
-        expected_values = [
-            "'240mb'",
+        expected_values_aws = (
+            "240mb",
             "true",
             data_dict["accessKeyId"],
             data_dict["basePath"],
             data_dict["bucket"],
             data_dict["secretAccessKey"],
-        ]
+        )
 
+    expected_values = (
+        expected_values_azure
+        if backup_provider == BackupStorageProvider.AZURE_BLOB
+        else expected_values_aws
+    )
     mock_cursor.execute.assert_has_awaits(
         [
             mock.call("SELECT * FROM sys.repositories WHERE name=%s", (repository,)),
