@@ -660,11 +660,6 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                             f"{repository_type} "
                             f"WITH ({settings});"
                         )
-                        logger.debug(f"create repository stmt: {stmt}")
-                        logger.debug(
-                            "create repository values: "
-                            f"{tuple(v for _, v in create_repo_settings)}"
-                        )
                         await cursor.execute(
                             stmt, tuple(v for _, v in create_repo_settings)
                         )
