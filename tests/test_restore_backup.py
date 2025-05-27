@@ -371,9 +371,10 @@ async def test_restore_backup_azure_blob(
         namespace=namespace.metadata.name,
         body=V1Secret(
             data={
-                "container": b64encode(data["container"]),
                 "account-key": b64encode(data["accountKey"]),
                 "account-name": b64encode(data["accountName"]),
+                "base-path": b64encode(data["basePath"]),
+                "container": b64encode(data["container"]),
             },
             metadata=V1ObjectMeta(
                 name=config.RESTORE_BACKUP_SECRET_NAME.format(name=name)
@@ -846,12 +847,6 @@ async def test_create_backup_repository(
 
 def get_azure_blob_secrets(name: str) -> dict[str, Any]:
     return {
-        "container": {
-            "secretKeyRef": {
-                "key": "container",
-                "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
-            },
-        },
         "accountKey": {
             "secretKeyRef": {
                 "key": "account-key",
@@ -861,6 +856,18 @@ def get_azure_blob_secrets(name: str) -> dict[str, Any]:
         "accountName": {
             "secretKeyRef": {
                 "key": "account-name",
+                "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
+            },
+        },
+        "basePath": {
+            "secretKeyRef": {
+                "key": "base-path",
+                "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
+            },
+        },
+        "container": {
+            "secretKeyRef": {
+                "key": "container",
                 "name": config.RESTORE_BACKUP_SECRET_NAME.format(name=name),
             },
         },

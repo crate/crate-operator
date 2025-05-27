@@ -484,6 +484,7 @@ spec:
                         enum: ["azure_blob", "aws"]
                     required:
                     - snapshot
+                    - basePath
                     type: object
                   settings:
                     description: Additional settings to apply to all nodes in the
