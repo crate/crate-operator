@@ -206,3 +206,28 @@ async def namespace(faker, api_client) -> V1Namespace:
     await assert_wait_for(True, does_namespace_exist, core, name)
     yield ns
     await core.delete_namespace(name=ns.metadata.name, body=V1DeleteOptions())
+
+
+@pytest.fixture
+def mock_cratedb_connection():
+    mock_cursor_cm = mock.MagicMock()
+    mock_cursor = mock.AsyncMock()
+    mock_cursor_cm.return_value.__aenter__.return_value = mock_cursor
+    mock_cursor_cm.return_value.__aexit__.return_value = None
+
+    mock_conn = mock.AsyncMock()
+    mock_conn.__aenter__.return_value = mock_conn
+    mock_conn.__aexit__.return_value = None
+    mock_conn.cursor = mock_cursor_cm
+
+    patcher = mock.patch("crate.operator.cratedb.aiopg.connect", return_value=mock_conn)
+    mocked_connect = patcher.start()
+
+    yield {
+        "mock_connect": mocked_connect,
+        "mock_conn": mock_conn,
+        "mock_cursor": mock_cursor,
+        "mock_cursor_context_manager": mock_cursor_cm,
+    }
+
+    patcher.stop()

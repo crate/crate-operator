@@ -79,7 +79,9 @@ async def test_upgrade_cluster_timeout(
                 status={
                     "subhandlerStartedAt": {
                         "ActionSubhandler": {
-                            "started": int(datetime.datetime.utcnow().timestamp())
+                            "started": int(
+                                datetime.datetime.now(datetime.timezone.utc).timestamp()
+                            )
                             - runtime,
                             "ref": hash,
                         }
@@ -125,7 +127,9 @@ async def test_upgrade_cluster_timeout(
             status={
                 "subhandlerStartedAt": {
                     "ActionSubhandler": {
-                        "started": int(datetime.datetime.utcnow().timestamp())
+                        "started": int(
+                            datetime.datetime.now(datetime.timezone.utc).timestamp()
+                        )
                         - runtime,
                         "ref": hash,
                     }
@@ -307,7 +311,9 @@ async def test_get_action_for_diff(
             status={
                 "subhandlerStartedAt": {
                     "ActionSubhandler": {
-                        "started": int(datetime.datetime.utcnow().timestamp())
+                        "started": int(
+                            datetime.datetime.now(datetime.timezone.utc).timestamp()
+                        )
                         - runtime,
                         "ref": hash,
                     }

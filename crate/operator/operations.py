@@ -1206,7 +1206,9 @@ async def set_cronjob_delay(patch):
     # Set a tag in the status that will be detected by a timer.
     # The timer will re-enable the cronjobs.
     patch.status[DELAY_CRONJOB] = True
-    patch.status[DELAY_CRONJOB_START] = datetime.datetime.utcnow().timestamp()
+    patch.status[DELAY_CRONJOB_START] = datetime.datetime.now(
+        datetime.timezone.utc
+    ).timestamp()
 
 
 async def set_user_jwt(

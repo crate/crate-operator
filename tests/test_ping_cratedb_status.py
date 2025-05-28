@@ -33,29 +33,6 @@ from crate.operator.handlers.handle_ping_cratedb_status import (
 from crate.operator.prometheus import PrometheusClusterStatus
 
 
-@pytest.fixture
-def mock_cratedb_connection():
-    mock_cursor = AsyncMock()
-    mock_cursor.__aenter__.return_value = mock_cursor
-    mock_cursor.__aexit__.return_value = None
-
-    mock_conn = AsyncMock()
-    mock_conn.__aenter__.return_value = mock_conn
-    mock_conn.__aexit__.return_value = None
-    mock_conn.cursor.return_value = mock_cursor
-
-    patcher = patch("crate.operator.cratedb.aiopg.connect", return_value=mock_conn)
-    mocked_connect = patcher.start()
-
-    yield {
-        "mock_connect": mocked_connect,
-        "mock_conn": mock_conn,
-        "mock_cursor": mock_cursor,
-    }
-
-    patcher.stop()
-
-
 @pytest.mark.asyncio
 async def test_ping_cratedb_status_success(mock_cratedb_connection):
     namespace = "test-ns"
@@ -114,11 +91,11 @@ async def test_ping_cratedb_status_success(mock_cratedb_connection):
         )
 
     mock_conn = mock_cratedb_connection["mock_conn"]
-    mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor = mock_cratedb_connection["mock_cursor_context_manager"]
 
     mock_conn.__aenter__.assert_awaited_once()
     mock_conn.cursor.assert_called_once()
-    mock_cursor.__aenter__.assert_awaited_once()
+    mock_cursor.return_value.__aenter__.assert_awaited_once()
 
     patch_obj.status.__setitem__.assert_called_once_with(
         CLUSTER_STATUS_KEY, {"health": PrometheusClusterStatus.GREEN.name}

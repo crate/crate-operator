@@ -307,11 +307,11 @@ spec:
                             properties:
                               key:
                                 description: The key within the Kubernetes Secret
-                                  that holds the Access Key ID.
+                                  that holds the AWS S3 Access Key ID.
                                 type: string
                               name:
                                 description: Name of a Kubernetes Secret that contains
-                                  the Access Key ID to be used for accessing the
+                                  the AWS S3 Access Key ID to be used for accessing the
                                   backup of the source cluster.
                                 type: string
                             required:
@@ -346,11 +346,11 @@ spec:
                             properties:
                               key:
                                 description: The key within the Kubernetes Secret
-                                  that holds the snapshot's bucket name.
+                                  that holds the snapshot's AWS S3 bucket name.
                                 type: string
                               name:
                                 description: Name of a Kubernetes Secret that contains
-                                  the snapshot's bucket name to be used for the restore.
+                                  the snapshot's AWS S3 bucket name to be used for the restore.
                                 type: string
                             required:
                             - key
@@ -365,11 +365,11 @@ spec:
                             properties:
                               key:
                                 description: The key within the Kubernetes Secret
-                                  that holds the Secret Access Key.
+                                  that holds the AWS S3 Secret Access Key.
                                 type: string
                               name:
                                 description: Name of a Kubernetes Secret that contains
-                                  the Secret Access Key to be used for accessing the
+                                  the Secret Access Key AWS S3 to be used for accessing the
                                   backup of the source cluster..
                                 type: string
                             required:
@@ -378,6 +378,64 @@ spec:
                             type: object
                         required:
                         - secretKeyRef
+                        type: object
+                      accountName:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Storage account name.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Storage account name to be used for
+                                  backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      accountKey:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Storage Account Key.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Storage Account Key to be used for backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
+                        type: object
+                      container:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the Azure Blob Container name.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the Azure Blob Container name to be used for backups.
+                                type: string
+                            required:
+                              - key
+                              - name
+                            type: object
+                        required:
+                          - secretKeyRef
                         type: object
                       snapshot:
                         description: The name of the snapshot to use.
@@ -420,12 +478,13 @@ spec:
                           - columns
                           type: object
                         type: array
+                      backupProvider:
+                        description: Specifies the storage provider where the snapshot is stored.
+                        type: string
+                        enum: ["azure_blob", "aws"]
                     required:
                     - snapshot
-                    - bucket
-                    - secretAccessKey
                     - basePath
-                    - accessKeyId
                     type: object
                   settings:
                     description: Additional settings to apply to all nodes in the
