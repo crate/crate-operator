@@ -88,19 +88,19 @@ class Config:
     #: Time in seconds for which the operator will continue and wait to perform
     #: a rolling restart of a cluster. Once this threshold has passed, a
     #: restart is considered failed.
-    ROLLING_RESTART_TIMEOUT = 3600
+    ROLLING_RESTART_TIMEOUT = 3600 * 4
 
     #: Time in seconds for which the operator will continue and wait to scale a
     #: cluster up or down, including deallocating nodes before turning them
     #: off. Once the threshold has passed, a scaling operation is considered
     #: failed.
-    SCALING_TIMEOUT = 3600
+    SCALING_TIMEOUT = 3600 * 4
 
     #: Time in seconds for which the operator will continue and wait to perform
     #: an update of a cluster, either scaling a cluster up or down or upgrading
     #: a cluster. Once this threshold has passed, an update is considered
     #: failed.
-    CLUSTER_UPDATE_TIMEOUT = 7200
+    CLUSTER_UPDATE_TIMEOUT = 3600 * 4
 
     #: Time in seconds for which the operator will continue and wait to perform
     #: a check if volume expansion has finished successfully. Once this threshold

@@ -13,6 +13,9 @@ Unreleased
 
 * Added support to restore a snapshot from a Azure storage.
 
+* Increased rolling restart, scaling, and cluster update timeouts to 4 hours to support
+  longer node shutdown durations introduced by CrateDB decommissioning logic.
+
 2.47.1 (2025-05-14)
 -------------------
 
