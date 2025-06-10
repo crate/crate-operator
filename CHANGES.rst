@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.48.0 (2025-06-10)
+-------------------
+
 * Temporarily set ``cluster.routing.allocation.enable`` to ``new_primaries`` before
   deleting each pod and reset it after the pod has restarted. This ensures more
   controlled shard allocation during rolling restarts.
