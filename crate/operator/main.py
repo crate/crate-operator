@@ -161,16 +161,18 @@ async def cluster_update(
     namespace: str,
     name: str,
     patch: kopf.Patch,
+    body: kopf.Body,
     status: kopf.Status,
     diff: kopf.Diff,
     started: datetime.datetime,
+    logger: logging.Logger,
     **_kwargs,
 ):
     """
     Handles updates to the CrateDB resource.
     """
     await raise_on_namespace_terminating(namespace)
-    await update_cratedb(namespace, name, patch, status, diff, started)
+    await update_cratedb(namespace, name, patch, body, status, diff, started, logger)
 
 
 @kopf.on.update(
