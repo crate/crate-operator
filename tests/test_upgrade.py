@@ -18,8 +18,10 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+import asyncio
 from unittest import mock
 
+import kopf
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
@@ -32,7 +34,12 @@ from crate.operator.upgrade import (
     upgrade_command_hostname_and_zone,
     upgrade_command_jwt_auth,
 )
-from crate.operator.webhooks import WebhookEvent, WebhookStatus
+from crate.operator.webhooks import (
+    WebhookAction,
+    WebhookEvent,
+    WebhookOperation,
+    WebhookStatus,
+)
 
 from .utils import (
     CRATE_VERSION,
@@ -303,3 +310,224 @@ def test_upgrade_sts_command_with_global_jwt_config():
         in new_cmd
     )
     assert "-Cauth.host_based.jwt.aud=cluster1" in new_cmd
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.update_statefulset")
+@mock.patch("crate.operator.webhooks.webhook_client._send")
+async def test_upgrade_rollback_on_failure(
+    mock_send_notification,
+    mock_update_sts,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    version_from = "5.2.3"
+    version_to = "5.7.10"
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    # simulate failure inside one of the update calls
+    mock_update_sts.side_effect = kopf.PermanentError(
+        "Simulated StatefulSet update failure"
+    )
+
+    host, password = await start_cluster(name, namespace, core, coapi, 1, version_from)
+
+    await assert_wait_for(
+        True,
+        do_pods_exist,
+        core,
+        namespace.metadata.name,
+        {
+            f"crate-data-hot-{name}-0",
+        },
+    )
+
+    conn_factory = connection_factory(host, password)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        conn_factory,
+        1,
+        err_msg="Cluster wasn't healthy",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await create_test_sys_jobs_table(conn_factory)
+
+    await coapi.patch_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+        body=[
+            {
+                "op": "replace",
+                "path": "/spec/cluster/version",
+                "value": version_to,
+            },
+        ],
+    )
+
+    await assert_wait_for(
+        True,
+        cluster_routing_allocation_enable_equals,
+        connection_factory(host, password),
+        "new_primaries",
+        err_msg="Cluster routing allocation setting has not been updated",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    # wait for upgrade handler to fail and rollback to run
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        "operator.cloud.crate.io/cluster_update.final_rollback",
+        err_msg="Rollback handler was not triggered",
+        timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    # check that the version was set back
+    crd = await coapi.get_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+    )
+    assert crd["spec"]["cluster"]["version"] == version_from
+
+    # check that the failure webhook was sent
+    failure_call = mock.call(
+        WebhookEvent.FEEDBACK,
+        WebhookStatus.FAILURE,
+        namespace.metadata.name,
+        name,
+        feedback_data={
+            "message": "Simulated StatefulSet update failure",
+            "operation": WebhookOperation.UPDATE.value,
+            "action": WebhookAction.UPGRADE.value,
+        },
+        unsafe=mock.ANY,
+        logger=mock.ANY,
+    )
+    assert await was_notification_sent(
+        mock_send_notification=mock_send_notification,
+        call=failure_call,
+    ), "Expected failure notification was not sent"
+
+
+@pytest.mark.k8s
+@pytest.mark.asyncio
+@mock.patch("crate.operator.webhooks.webhook_client._send")
+async def test_upgrade_blocked_if_rollback_annotation_set(
+    mock_send_notification,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    version_from = "5.2.3"
+    version_to = "5.7.10"
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    host, password = await start_cluster(name, namespace, core, coapi, 1, version_from)
+
+    await assert_wait_for(
+        True,
+        do_pods_exist,
+        core,
+        namespace.metadata.name,
+        {
+            f"crate-data-hot-{name}-0",
+        },
+    )
+
+    conn_factory = connection_factory(host, password)
+
+    await assert_wait_for(
+        True,
+        is_cluster_healthy,
+        conn_factory,
+        1,
+        err_msg="Cluster wasn't healthy",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    # manually simulate that a rollback already happened
+    await coapi.patch_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+        body=[
+            {
+                "op": "add",
+                "path": "/metadata/annotations/operator.cloud.crate.io~1rollback-upgrade",  # noqa
+                "value": "true",
+            }
+        ],
+    )
+
+    await coapi.patch_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+        body=[
+            {
+                "op": "replace",
+                "path": "/spec/cluster/version",
+                "value": version_to,
+            },
+        ],
+    )
+
+    # wait a bit to give kopf time to potentially start the upgrade (if it wrongly did)
+    await asyncio.sleep(5)
+
+    # check that the version is still unchanged
+    crd = await coapi.get_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace.metadata.name,
+        name=name,
+    )
+    # version should reflect the patch, but no upgrade logic must have executed
+    assert crd["spec"]["cluster"]["version"] == version_to
+    # and the annotation should have been set back to false
+    assert (
+        crd["metadata"]["annotations"].get("operator.cloud.crate.io/rollback-upgrade")
+        == "false"
+    )
+
+    # confirm no success or failure webhook for the upgrade was sent
+    upgrade_calls = [
+        call
+        for call in mock_send_notification.call_args_list
+        if (
+            (
+                data := call.kwargs.get("feedback_data")
+                or call.kwargs.get("info_data")
+                or call.kwargs.get("upgrade_data")
+            )
+            and data.get("operation") == WebhookOperation.UPDATE
+            and data.get("action") == WebhookAction.UPGRADE
+        )
+    ]
+
+    assert not upgrade_calls, f"Unexpected upgrade webhooks triggered: {upgrade_calls}"

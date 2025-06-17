@@ -29,6 +29,8 @@ from typing import Any, Callable, Optional, TypedDict
 
 import kopf
 
+from crate.operator.config import config
+from crate.operator.constants import KOPF_STATE_STORE_PREFIX, OperationType
 from crate.operator.exceptions import SubHandlerFailedDependencyError
 from crate.operator.webhooks import (
     WebhookEvent,
@@ -36,9 +38,6 @@ from crate.operator.webhooks import (
     WebhookSubPayload,
     webhook_client,
 )
-
-from ..config import config
-from ..constants import KOPF_STATE_STORE_PREFIX
 
 
 def subhandler_partial(awaitable: Callable, *args, **kwargs):
@@ -94,6 +93,7 @@ class StateBasedSubHandler(abc.ABC):
         context: dict,
         depends_on=None,
         run_on_dep_failures=False,
+        operation: Optional[OperationType] = None,
     ):
         """
         Constructs a new dependency-aware handler.
@@ -113,6 +113,7 @@ class StateBasedSubHandler(abc.ABC):
         self._context = context
         self.depends_on = depends_on if depends_on is not None else []
         self.run_on_dep_failures = run_on_dep_failures
+        self.operation = operation
 
     def __call__(self, **kwargs: Any):
         return functools.partial(self._subhandler, **kwargs)
