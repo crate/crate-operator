@@ -101,3 +101,13 @@ class BackupStorageProvider(str, enum.Enum):
 
 
 DEFAULT_BACKUP_STORAGE_PROVIDER = BackupStorageProvider.AWS
+
+
+class OperationType(str, enum.Enum):
+    UPGRADE = "upgrade"
+    SCALE = "scale"
+    CREATE = "create"
+    SUSPEND = "suspend"
+    RESUME = "resume"
+    CHANGE_COMPUTE = "change_compute"
+    UNKNOWN = "unknown"
