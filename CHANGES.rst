@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bump ``sql_exporter`` to ``0.18.0``.
+
 2.48.0 (2025-06-10)
 -------------------
 
