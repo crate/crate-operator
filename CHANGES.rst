@@ -7,6 +7,10 @@ Unreleased
 
 * Bump ``sql_exporter`` to ``0.18.0``.
 
+* Implemented rollback framework for CrateDB cluster operations. Introduced
+  ``RollbackHandler`` and specialized subhandler ``RollbackUpgradeSubHandler``
+  to support targeted rollback logic.
+
 2.48.0 (2025-06-10)
 -------------------
 

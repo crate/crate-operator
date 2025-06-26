@@ -77,39 +77,40 @@ class WebhookAction(str, enum.Enum):
 
         :param diff: The diff between the old and new resource body.
         """
-        op: kopf.DiffItem = diff[0]
+        for op in diff:
+            if op.operation == kopf.DiffOperation.ADD:
+                if not op.field and op.new.get("snapshot"):
+                    return cls.RESTORE_SNAPSHOT
+                elif not op.field and op.new.get("spec", {}).get("cluster", {}).get(
+                    "name"
+                ):
+                    return cls.CREATE
+            elif op.operation == kopf.DiffOperation.CHANGE:
+                if op.field in {
+                    ("spec", "cluster", "imageRegistry"),
+                    ("spec", "cluster", "version"),
+                }:
+                    return cls.UPGRADE
+                elif op.field == ("spec", "nodes", "master", "replicas"):
+                    return cls.SCALE
+                elif op.field == ("spec", "nodes", "data"):
+                    for node_spec_idx in range(len(op.old)):
+                        old_spec = op.old[node_spec_idx]
+                        new_spec = op.new[node_spec_idx]
 
-        if op.operation == kopf.DiffOperation.ADD:
-            if not op.field and op.new.get("snapshot"):
-                return cls.RESTORE_SNAPSHOT
-            elif not op.field and op.new.get("spec", {}).get("cluster", {}).get("name"):
-                return cls.CREATE
-        elif op.operation == kopf.DiffOperation.CHANGE:
-            if op.field in {
-                ("spec", "cluster", "imageRegistry"),
-                ("spec", "cluster", "version"),
-            }:
-                return cls.UPGRADE
-            elif op.field == ("spec", "nodes", "master", "replicas"):
-                return cls.SCALE
-            elif op.field == ("spec", "nodes", "data"):
-                for node_spec_idx in range(len(op.old)):
-                    old_spec = op.old[node_spec_idx]
-                    new_spec = op.new[node_spec_idx]
-
-                    if old_spec.get("replicas") != new_spec.get("replicas"):
-                        if (
-                            old_spec.get("replicas") == 0
-                            or new_spec.get("replicas") == 0
-                        ):
-                            return cls.SUSPEND
-                        return cls.SCALE
-                    elif old_spec.get("resources", {}).get("disk", {}).get(
-                        "size"
-                    ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
-                        return cls.EXPAND_STORAGE
-                    elif has_compute_changed(old_spec, new_spec):
-                        return cls.CHANGE_COMPUTE
+                        if old_spec.get("replicas") != new_spec.get("replicas"):
+                            if (
+                                old_spec.get("replicas") == 0
+                                or new_spec.get("replicas") == 0
+                            ):
+                                return cls.SUSPEND
+                            return cls.SCALE
+                        elif old_spec.get("resources", {}).get("disk", {}).get(
+                            "size"
+                        ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
+                            return cls.EXPAND_STORAGE
+                        elif has_compute_changed(old_spec, new_spec):
+                            return cls.CHANGE_COMPUTE
         return cls.UNKNOWN
 
 

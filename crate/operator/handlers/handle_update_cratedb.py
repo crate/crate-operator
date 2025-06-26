@@ -21,6 +21,7 @@
 
 import datetime
 import hashlib
+import logging
 from typing import List
 
 import kopf
@@ -30,7 +31,7 @@ from crate.operator.change_compute import (
     ChangeComputeSubHandler,
 )
 from crate.operator.config import config
-from crate.operator.constants import CLUSTER_UPDATE_ID
+from crate.operator.constants import CLUSTER_UPDATE_ID, OperationType
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.operations import (
     DELAY_CRONJOB,
@@ -42,6 +43,7 @@ from crate.operator.operations import (
     SuspendClusterSubHandler,
     set_cronjob_delay,
 )
+from crate.operator.rollback import FinalRollbackSubHandler, RollbackUpgradeSubHandler
 from crate.operator.scale import ScaleSubHandler
 from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
 from crate.operator.utils.crd import has_compute_changed
@@ -53,9 +55,11 @@ async def update_cratedb(
     namespace: str,
     name: str,
     patch: kopf.Patch,
+    body: kopf.Body,
     status: kopf.Status,
     diff: kopf.Diff,
     started: datetime.datetime,
+    logger: logging.Logger,
 ):
     """
     Handle cluster updates.
@@ -101,6 +105,10 @@ async def update_cratedb(
     elif context.get("ref", "") != change_hash:
         context["ref"] = change_hash
 
+    rollback_handlers = [
+        RollbackUpgradeSubHandler(namespace, name, body, patch, logger),
+    ]
+
     # Determines whether the before_cluster_update and after_cluster_update handlers
     # will be registered
     do_before_update = True
@@ -112,6 +120,8 @@ async def update_cratedb(
     do_scale = False
     do_expand_volume = False
 
+    operation = OperationType.UNKNOWN
+
     for _, field_path, old_spec, new_spec in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
@@ -119,8 +129,10 @@ async def update_cratedb(
         }:
             do_upgrade = True
             do_restart = True
+            operation = OperationType.UPGRADE
         elif field_path == ("spec", "nodes", "master", "replicas"):
             do_scale = True
+            operation = OperationType.SCALE
         elif field_path == ("spec", "nodes", "data"):
             for node_spec_idx in range(len(old_spec)):
                 old_spec = old_spec[node_spec_idx]
@@ -128,9 +140,11 @@ async def update_cratedb(
 
                 if old_spec.get("replicas") != new_spec.get("replicas"):
                     do_scale = True
+                    operation = OperationType.SCALE
                     # When resuming the cluster do not register before_update
                     if old_spec.get("replicas") == 0:
                         do_before_update = False
+                        operation = OperationType.RESUME
 
                         # Delay the cronjob re-enabling after resuming the cluster
                         await set_cronjob_delay(patch)
@@ -138,6 +152,7 @@ async def update_cratedb(
                     # When suspending the cluster do not register after_update
                     elif new_spec.get("replicas") == 0:
                         do_after_update = False
+                        operation = OperationType.SUSPEND
 
                         # Do not re-enable the cronjobs if the cluster is suspended
                         patch.status[DELAY_CRONJOB] = False
@@ -151,6 +166,7 @@ async def update_cratedb(
                         do_after_update = False
                 elif has_compute_changed(old_spec, new_spec):
                     do_change_compute = True
+                    operation = OperationType.CHANGE_COMPUTE
                     # pod resources won't change until each pod is recreated
                     do_restart = True
 
@@ -163,15 +179,33 @@ async def update_cratedb(
     ):
         return
 
+    for handler in rollback_handlers:
+        if handler.is_in_rollback():
+            rollback_operation = handler.get_operation_type()
+            if rollback_operation == operation:
+                logger.info(
+                    f"Rollback in progress for {rollback_operation}: "
+                    f"{handler.annotation_key()}, skipping update."
+                )
+                handler.clear_rollback()
+                return
+            else:
+                logger.info(
+                    f"Rollback active for {rollback_operation}, but current operation "
+                    f"is {operation}. Proceeding with update."
+                )
+
     depends_on: List[str] = []
 
     if do_before_update:
         register_before_update_handlers(
-            namespace, name, change_hash, context, depends_on
+            namespace, name, change_hash, context, depends_on, operation
         )
 
     if do_upgrade:
-        register_upgrade_handlers(namespace, name, change_hash, context, depends_on)
+        register_upgrade_handlers(
+            namespace, name, change_hash, context, depends_on, operation
+        )
 
         # Delay the cronjob re-enabling after upgrading a cluster
         # It is called here to not mess up with the values stored in the status
@@ -180,7 +214,7 @@ async def update_cratedb(
 
     if do_change_compute:
         register_change_compute_handlers(
-            namespace, name, change_hash, context, depends_on
+            namespace, name, change_hash, context, depends_on, operation
         )
 
     if do_restart:
@@ -192,10 +226,13 @@ async def update_cratedb(
             depends_on,
             do_upgrade,
             do_change_compute,
+            operation,
         )
 
     if do_scale:
-        register_scale_handlers(namespace, name, change_hash, context, depends_on)
+        register_scale_handlers(
+            namespace, name, change_hash, context, depends_on, operation
+        )
 
     if do_expand_volume:
         register_storage_expansion_handlers(
@@ -204,7 +241,7 @@ async def update_cratedb(
 
     if do_after_update:
         register_after_update_handlers(
-            namespace, name, change_hash, context, depends_on
+            namespace, name, change_hash, context, depends_on, operation
         )
 
     patch.status[CLUSTER_UPDATE_ID] = context
@@ -220,6 +257,21 @@ async def update_cratedb(
             run_on_dep_failures=True,
         )(),
         id="notify_success_update",
+        backoff=get_backoff(),
+    )
+
+    # Rollback operation in case of failed dependencies
+    kopf.register(
+        fn=FinalRollbackSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+            operation=operation,
+        )(),
+        id="final_rollback",
         backoff=get_backoff(),
     )
 
@@ -278,10 +330,16 @@ def register_restart_handlers(
     depends_on: list,
     do_upgrade: bool,
     do_change_compute: bool,
+    operation: OperationType,
 ):
     kopf.register(
         fn=RestartSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            operation=operation,
         )(action=WebhookAction.UPGRADE if do_upgrade else WebhookAction.CHANGE_COMPUTE),
         id="restart",
         backoff=get_backoff(),
@@ -323,11 +381,21 @@ def register_restart_handlers(
 
 
 def register_change_compute_handlers(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    operation: OperationType,
 ):
     kopf.register(
         fn=ChangeComputeSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            operation=operation,
         )(),
         id="change_compute",
         backoff=get_backoff(),
@@ -336,11 +404,21 @@ def register_change_compute_handlers(
 
 
 def register_scale_handlers(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    operation: OperationType,
 ):
     kopf.register(
         fn=ScaleSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            operation=operation,
         )(),
         id="scale",
         backoff=get_backoff(),
@@ -349,11 +427,21 @@ def register_scale_handlers(
 
 
 def register_upgrade_handlers(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    operation: OperationType,
 ):
     kopf.register(
         fn=UpgradeSubHandler(
-            namespace, name, change_hash, context, depends_on=depends_on.copy()
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            operation=operation,
         )(),
         id="upgrade",
         backoff=get_backoff(),
@@ -362,7 +450,12 @@ def register_upgrade_handlers(
 
 
 def register_after_update_handlers(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    operation: OperationType,
 ):
     kopf.register(
         fn=AfterClusterUpdateSubHandler(
@@ -372,6 +465,7 @@ def register_after_update_handlers(
             context,
             depends_on=depends_on.copy(),
             run_on_dep_failures=True,
+            operation=operation,
         )(),
         id="after_cluster_update",
         backoff=get_backoff(),
@@ -380,10 +474,17 @@ def register_after_update_handlers(
 
 
 def register_before_update_handlers(
-    namespace: str, name: str, change_hash: str, context: dict, depends_on: list
+    namespace: str,
+    name: str,
+    change_hash: str,
+    context: dict,
+    depends_on: list,
+    operation: OperationType,
 ):
     kopf.register(
-        fn=BeforeClusterUpdateSubHandler(namespace, name, change_hash, context)(),
+        fn=BeforeClusterUpdateSubHandler(
+            namespace, name, change_hash, context, operation=operation
+        )(),
         id="before_cluster_update",
         backoff=get_backoff(),
     )
