@@ -69,7 +69,7 @@ setup(
         ],
         "testing": [
             "faker==18.3.1",
-            "pytest==8.3.5",
+            "pytest==8.4.1",
             "pytest-aiohttp==1.0.5",
             "pytest-asyncio==0.26.0",
             "pytest-xdist==3.7.0",  # enables parallel testing
