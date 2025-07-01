@@ -1158,14 +1158,7 @@ async def recreate_services(
     postgres_port = ports_spec.get("postgres", Port.POSTGRES.value)
     transport_port = ports_spec.get("transport", Port.TRANSPORT.value)
 
-    base_labels = {
-        LABEL_MANAGED_BY: "crate-operator",
-        LABEL_NAME: name,
-        LABEL_PART_OF: "cratedb",
-    }
-    cratedb_labels = base_labels.copy()
-    cratedb_labels[LABEL_COMPONENT] = "cratedb"
-    cratedb_labels.update(meta.get("labels", {}))
+    cratedb_labels = build_cratedb_labels(name, meta)
 
     owner_references = [
         V1OwnerReference(
@@ -1292,6 +1285,33 @@ def get_owner_references(name: str, meta: kopf.Meta) -> List[V1OwnerReference]:
             uid=meta["uid"],
         )
     ]
+
+
+def build_cratedb_labels(
+    name: str,
+    meta: Dict[str, Any],
+    component: str = "cratedb",
+    label_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Build Kubernetes labels for CrateDB resources, ensuring the operator can
+    identify and manage them reliably.
+
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param meta: Metadata dictionary from which existing labels will be merged.
+    :param component: The component name to set in the labels (default: "cratedb").
+    :param label_name: Optional label for 'app.kubernetes.io/name' (defaults to `name`).
+    """
+    labels = meta.get("labels", {}).copy()
+    labels.update(
+        {
+            LABEL_MANAGED_BY: "crate-operator",
+            LABEL_NAME: label_name or name,
+            LABEL_PART_OF: "cratedb",
+            LABEL_COMPONENT: component,
+        }
+    )
+    return labels
 
 
 class CreateSqlExporterConfigSubHandler(StateBasedSubHandler):

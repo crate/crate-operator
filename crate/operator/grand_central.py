@@ -72,17 +72,18 @@ from crate.operator.constants import (
     GRAND_CENTRAL_INIT_CONTAINER,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
-    LABEL_COMPONENT,
-    LABEL_MANAGED_BY,
     LABEL_NAME,
-    LABEL_PART_OF,
     SHARED_NODE_SELECTOR_KEY,
     SHARED_NODE_SELECTOR_VALUE,
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
 )
-from crate.operator.create import get_gc_user_secret, get_owner_references
+from crate.operator.create import (
+    build_cratedb_labels,
+    get_gc_user_secret,
+    get_owner_references,
+)
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kubeapi import call_kubeapi
 from crate.operator.utils.secrets import get_image_pull_secrets
@@ -90,15 +91,12 @@ from crate.operator.utils.typing import LabelType
 
 
 def get_grand_central_labels(name: str, meta: kopf.Meta) -> Dict[str, Any]:
-    labels = {
-        LABEL_MANAGED_BY: "crate-operator",
-        LABEL_NAME: f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
-        LABEL_PART_OF: "cratedb",
-        LABEL_COMPONENT: "grand-central",
-    }
-    labels.update(meta.get("labels", {}))
-
-    return labels
+    return build_cratedb_labels(
+        name=name,
+        meta=meta,
+        component="grand-central",
+        label_name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+    )
 
 
 def get_grand_central_deployment(
