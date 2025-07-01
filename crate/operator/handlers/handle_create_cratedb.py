@@ -28,20 +28,13 @@ from kubernetes_asyncio.client import V1OwnerReference
 from crate.operator.backup import CreateBackupsSubHandler
 from crate.operator.bootstrap import CreateUsersSubHandler
 from crate.operator.config import config
-from crate.operator.constants import (
-    API_GROUP,
-    CLUSTER_CREATE_ID,
-    LABEL_COMPONENT,
-    LABEL_MANAGED_BY,
-    LABEL_NAME,
-    LABEL_PART_OF,
-    Port,
-)
+from crate.operator.constants import API_GROUP, CLUSTER_CREATE_ID, Port
 from crate.operator.create import (
     CreateServicesSubHandler,
     CreateSqlExporterConfigSubHandler,
     CreateStatefulsetSubHandler,
     CreateSystemUserSubHandler,
+    build_cratedb_labels,
 )
 from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
 from crate.operator.utils.secrets import get_image_pull_secrets
@@ -58,14 +51,7 @@ async def create_cratedb(
     context = status.get(CLUSTER_CREATE_ID) or {}
     hash = hashlib.md5(str(spec).encode("utf-8")).hexdigest()
     name = meta["name"]
-    base_labels = {
-        LABEL_MANAGED_BY: "crate-operator",
-        LABEL_NAME: name,
-        LABEL_PART_OF: "cratedb",
-    }
-    cratedb_labels = base_labels.copy()
-    cratedb_labels[LABEL_COMPONENT] = "cratedb"
-    cratedb_labels.update(meta.get("labels", {}))
+    cratedb_labels = build_cratedb_labels(name, meta)
 
     owner_references = [
         V1OwnerReference(
@@ -214,9 +200,7 @@ async def create_cratedb(
                 "Not deploying backup tools because no backup image is defined."
             )
         else:
-            backup_metrics_labels = base_labels.copy()
-            backup_metrics_labels[LABEL_COMPONENT] = "backup"
-            backup_metrics_labels.update(meta.get("labels", {}))
+            backup_metrics_labels = build_cratedb_labels(name, meta, component="backup")
             kopf.register(
                 fn=CreateBackupsSubHandler(namespace, name, hash, context)(
                     owner_references=owner_references,

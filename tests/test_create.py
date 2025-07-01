@@ -22,7 +22,7 @@
 import logging
 import string
 from os import walk
-from typing import Set
+from typing import Any, Dict, Set
 from unittest import mock
 
 import aiohttp
@@ -52,6 +52,7 @@ from crate.operator.constants import (
     CloudProvider,
 )
 from crate.operator.create import (
+    build_cratedb_labels,
     create_services,
     create_sql_exporter_config,
     create_statefulset,
@@ -1563,6 +1564,32 @@ class TestCreateCustomResource:
         assert resource["spec"]["nodes"]["master"]["labels"] == {"s.n.m.l": "1"}
         assert resource["spec"]["nodes"]["master"]["settings"] == {"s.n.m.s": "1"}
         assert resource["status"] == {"foo": "bar", "buz": {"lorem": "ipsum"}}
+
+
+def test_build_cratedb_labels_overrides_managed_by():
+    meta: Dict[str, Dict[str, Any]] = {
+        "labels": {LABEL_MANAGED_BY: "Helm", "custom-label": "keep-me"}
+    }
+    result = build_cratedb_labels(
+        name="my-crate-cluster",
+        meta=meta,
+        component="custom-component",
+        label_name="override-name",
+    )
+    assert result[LABEL_MANAGED_BY] == "crate-operator"
+    assert result[LABEL_NAME] == "override-name"
+    assert result[LABEL_PART_OF] == "cratedb"
+    assert result[LABEL_COMPONENT] == "custom-component"
+    assert result["custom-label"] == "keep-me"
+
+
+def test_build_cratedb_labels_defaults():
+    meta: Dict[str, Dict[str, Any]] = {}
+    result = build_cratedb_labels(name="abc", meta=meta)
+    assert result[LABEL_NAME] == "abc"
+    assert result[LABEL_COMPONENT] == "cratedb"
+    assert result[LABEL_MANAGED_BY] == "crate-operator"
+    assert result[LABEL_PART_OF] == "cratedb"
 
 
 def test_sql_exporter_config():
