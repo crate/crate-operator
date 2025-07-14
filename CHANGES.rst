@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.49.0 (2025-07-14)
+-------------------
+
 * Bump ``sql_exporter`` to ``0.18.0``.
 
 * Always set ``app.kubernetes.io/managed-by`` to ``crate-operator`` to ensure the
