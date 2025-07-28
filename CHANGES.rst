@@ -12,6 +12,8 @@ Unreleased
   ``RollbackHandler`` and specialized subhandler ``RollbackUpgradeSubHandler``
   to support targeted rollback logic.
 
+* Added ``blobs.path`` setting to the CrateDB cluster spec.
+
 2.49.0 (2025-07-14)
 -------------------
 

@@ -837,6 +837,34 @@ class TestStatefulSetCrateCommand:
             )
             assert "-Cauth.host_based.jwt.aud=cluster1" not in cmd
 
+    @pytest.mark.parametrize("count", [1, 2, 5])
+    def test_blobs_path(self, count):
+        cmd = get_statefulset_crate_command(
+            namespace="some-namespace",
+            name="cluster1",
+            master_nodes=["node-0", "node-1", "node-2"],
+            total_nodes_count=3,
+            data_nodes_count=3,
+            crate_node_name_prefix="node-",
+            cluster_name="my-cluster",
+            node_name="node",
+            node_spec={
+                "resources": {
+                    "requests": {"cpu": 1},
+                    "limits": {"cpu": 1},
+                    "disk": {"count": count},
+                }
+            },
+            cluster_settings=None,
+            has_ssl=True,
+            is_master=True,
+            is_data=True,
+            crate_version=CRATE_VERSION,
+            cloud_settings={},
+        )
+        arg = "-Cblobs.path=" + ",".join(f"/data/data{i}/blobs" for i in range(count))
+        assert arg in cmd
+
 
 class TestStatefulSetCrateEnv:
     def test_without_ssl(self, faker):
