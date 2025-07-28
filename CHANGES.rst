@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.50.0 (2025-07-28)
+-------------------
+
 * Implemented rollback framework for CrateDB cluster operations. Introduced
   ``RollbackHandler`` and specialized subhandler ``RollbackUpgradeSubHandler``
   to support targeted rollback logic.
