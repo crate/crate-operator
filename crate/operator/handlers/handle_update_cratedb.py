@@ -45,7 +45,11 @@ from crate.operator.operations import (
 )
 from crate.operator.rollback import FinalRollbackSubHandler, RollbackUpgradeSubHandler
 from crate.operator.scale import ScaleSubHandler
-from crate.operator.upgrade import AfterUpgradeSubHandler, UpgradeSubHandler
+from crate.operator.upgrade import (
+    AfterUpgradeSubHandler,
+    BeforeUpgradeSubHandler,
+    UpgradeSubHandler,
+)
 from crate.operator.utils.crd import has_compute_changed
 from crate.operator.utils.notifications import FlushNotificationsSubHandler
 from crate.operator.webhooks import WebhookAction
@@ -434,6 +438,20 @@ def register_upgrade_handlers(
     depends_on: list,
     operation: OperationType,
 ):
+    kopf.register(
+        fn=BeforeUpgradeSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            operation=operation,
+        )(),
+        id="before_upgrade",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/before_upgrade")
+
     kopf.register(
         fn=UpgradeSubHandler(
             namespace,

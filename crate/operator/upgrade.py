@@ -21,17 +21,21 @@
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import kopf
-from kubernetes_asyncio.client import AppsV1Api
+from kubernetes_asyncio.client import AppsV1Api, CoreV1Api
 
 from crate.operator.config import config
+from crate.operator.constants import INTERNAL_TABLES, LUCENE_MIN_VERSION_MAP
+from crate.operator.cratedb import connection_factory
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.scale import get_container
 from crate.operator.utils import crate, quorum
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
+from crate.operator.utils.kubeapi import get_host, get_system_user_password
 from crate.operator.utils.version import CrateVersion
 from crate.operator.webhooks import WebhookEvent, WebhookStatus, WebhookUpgradePayload
 
@@ -267,6 +271,176 @@ async def upgrade_cluster(
     await asyncio.gather(*updates)
 
 
+def _get_major_or_error(version: CrateVersion) -> int:
+    """Helper to safely get the major version or raise an error."""
+    if version.major is None:
+        raise kopf.PermanentError(f"Invalid CrateDB version: {version}")
+    return version.major
+
+
+async def check_reindexing_tables(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    body: kopf.Body,
+    old: kopf.Body,
+    logger: logging.Logger,
+):
+    """
+    Check if there are any tables that need re-indexing before a
+    major version upgrade.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the ``CrateDB`` custom resource.
+    :param body: The full body of the ``CrateDB`` custom resource per
+        :class:`kopf.Body`.
+    :param old: The old resource body. Required to get the old version.
+    """
+    old_version = CrateVersion(old["spec"]["cluster"]["version"])
+    new_version = CrateVersion(body.spec["cluster"]["version"])
+
+    old_major = _get_major_or_error(old_version)
+    new_major = _get_major_or_error(new_version)
+
+    if new_major > old_major:
+        # Determine required Lucene version based on the target CrateDB version
+        lucene_min_version = LUCENE_MIN_VERSION_MAP.get(new_major)
+        if lucene_min_version is None:
+            raise kopf.PermanentError(
+                f"No Lucene version mapping found for target CrateDB {new_major}. "
+            )
+        host = await get_host(core, namespace, name)
+        password = await get_system_user_password(core, namespace, name)
+        conn_factory = connection_factory(host, password)
+        connection = conn_factory()
+
+        async with connection as conn:
+            async with conn.cursor() as cursor:
+                query = f"""
+                    SELECT table_name
+                    FROM (
+                        SELECT table_name,
+                            max(min_lucene_version LIKE '{lucene_min_version}')
+                            AS needs_reindex
+                        FROM sys.shards
+                        GROUP BY table_name
+                    ) t
+                    WHERE needs_reindex = TRUE;
+                    """
+                await cursor.execute(query)
+                rows = await cursor.fetchall()
+                logger.info("Found tables that need re-indexing %s", rows)
+
+                if rows:
+                    tables = [row[0] for row in rows]
+                    raise kopf.PermanentError(
+                        f"Tables need re-indexing before upgrade: {', '.join(tables)}"
+                    )
+
+
+async def recreate_internal_tables(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    body: kopf.Body,
+    old: kopf.Body,
+    logger: logging.Logger,
+):
+    """
+    Re-create internal tables that may have been created with an old
+    CrateDB major version.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the ``CrateDB`` custom resource.
+    :param body: The full body of the ``CrateDB`` custom resource per
+        :class:`kopf.Body`.
+    :param old: The old resource body. Required to get the old version.
+    """
+    old_version = CrateVersion(old["spec"]["cluster"]["version"])
+    new_version = CrateVersion(body.spec["cluster"]["version"])
+
+    old_major = _get_major_or_error(old_version)
+    new_major = _get_major_or_error(new_version)
+
+    if new_major > old_major:
+        host = await get_host(core, namespace, name)
+        password = await get_system_user_password(core, namespace, name)
+        conn_factory = connection_factory(host, password)
+        connection = conn_factory()
+
+        async with connection as conn:
+            async with conn.cursor() as cursor:
+                for full_table in INTERNAL_TABLES:
+                    schema, table = full_table.split(".")
+
+                    await cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.tables
+                        WHERE table_schema = %s AND table_name = %s
+                        """,
+                        (schema, table),
+                    )
+                    exists = (await cursor.fetchone())[0]
+
+                    if not exists:
+                        logger.info("Skipping missing table: %s", full_table)
+                        continue
+
+                    try:
+                        tmp_table = f"{schema}.tmp_{table}"
+                        logger.info("Recreating internal table: %s", full_table)
+
+                        # Step 1: Fetch original CREATE TABLE statement and replace
+                        # the table name with a temporary one.
+                        await cursor.execute(f"SHOW CREATE TABLE {full_table}")
+                        ddl = (await cursor.fetchone())[0]
+                        ddl_tmp = re.sub(
+                            r'CREATE TABLE IF NOT EXISTS\s+"([^"]+)"\."([^"]+)"',
+                            f'CREATE TABLE IF NOT EXISTS "{schema}"."tmp_{table}"',
+                            ddl,
+                            count=1,
+                        )
+                        logger.info("Original DDL for %s: %s", full_table, ddl)
+                        logger.info("Temporary DDL for %s: %s", tmp_table, ddl_tmp)
+
+                        # Step 2: Create temporary table
+                        logger.info("Creating temporary table: %s", tmp_table)
+                        await cursor.execute(ddl_tmp)
+
+                        # Step 3: Copy data into temporary table
+                        logger.info("Copying data to %s", tmp_table)
+                        await cursor.execute(
+                            f'INSERT INTO "{schema}"."tmp_{table}" '
+                            f'SELECT * FROM "{schema}"."{table}"'
+                        )
+
+                        # Step 4: Swap tables atomically
+                        logger.info("Swapping %s -> %s", tmp_table, full_table)
+                        await cursor.execute(
+                            f'ALTER CLUSTER SWAP TABLE "{schema}"."tmp_{table}" '
+                            f'TO "{schema}"."{table}"'
+                        )
+
+                        # Step 5: Drop temporary table
+                        logger.info("Dropping obsolete temporary table: %s", tmp_table)
+                        await cursor.execute(
+                            f'DROP TABLE IF EXISTS "{schema}"."tmp_{table}"'
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to re-create table %s: %s",
+                            full_table,
+                            e,
+                            exc_info=True,
+                        )
+                        continue
+
+                logger.info("Successfully re-created all internal tables.")
+
+
 class UpgradeSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.CLUSTER_UPDATE_TIMEOUT))
@@ -296,6 +470,27 @@ class UpgradeSubHandler(StateBasedSubHandler):
         )
 
 
+class BeforeUpgradeSubHandler(StateBasedSubHandler):
+    """
+    A handler which checks if there are any resources created with
+    an old crateDB version.
+    """
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        async with GlobalApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            await check_reindexing_tables(core, namespace, name, body, old, logger)
+
+
 class AfterUpgradeSubHandler(StateBasedSubHandler):
     """
     A handler which depends on ``upgrade`` and ``restart`` having finished
@@ -312,6 +507,10 @@ class AfterUpgradeSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
+        async with GlobalApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            await recreate_internal_tables(core, namespace, name, body, old, logger)
+
         self.schedule_notification(
             WebhookEvent.UPGRADE,
             WebhookUpgradePayload(
