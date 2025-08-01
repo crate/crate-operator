@@ -478,6 +478,7 @@ class BeforeUpgradeSubHandler(StateBasedSubHandler):
     an old crateDB version.
     """
 
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
         self,
         namespace: str,
