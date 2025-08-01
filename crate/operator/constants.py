@@ -70,6 +70,7 @@ DCUTIL_CHECKSUM = f"{DCUTIL_BINARY}.sha256"
 INTERNAL_TABLES = [
     "gc.alembic_version",
     "gc.scheduled_jobs_state",
+    "gc.scheduled_jobs_log",
     "gc.scheduled_jobs",
     "gc.jwt_refresh_token",
 ]
