@@ -67,6 +67,20 @@ DCUTIL_BASE_URL = (
 DCUTIL_BINARY = "dc_util-linux-amd64"
 DCUTIL_CHECKSUM = f"{DCUTIL_BINARY}.sha256"
 
+INTERNAL_TABLES = [
+    "gc.alembic_version",
+    "gc.scheduled_jobs_state",
+    "gc.scheduled_jobs_log",
+    "gc.scheduled_jobs",
+    "gc.jwt_refresh_token",
+]
+
+LUCENE_MIN_VERSION_MAP = {
+    5: "7.%",  # upgrading to CrateDB 5 - Lucene 7.x
+    6: "8.%",  # upgrading to CrateDB 6 - Lucene 8.x
+    7: "9.%",  # future: upgrading to CrateDB 7 - Lucene 9.x
+}
+
 
 class CloudProvider(str, enum.Enum):
     AWS = "aws"
