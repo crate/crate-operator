@@ -19,16 +19,24 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 import asyncio
+import itertools
 from unittest import mock
 
 import kopf
 import pytest
 from kubernetes_asyncio.client import CoreV1Api, CustomObjectsApi
 
-from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB, CloudProvider
+from crate.operator.constants import (
+    API_GROUP,
+    INTERNAL_TABLES,
+    RESOURCE_CRATEDB,
+    CloudProvider,
+)
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.upgrade import (
+    check_reindexing_tables,
+    recreate_internal_tables,
     upgrade_command_data_nodes,
     upgrade_command_global_jwt_config,
     upgrade_command_hostname_and_zone,
@@ -531,3 +539,179 @@ async def test_upgrade_blocked_if_rollback_annotation_set(
     ]
 
     assert not upgrade_calls, f"Unexpected upgrade webhooks triggered: {upgrade_calls}"
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_check_reindexing_tables_detects_tables(
+    mock_get_pwd,
+    mock_get_host,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_pwd.return_value = "pwd"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor.fetchall.return_value = [("table1",), ("table2",)]
+
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": "5.10.10"}}}
+    body.spec = {"cluster": {"version": "6.0.0"}}
+
+    with pytest.raises(kopf.PermanentError, match="Tables need re-indexing"):
+        await check_reindexing_tables(
+            core=mock.MagicMock(),
+            namespace="ns",
+            name="my-cluster",
+            body=body,
+            old=old,
+            logger=mock.MagicMock(),
+        )
+
+    mock_cursor.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "old_version,new_version,expected_lucene",
+    [
+        ("4.8.4", "5.0.0", "7.%"),  # upgrade 4 -> 5
+        ("5.10.10", "6.0.0", "8.%"),  # upgrade 5 -> 6
+        ("6.7.8", "7.0.0", "9.%"),  # future upgrade 6 -> 7
+    ],
+)
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_check_reindexing_tables_dynamic_lucene_version(
+    mock_get_pwd,
+    mock_get_host,
+    old_version,
+    new_version,
+    expected_lucene,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_pwd.return_value = "pwd"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor.fetchall.return_value = [("table1",)]
+
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": old_version}}}
+    body.spec = {"cluster": {"version": new_version}}
+
+    with pytest.raises(kopf.PermanentError, match="Tables need re-indexing"):
+        await check_reindexing_tables(
+            core=mock.MagicMock(),
+            namespace="ns",
+            name="my-cluster",
+            body=body,
+            old=old,
+            logger=mock.MagicMock(),
+        )
+
+    # Verify that correct Lucene version was used in the query
+    executed_query = mock_cursor.execute.call_args[0][0]
+    assert expected_lucene in executed_query
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_recreate_internal_tables_creates_tmp_table(
+    mock_get_password,
+    mock_get_host,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_password.return_value = "pwd"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    ddl = """
+        CREATE TABLE IF NOT EXISTS "gc"."alembic_version" (
+           "version_num" TEXT NOT NULL
+        )
+        CLUSTERED INTO 1 SHARDS
+        WITH (
+           column_policy = 'strict',
+           number_of_replicas = '0-1'
+        )
+    """
+    mock_cursor.fetchone.side_effect = itertools.cycle(
+        [
+            (1,),  # table exists
+            (ddl,),  # SHOW CREATE TABLE
+        ]
+    )
+
+    core = mock.MagicMock()
+    logger = mock.MagicMock()
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": "5.10.10"}}}
+    body.spec = {"cluster": {"version": "6.0.0"}}
+
+    await recreate_internal_tables(core, "ns", "my-cluster", body, old, logger)
+
+    executed_sql = " ".join(call.args[0] for call in mock_cursor.execute.call_args_list)
+
+    for full_table in INTERNAL_TABLES:
+        schema, table = full_table.split(".")
+        tmp_table = f"tmp_{table}"
+
+        # Ensure all operations were called for this table
+        assert f'CREATE TABLE IF NOT EXISTS "{schema}"."{tmp_table}"' in executed_sql
+        assert f'INSERT INTO "{schema}"."{tmp_table}"' in executed_sql
+        assert f'ALTER CLUSTER SWAP TABLE "{schema}"."{tmp_table}"' in executed_sql
+        assert f'DROP TABLE IF EXISTS "{schema}"."{tmp_table}"' in executed_sql
+
+    # Ensure no CREATE on the original table
+    assert 'CREATE TABLE IF NOT EXISTS "gc"."alembic_version"' not in executed_sql
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_recreate_internal_tables_skips_missing_tables(
+    mock_get_password,
+    mock_get_host,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_password.return_value = "pwd"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    # Returns (0,) which means that the table doesn't exist, repeated for all tables
+    mock_cursor.fetchone.side_effect = itertools.repeat((0,))
+
+    core = mock.MagicMock()
+    logger = mock.MagicMock()
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": "5.10.10"}}}
+    body.spec = {"cluster": {"version": "6.0.0"}}
+
+    await recreate_internal_tables(core, "ns", "my-cluster", body, old, logger)
+
+    executed_sql = " ".join(call.args[0] for call in mock_cursor.execute.call_args_list)
+
+    for full_table in INTERNAL_TABLES:
+        schema, table = full_table.split(".")
+        tmp_table = f"tmp_{table}"
+
+        # Ensure none of these operations were called
+        assert (
+            f'CREATE TABLE IF NOT EXISTS "{schema}"."{tmp_table}"' not in executed_sql
+        )
+        assert f'INSERT INTO "{schema}"."{tmp_table}"' not in executed_sql
+        assert f'ALTER CLUSTER SWAP TABLE "{schema}"."{tmp_table}"' not in executed_sql
+        assert f'DROP TABLE IF EXISTS "{schema}"."{tmp_table}"' not in executed_sql
