@@ -454,6 +454,10 @@ def get_statefulset_crate_command(
         "-Cpath.data": ",".join(
             f"/data/data{i}" for i in range(node_spec["resources"]["disk"]["count"])
         ),
+        "-Cblobs.path": ",".join(
+            f"/data/data{i}/blobs"
+            for i in range(node_spec["resources"]["disk"]["count"])
+        ),
         "-Cprocessors": str(
             math.ceil(
                 get_cluster_resource_limits(
