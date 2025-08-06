@@ -5,14 +5,17 @@ Changelog
 Unreleased
 ----------
 
+2.51.0 (2025-08-06)
+-------------------
+
+* Added ``blobs.path`` setting to the CrateDB cluster spec.
+
 2.50.0 (2025-07-28)
 -------------------
 
 * Implemented rollback framework for CrateDB cluster operations. Introduced
   ``RollbackHandler`` and specialized subhandler ``RollbackUpgradeSubHandler``
   to support targeted rollback logic.
-
-* Added ``blobs.path`` setting to the CrateDB cluster spec.
 
 2.49.0 (2025-07-14)
 -------------------
