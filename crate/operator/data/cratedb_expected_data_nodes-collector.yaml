@@ -1,0 +1,9 @@
+---
+collector_name: cratedb_expected_data_nodes_collector
+metrics:
+- help: "Number of expected data nodes"
+  metric_name: cratedb_expected_data_nodes
+  query: select settings['gateway']['expected_data_nodes'] as cratedb_expected_data_nodes from sys.cluster;
+  type: gauge
+  values: [cratedb_expected_data_nodes]
+min_interval: 60m

@@ -10,6 +10,8 @@ Unreleased
 * Automatically re-create internal system tables after completing a major version
   upgrade.
 
+* Add collector for cratedb expected_data_nodes monitoring to the sql_exporter.
+
 2.51.0 (2025-08-06)
 -------------------
 
