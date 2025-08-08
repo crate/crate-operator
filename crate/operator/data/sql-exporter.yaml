@@ -14,7 +14,7 @@ global:
   # timing out first.
   scrape_timeout_offset: 500ms
 target:
-  collectors: [responsivity_collector, cratedb_max_shards_collector, cratedb_cluster_last_user_activity_collector, cratedb_unreplicated_tables_collector, cratedb_large_translogs_collector]
+  collectors: [responsivity_collector, cratedb_max_shards_collector, cratedb_cluster_last_user_activity_collector, cratedb_unreplicated_tables_collector, cratedb_large_translogs_collector, cratedb_expected_data_nodes_collector]
   # To test sql exporter against a local crateDB service you can add "&sslmode=disable" to the data_source_name.
   # Please do not use sslmode=disable in production as it hinders security.
   data_source_name: "postgres://crate@localhost:5432/?connect_timeout=5"
