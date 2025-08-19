@@ -10,6 +10,8 @@ Unreleased
 * Automatically re-create internal system tables after completing a major version
   upgrade.
 
+* Enable AWS cross-zone load balancing
+
 2.51.0 (2025-08-06)
 -------------------
 
