@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.52.0 (2025-08-26)
+-------------------
+
 * Detect tables that require re-indexing before performing a major version upgrade.
 
 * Automatically re-create internal system tables after completing a major version
