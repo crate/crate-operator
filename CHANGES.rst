@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.52.1 (2025-09-15)
+-------------------
+
 * Downgraded ``kopf`` to ``1.37.1`` due to compatibility issue.
 
 2.52.0 (2025-08-26)
