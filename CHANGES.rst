@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added watermark_collector to sql_exporter config.
+
 2.52.1 (2025-09-15)
 -------------------
 

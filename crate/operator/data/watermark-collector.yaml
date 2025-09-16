@@ -1,0 +1,29 @@
+---
+collector_name: watermark_collector
+metrics:
+  - help: Indicates whether the CrateDB nodes hit one of the watermarks
+    key_labels:
+      - watermark_level
+    metric_name: cratedb_watermarks
+    query: |
+      SELECT
+        CASE
+          WHEN description ILIKE '%low disk watermark%' THEN 'low'
+          WHEN description ILIKE '%high disk watermark%' THEN 'high'
+          WHEN description ILIKE '%flood stage disk watermark%' THEN 'flood'
+        END AS watermark_level,
+        COUNT(*) AS violations_count
+      FROM sys.node_checks
+      WHERE severity = 3
+        AND passed = false
+        AND (
+          description ILIKE '%low disk watermark%'
+          OR description ILIKE '%high disk watermark%'
+          OR description ILIKE '%flood stage disk watermark%'
+        )
+        AND NOT acknowledged
+      GROUP BY watermark_level;
+    type: gauge
+    values:
+      - violations_count
+min_interval: "2m"
