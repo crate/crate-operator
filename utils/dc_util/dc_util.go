@@ -22,12 +22,147 @@ import (
 )
 
 const (
-	defaultCrateNodePrefix = "data-hot"
-	defaultPID             = 1
-	defaultProto           = "https"
-	defaultMinAvailability = "FULL"
-	defaultTimeout         = "7200s"
+	defaultCrateNodePrefix               = "data-hot"
+	defaultPID                           = 1
+	defaultProto                         = "https"
+	defaultMinAvailability               = "FULL"
+	defaultTimeout                       = "7200s"
+	defaultTerminationGracePeriodSeconds = 30  // Kubernetes default
+	gracePeriodBuffer                    = 120 // seconds to subtract from terminationGracePeriodSeconds
+	minimumTimeout                       = 360 // minimum effective timeout in seconds
+
+	// StatefulSet label keys (using dashes instead of underscores)
+	labelMinAvailability = "dc-util-min-availability"
+	labelGracefulStop    = "dc-util-graceful-stop"
 )
+
+type customError struct{ msg string }
+
+func (e *customError) Error() string { return e.msg }
+
+// ErrMalformedHostname is returned when hostname cannot be parsed
+var ErrMalformedHostname = &customError{"malformed hostname"}
+
+// splitHostname splits hostname by "-"
+func splitHostname(hostname string) []string {
+	return strings.Split(hostname, "-")
+}
+
+// makeDecommissionStmt creates the decommission statement
+func makeDecommissionStmt(nodeName string) string {
+	return fmt.Sprintf("alter cluster decommission '%s'", nodeName)
+}
+
+// extractNodeName extracts the CrateDB node name from hostname
+func extractNodeName(hostname, crateNodePrefix, defaultPrefix string) (string, error) {
+	parts := splitHostname(hostname)
+
+	// If custom prefix provided (not default), use it
+	if crateNodePrefix != defaultPrefix && crateNodePrefix != "" {
+		if len(parts) > 0 {
+			podNumber := parts[len(parts)-1]
+			return crateNodePrefix + "-" + podNumber, nil
+		}
+		return "", ErrMalformedHostname
+	}
+
+	// Extract from hostname if using default prefix
+	// Expected format: crate-<prefix-parts>-<uuid-parts>-<pod-number>
+	// We want: <prefix-parts>-<pod-number>
+	if len(parts) >= 4 && parts[0] == "crate" {
+		podNumber := parts[len(parts)-1]
+
+		// Look for the node prefix pattern after "crate"
+		// Use the provided crateNodePrefix (which equals defaultPrefix in this case)
+		prefixParts := strings.Split(crateNodePrefix, "-")
+
+		// Check if the hostname contains the expected prefix parts after "crate"
+		if len(parts) >= len(prefixParts)+2 { // crate + prefix parts + pod number (minimum)
+			// Extract the prefix parts that match our expected pattern
+			prefixMatches := true
+			for i, expectedPart := range prefixParts {
+				if parts[1+i] != expectedPart {
+					prefixMatches = false
+					break
+				}
+			}
+
+			if prefixMatches {
+				return crateNodePrefix + "-" + podNumber, nil
+			}
+		}
+	}
+
+	return "", ErrMalformedHostname
+}
+
+// calculateEffectiveTimeout determines the timeout to use based on terminationGracePeriodSeconds
+func calculateEffectiveTimeout(flagTimeout string, terminationGracePeriodSeconds *int64) (string, error) {
+	// Parse the flag timeout value
+	flagTimeoutDuration, err := time.ParseDuration(flagTimeout)
+	if err != nil {
+		return "", fmt.Errorf("invalid timeout format: %w", err)
+	}
+	flagTimeoutSeconds := int(flagTimeoutDuration.Seconds())
+
+	// If terminationGracePeriodSeconds is not set or is the default value (30s), use flag timeout
+	// The default 30s is too small for CrateDB decommissioning, so we rely on the flag timeout
+	if terminationGracePeriodSeconds == nil || *terminationGracePeriodSeconds == defaultTerminationGracePeriodSeconds {
+		return flagTimeout, nil
+	}
+
+	// Calculate effective timeout: terminationGracePeriodSeconds - buffer
+	effectiveTimeoutSeconds := int(*terminationGracePeriodSeconds) - gracePeriodBuffer
+
+	// Ensure minimum timeout
+	if effectiveTimeoutSeconds < minimumTimeout {
+		effectiveTimeoutSeconds = minimumTimeout
+		log.Printf("Calculated timeout (%ds) is below minimum, using %ds instead",
+			int(*terminationGracePeriodSeconds)-gracePeriodBuffer, minimumTimeout)
+	}
+
+	// Log when using different timeout than flag
+	if effectiveTimeoutSeconds != flagTimeoutSeconds {
+		log.Printf("Using timeout derived from terminationGracePeriodSeconds: %ds (terminationGracePeriodSeconds=%ds, buffer=%ds) instead of flag value: %ds",
+			effectiveTimeoutSeconds, *terminationGracePeriodSeconds, gracePeriodBuffer, flagTimeoutSeconds)
+	}
+
+	return fmt.Sprintf("%ds", effectiveTimeoutSeconds), nil
+}
+
+// getMinAvailabilityFromLabels reads min-availability from StatefulSet labels or returns default
+func getMinAvailabilityFromLabels(labels map[string]string, defaultValue string) string {
+	if value, exists := labels[labelMinAvailability]; exists {
+		// Validate the value
+		switch value {
+		case "NONE", "FULL", "PRIMARIES":
+			log.Printf("Using min-availability from StatefulSet label: %s", value)
+			return value
+		default:
+			log.Printf("Invalid min-availability value in StatefulSet label '%s': %s, using default: %s",
+				labelMinAvailability, value, defaultValue)
+		}
+	}
+	return defaultValue
+}
+
+// getGracefulStopForceFromLabels reads graceful stop force setting from StatefulSet labels
+func getGracefulStopForceFromLabels(labels map[string]string) bool {
+	if value, exists := labels[labelGracefulStop]; exists {
+		switch value {
+		case "TRUE", "true", "True":
+			log.Printf("Using graceful stop force from StatefulSet label: true")
+			return true
+		case "FALSE", "false", "False":
+			log.Printf("Using graceful stop force from StatefulSet label: false")
+			return false
+		default:
+			log.Printf("Invalid graceful stop value in StatefulSet label '%s': %s, using default: true",
+				labelGracefulStop, value)
+		}
+	}
+	return true // default behavior
+}
 
 func sendSQLStatement(proto, stmt string) error {
 	payload := map[string]string{"stmt": stmt}
@@ -159,6 +294,14 @@ func run() error {
 	}
 	statefulSetName := strings.Join(hostnameParts[:len(hostnameParts)-1], "-")
 
+	// Determine crateNodeName using extracted logic
+	log.Printf("Parsing hostname: %s", hostname)
+	actualCrateNodeName, err := extractNodeName(hostname, crateNodePrefix, defaultCrateNodePrefix)
+	if err != nil {
+		return fmt.Errorf("failed to extract node name from hostname %s: %w", hostname, err)
+	}
+	log.Printf("Extracted CrateDB node name: %s", actualCrateNodeName)
+
 	ctx := context.Background()
 	statefulSet, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, statefulSetName, metav1.GetOptions{})
 	if err != nil {
@@ -168,19 +311,34 @@ func run() error {
 
 	log.Printf("StatefulSet has %d replicas configured", replicas)
 
+	// Get configuration from StatefulSet labels
+	effectiveMinAvailability := getMinAvailabilityFromLabels(statefulSet.Labels, minAvailability)
+	gracefulStopForce := getGracefulStopForceFromLabels(statefulSet.Labels)
+
+	// Calculate effective timeout based on terminationGracePeriodSeconds
+	effectiveTimeout, err := calculateEffectiveTimeout(decommissionTimeout, statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	if err != nil {
+		return fmt.Errorf("failed to calculate effective timeout: %w", err)
+	}
+
+	if statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds != nil {
+		log.Printf("StatefulSet terminationGracePeriodSeconds: %ds", *statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	} else {
+		log.Printf("StatefulSet terminationGracePeriodSeconds: not set (using Kubernetes default)")
+	}
+
 	time.Sleep(2 * time.Second) // Sleep to catch up with the replica settings
 
 	if replicas > 0 {
-		podNumber := hostnameParts[len(hostnameParts)-1]
-
 		// Send the SQL statements to decommission the node
-		log.Printf("Decommissioning node %s with graceful_stop.timeout of %s", podNumber, decommissionTimeout)
+		log.Printf("Decommissioning node %s with graceful_stop.timeout of %s, min_availability=%s, force=%t",
+			actualCrateNodeName, effectiveTimeout, effectiveMinAvailability, gracefulStopForce)
 
 		statements := []string{
-			fmt.Sprintf(`set global transient "cluster.graceful_stop.timeout" = '%s';`, decommissionTimeout),
-			`set global transient "cluster.graceful_stop.force" = True;`,
-			fmt.Sprintf(`set global transient "cluster.graceful_stop.min_availability"='%s';`, minAvailability),
-			fmt.Sprintf(`alter cluster decommission '%s-%s'`, crateNodePrefix, podNumber),
+			fmt.Sprintf(`set global transient "cluster.graceful_stop.timeout" = '%s';`, effectiveTimeout),
+			fmt.Sprintf(`set global transient "cluster.graceful_stop.force" = %t;`, gracefulStopForce),
+			fmt.Sprintf(`set global transient "cluster.graceful_stop.min_availability"='%s';`, effectiveMinAvailability),
+			makeDecommissionStmt(actualCrateNodeName),
 		}
 
 		for _, stmt := range statements {

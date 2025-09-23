@@ -1,0 +1,622 @@
+package main
+
+import (
+	"testing"
+)
+
+// Test the extractNodeName function directly with comprehensive cases
+func TestExtractNodeName(t *testing.T) {
+	testCases := []struct {
+		name             string
+		hostname         string
+		crateNodePrefix  string
+		defaultPrefix    string
+		expectedNodeName string
+		shouldError      bool
+	}{
+		{
+			name:             "Real world case with UUID",
+			hostname:         "crate-data-hot-d84c10e6-d8fb-4d10-bf60-f9f2ea919a73-2",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "data-hot-2",
+			shouldError:      false,
+		},
+		{
+			name:             "Simple case without UUID",
+			hostname:         "crate-data-hot-0",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "data-hot-0",
+			shouldError:      false,
+		},
+		{
+			name:             "Multiple UUID parts",
+			hostname:         "crate-data-hot-uuid1-uuid2-1",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "data-hot-1",
+			shouldError:      false,
+		},
+		{
+			name:             "Custom prefix case",
+			hostname:         "data-hot-2",
+			crateNodePrefix:  "custom-prefix",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "custom-prefix-2",
+			shouldError:      false,
+		},
+		{
+			name:             "Custom prefix with complex hostname",
+			hostname:         "crate-data-hot-uuid-0",
+			crateNodePrefix:  "custom",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "custom-0",
+			shouldError:      false,
+		},
+		{
+			name:             "Invalid hostname format",
+			hostname:         "invalid-hostname",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "",
+			shouldError:      true,
+		},
+		{
+			name:             "Hostname too short",
+			hostname:         "crate-data-0",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "",
+			shouldError:      true,
+		},
+		{
+			name:             "Hostname not starting with crate",
+			hostname:         "notcrate-data-hot-uuid-0",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "",
+			shouldError:      true,
+		},
+		{
+			name:             "Empty hostname",
+			hostname:         "",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "",
+			shouldError:      true,
+		},
+		{
+			name:             "Single part prefix",
+			hostname:         "crate-master-uuid-0",
+			crateNodePrefix:  "master",
+			defaultPrefix:    "master",
+			expectedNodeName: "master-0",
+			shouldError:      false,
+		},
+		{
+			name:             "Multi-part prefix with UUID",
+			hostname:         "crate-data-warm-d84c10e6-d8fb-4d10-bf60-f9f2ea919a73-1",
+			crateNodePrefix:  "data-warm",
+			defaultPrefix:    "data-warm",
+			expectedNodeName: "data-warm-1",
+			shouldError:      false,
+		},
+		{
+			name:             "Hostname without crate prefix but with UUID pattern",
+			hostname:         "master-d84c10e6-d8fb-4d10-bf60-2",
+			crateNodePrefix:  "master",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "master-2",
+			shouldError:      false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := extractNodeName(tc.hostname, tc.crateNodePrefix, tc.defaultPrefix)
+
+			if tc.shouldError && err == nil {
+				t.Errorf("Expected error but got none. Result: %s", result)
+			} else if !tc.shouldError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			} else if !tc.shouldError && result != tc.expectedNodeName {
+				t.Errorf("Expected '%s' but got '%s'", tc.expectedNodeName, result)
+			}
+
+			// Log successful cases for visibility
+			if !tc.shouldError && err == nil {
+				t.Logf("Successfully extracted node name: %s", result)
+			}
+		})
+	}
+}
+
+func TestDecommissionIntegrationCases(t *testing.T) {
+	cases := []struct {
+		name            string
+		hostname        string
+		crateNodePrefix string
+		defaultPrefix   string
+		wantNodeName    string
+		wantError       bool
+	}{
+		{
+			name:            "Custom prefix overrides extraction",
+			hostname:        "crate-data-hot-uuid-0",
+			crateNodePrefix: "custom",
+			defaultPrefix:   "data-hot",
+			wantNodeName:    "custom-0",
+			wantError:       false,
+		},
+		{
+			name:            "Default prefix uses extraction",
+			hostname:        "crate-data-hot-uuid-0",
+			crateNodePrefix: "data-hot",
+			defaultPrefix:   "data-hot",
+			wantNodeName:    "data-hot-0",
+			wantError:       false,
+		},
+		{
+			name:            "Malformed hostname (too short)",
+			hostname:        "crate-data-0",
+			crateNodePrefix: "data-hot",
+			defaultPrefix:   "data-hot",
+			wantNodeName:    "",
+			wantError:       true,
+		},
+		{
+			name:            "Malformed hostname (not crate)",
+			hostname:        "notcrate-data-hot-uuid-0",
+			crateNodePrefix: "data-hot",
+			defaultPrefix:   "data-hot",
+			wantNodeName:    "",
+			wantError:       true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result, err := extractNodeName(c.hostname, c.crateNodePrefix, c.defaultPrefix)
+
+			if c.wantError && err == nil {
+				t.Errorf("Expected error but got none")
+			}
+			if !c.wantError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if !c.wantError && result != c.wantNodeName {
+				t.Errorf("Got nodeName=%q; want nodeName=%q", result, c.wantNodeName)
+			}
+		})
+	}
+}
+
+func TestNodeNameExtractionEdgeCases(t *testing.T) {
+	cases := []struct {
+		hostname        string
+		crateNodePrefix string
+		defaultPrefix   string
+		expectedNode    string
+		shouldError     bool
+	}{
+		// Single prefix part
+		{"crate-data-12345-0", "data", "data", "data-0", false},
+		// Multiple prefix parts
+		{"crate-foo-bar-baz-12345-0", "foo-bar-baz", "foo-bar-baz", "foo-bar-baz-0", false},
+		// Missing UUID (should still work with our new logic)
+		{"crate-data-hot-0", "data-hot", "data-hot", "data-hot-0", false},
+		// Not starting with crate-
+		{"notcrate-data-hot-uuid-0", "data-hot", "data-hot", "", true},
+		// Empty hostname
+		{"", "data-hot", "data-hot", "", true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.hostname, func(t *testing.T) {
+			result, err := extractNodeName(c.hostname, c.crateNodePrefix, c.defaultPrefix)
+
+			if c.shouldError && err == nil {
+				t.Errorf("Expected error but got none. Result: %s", result)
+			} else if !c.shouldError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			} else if !c.shouldError && result != c.expectedNode {
+				t.Errorf("Expected '%s' but got '%s'", c.expectedNode, result)
+			}
+		})
+	}
+}
+
+func TestDecommissionStatement(t *testing.T) {
+	tests := []struct {
+		name             string
+		hostname         string
+		crateNodePrefix  string
+		defaultPrefix    string
+		expectedNodeName string
+		expectError      bool
+	}{
+		{
+			name:             "Use prefix from hostname if flag is default",
+			hostname:         "crate-master-bdc9bebd-d0c6-49a3-bcae-142f34d125fa-0",
+			crateNodePrefix:  "master",
+			defaultPrefix:    "master",
+			expectedNodeName: "master-0",
+			expectError:      false,
+		},
+		{
+			name:             "Use prefix from hostname with data-hot",
+			hostname:         "crate-data-hot-bdc9bebd-d0c6-49a3-bcae-142f34d125fa-0",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "data-hot-0",
+			expectError:      false,
+		},
+		{
+			name:             "Use provided flag if not default",
+			hostname:         "crate-master-bdc9bebd-d0c6-49a3-bcae-142f34d125fa-0",
+			crateNodePrefix:  "custom",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "custom-0",
+			expectError:      false,
+		},
+		{
+			name:             "Real world UUID case",
+			hostname:         "crate-data-hot-d84c10e6-d8fb-4d10-bf60-f9f2ea919a73-2",
+			crateNodePrefix:  "data-hot",
+			defaultPrefix:    "data-hot",
+			expectedNodeName: "data-hot-2",
+			expectError:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualNodeName, err := extractNodeName(tt.hostname, tt.crateNodePrefix, tt.defaultPrefix)
+
+			if tt.expectError && err == nil {
+				t.Errorf("Expected error but got none")
+				return
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if !tt.expectError {
+				stmt := makeDecommissionStmt(actualNodeName)
+				want := "alter cluster decommission '" + tt.expectedNodeName + "'"
+				if stmt != want {
+					t.Errorf("Got statement %q, want %q", stmt, want)
+				}
+				t.Logf("Generated correct statement: %q", stmt)
+			}
+		})
+	}
+}
+
+func TestMakeDecommissionStmt(t *testing.T) {
+	tests := []struct {
+		nodeName string
+		expected string
+	}{
+		{"data-hot-0", "alter cluster decommission 'data-hot-0'"},
+		{"master-1", "alter cluster decommission 'master-1'"},
+		{"custom-prefix-2", "alter cluster decommission 'custom-prefix-2'"},
+	}
+
+	for _, tt := range tests {
+		result := makeDecommissionStmt(tt.nodeName)
+		if result != tt.expected {
+			t.Errorf("makeDecommissionStmt(%q) = %q, want %q", tt.nodeName, result, tt.expected)
+		}
+	}
+}
+
+func TestSplitHostname(t *testing.T) {
+	tests := []struct {
+		hostname string
+		expected []string
+	}{
+		{"crate-data-hot-0", []string{"crate", "data", "hot", "0"}},
+		{"crate-data-hot-d84c10e6-d8fb-4d10-bf60-f9f2ea919a73-2", []string{"crate", "data", "hot", "d84c10e6", "d8fb", "4d10", "bf60", "f9f2ea919a73", "2"}},
+		{"simple", []string{"simple"}},
+		{"", []string{""}},
+	}
+
+	for _, tt := range tests {
+		result := splitHostname(tt.hostname)
+		if len(result) != len(tt.expected) {
+			t.Errorf("splitHostname(%q) returned %d parts, want %d", tt.hostname, len(result), len(tt.expected))
+			continue
+		}
+		for i, part := range result {
+			if part != tt.expected[i] {
+				t.Errorf("splitHostname(%q)[%d] = %q, want %q", tt.hostname, i, part, tt.expected[i])
+			}
+		}
+	}
+}
+
+func TestCalculateEffectiveTimeout(t *testing.T) {
+	tests := []struct {
+		name                          string
+		flagTimeout                   string
+		terminationGracePeriodSeconds *int64
+		expectedTimeout               string
+		expectError                   bool
+	}{
+		{
+			name:                          "Use flag timeout when terminationGracePeriodSeconds is nil",
+			flagTimeout:                   "7200s",
+			terminationGracePeriodSeconds: nil,
+			expectedTimeout:               "7200s",
+			expectError:                   false,
+		},
+		{
+			name:                          "Use flag timeout when terminationGracePeriodSeconds is default (30s)",
+			flagTimeout:                   "3600s",
+			terminationGracePeriodSeconds: int64Ptr(30),
+			expectedTimeout:               "3600s",
+			expectError:                   false,
+		},
+		{
+			name:                          "Use derived timeout when terminationGracePeriodSeconds is higher",
+			flagTimeout:                   "1800s",
+			terminationGracePeriodSeconds: int64Ptr(600),
+			expectedTimeout:               "480s", // 600 - 120 = 480
+			expectError:                   false,
+		},
+		{
+			name:                          "Apply minimum timeout when calculated value is too low",
+			flagTimeout:                   "1800s",
+			terminationGracePeriodSeconds: int64Ptr(300),
+			expectedTimeout:               "360s", // 300 - 120 = 180, but minimum is 360
+			expectError:                   false,
+		},
+		{
+			name:                          "Large terminationGracePeriodSeconds",
+			flagTimeout:                   "1800s",
+			terminationGracePeriodSeconds: int64Ptr(1800),
+			expectedTimeout:               "1680s", // 1800 - 120 = 1680
+			expectError:                   false,
+		},
+		{
+			name:                          "Invalid flag timeout format",
+			flagTimeout:                   "invalid",
+			terminationGracePeriodSeconds: int64Ptr(600),
+			expectedTimeout:               "",
+			expectError:                   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := calculateEffectiveTimeout(tt.flagTimeout, tt.terminationGracePeriodSeconds)
+
+			if tt.expectError && err == nil {
+				t.Errorf("Expected error but got none")
+				return
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if !tt.expectError && result != tt.expectedTimeout {
+				t.Errorf("Expected timeout %q, got %q", tt.expectedTimeout, result)
+			}
+
+			if !tt.expectError {
+				t.Logf("Successfully calculated timeout: %s", result)
+			}
+		})
+	}
+}
+
+func TestGetMinAvailabilityFromLabels(t *testing.T) {
+	tests := []struct {
+		name         string
+		labels       map[string]string
+		defaultValue string
+		expected     string
+	}{
+		{
+			name:         "No label present - use default",
+			labels:       map[string]string{},
+			defaultValue: "FULL",
+			expected:     "FULL",
+		},
+		{
+			name:         "Valid PRIMARIES value",
+			labels:       map[string]string{"dc-util-min-availability": "PRIMARIES"},
+			defaultValue: "FULL",
+			expected:     "PRIMARIES",
+		},
+		{
+			name:         "Valid NONE value",
+			labels:       map[string]string{"dc-util-min-availability": "NONE"},
+			defaultValue: "FULL",
+			expected:     "NONE",
+		},
+		{
+			name:         "Valid FULL value",
+			labels:       map[string]string{"dc-util-min-availability": "FULL"},
+			defaultValue: "PRIMARIES",
+			expected:     "FULL",
+		},
+		{
+			name:         "Invalid value - use default",
+			labels:       map[string]string{"dc-util-min-availability": "INVALID"},
+			defaultValue: "FULL",
+			expected:     "FULL",
+		},
+		{
+			name:         "Other labels present but not target label",
+			labels:       map[string]string{"other-label": "value", "another": "test"},
+			defaultValue: "PRIMARIES",
+			expected:     "PRIMARIES",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getMinAvailabilityFromLabels(tt.labels, tt.defaultValue)
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			} else {
+				t.Logf("Successfully got min-availability: %s", result)
+			}
+		})
+	}
+}
+
+func TestGetGracefulStopForceFromLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected bool
+	}{
+		{
+			name:     "No label present - use default true",
+			labels:   map[string]string{},
+			expected: true,
+		},
+		{
+			name:     "TRUE value",
+			labels:   map[string]string{"dc-util-graceful-stop": "TRUE"},
+			expected: true,
+		},
+		{
+			name:     "true value",
+			labels:   map[string]string{"dc-util-graceful-stop": "true"},
+			expected: true,
+		},
+		{
+			name:     "True value",
+			labels:   map[string]string{"dc-util-graceful-stop": "True"},
+			expected: true,
+		},
+		{
+			name:     "FALSE value",
+			labels:   map[string]string{"dc-util-graceful-stop": "FALSE"},
+			expected: false,
+		},
+		{
+			name:     "false value",
+			labels:   map[string]string{"dc-util-graceful-stop": "false"},
+			expected: false,
+		},
+		{
+			name:     "False value",
+			labels:   map[string]string{"dc-util-graceful-stop": "False"},
+			expected: false,
+		},
+		{
+			name:     "Invalid value - use default true",
+			labels:   map[string]string{"dc-util-graceful-stop": "maybe"},
+			expected: true,
+		},
+		{
+			name:     "Other labels present but not target label",
+			labels:   map[string]string{"other-label": "value", "another": "test"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getGracefulStopForceFromLabels(tt.labels)
+			if result != tt.expected {
+				t.Errorf("Expected %t, got %t", tt.expected, result)
+			} else {
+				t.Logf("Successfully got graceful stop force: %t", result)
+			}
+		})
+	}
+}
+
+func TestStatefulSetLabelIntegration(t *testing.T) {
+	tests := []struct {
+		name                    string
+		labels                  map[string]string
+		flagMinAvailability     string
+		expectedMinAvailability string
+		expectedForce           bool
+		description             string
+	}{
+		{
+			name:                    "No labels - use CLI defaults",
+			labels:                  map[string]string{},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "FULL",
+			expectedForce:           true,
+			description:             "Default behavior when no labels present",
+		},
+		{
+			name: "Both labels present - override CLI",
+			labels: map[string]string{
+				"dc-util-min-availability": "PRIMARIES",
+				"dc-util-graceful-stop":    "false",
+			},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "PRIMARIES",
+			expectedForce:           false,
+			description:             "Labels override CLI parameters",
+		},
+		{
+			name: "Only min-availability label",
+			labels: map[string]string{
+				"dc-util-min-availability": "NONE",
+			},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "NONE",
+			expectedForce:           true,
+			description:             "Partial label override - force uses default",
+		},
+		{
+			name: "Only force label",
+			labels: map[string]string{
+				"dc-util-graceful-stop": "false",
+			},
+			flagMinAvailability:     "PRIMARIES",
+			expectedMinAvailability: "PRIMARIES",
+			expectedForce:           false,
+			description:             "Partial label override - min-availability uses CLI",
+		},
+		{
+			name: "Invalid values fallback to defaults",
+			labels: map[string]string{
+				"dc-util-min-availability": "INVALID",
+				"dc-util-graceful-stop":    "maybe",
+			},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "FULL",
+			expectedForce:           true,
+			description:             "Invalid label values use defaults",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test min-availability
+			resultMinAvail := getMinAvailabilityFromLabels(tt.labels, tt.flagMinAvailability)
+			if resultMinAvail != tt.expectedMinAvailability {
+				t.Errorf("Min-availability: expected %q, got %q", tt.expectedMinAvailability, resultMinAvail)
+			}
+
+			// Test graceful stop force
+			resultForce := getGracefulStopForceFromLabels(tt.labels)
+			if resultForce != tt.expectedForce {
+				t.Errorf("Graceful stop force: expected %t, got %t", tt.expectedForce, resultForce)
+			}
+
+			t.Logf("%s: min-availability=%s, force=%t", tt.description, resultMinAvail, resultForce)
+		})
+	}
+}
+
+// Helper function to create int64 pointer
+func int64Ptr(i int64) *int64 {
+	return &i
+}
