@@ -13,10 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-       # os: [linux, windows, darwin]
-        os: [linux]
-       # goarch: [amd64, arm64]
-        goarch: [amd64]
+        goos: [linux]
+        goarch: [amd64, arm64]
 
     steps:
       - name: Checkout Repository
@@ -31,22 +29,22 @@ jobs:
         run: |
           mkdir -p build
           cd utils/dc_util  # Navigate to the directory containing dc_util.go
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.goarch }} go build -o ../../build/dc_util-${{ matrix.os }}-${{ matrix.goarch }}
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o ../../build/dc_util-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Generate SHA256 Checksum
         run: |
           cd build
-          if [[ "${{ matrix.os }}" == "windows" ]]; then
-            sha256sum dc_util-${{ matrix.os }}-${{ matrix.goarch }}.exe > dc_util-${{ matrix.os }}-${{ matrix.goarch }}.exe.sha256
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            sha256sum dc_util-${{ matrix.goos }}-${{ matrix.goarch }}.exe > dc_util-${{ matrix.goos }}-${{ matrix.goarch }}.exe.sha256
           else
-            sha256sum dc_util-${{ matrix.os }}-${{ matrix.goarch }} > dc_util-${{ matrix.os }}-${{ matrix.goarch }}.sha256
+            sha256sum dc_util-${{ matrix.goos }}-${{ matrix.goarch }} > dc_util-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
           fi
 
       - name: Upload Binary and Checksum Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}
-          path: build/dc_util-${{ matrix.os }}-${{ matrix.goarch }}*
+          name: dc_util-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/dc_util-${{ matrix.goos }}-${{ matrix.goarch }}*
 
       - name: Clean Up Build Directory
         run: |
@@ -57,14 +55,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [linux, windows, darwin]
+        goos: [linux]
         goarch: [amd64, arm64]
 
     steps:
       - name: Download Binary Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}
+          name: dc_util-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ./release
 
       - name: Create GitHub Release
@@ -85,7 +83,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release
-          asset_name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}-${{ github.event.inputs.release_version }}
+          asset_name: dc_util-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.event.inputs.release_version }}
           asset_content_type: application/octet-stream
 
       - name: Clean Up Release Directory

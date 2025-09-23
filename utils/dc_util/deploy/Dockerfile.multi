@@ -1,0 +1,78 @@
+FROM golang:1.23-alpine AS builder
+
+# Install required tools
+RUN apk add --no-cache git curl
+
+# Set working directory
+WORKDIR /workspace
+
+# Build arguments
+ARG VERSIONS="latest"
+ARG GITHUB_REPO="https://github.com/crate/crate-operator.git"
+
+# Copy current source and build scripts
+COPY . .
+COPY deploy/scripts/compile-binaries.sh /compile-binaries.sh
+
+# Make script executable and run the build
+RUN chmod +x /compile-binaries.sh && \
+    VERSIONS="$VERSIONS" GITHUB_REPO="$GITHUB_REPO" /compile-binaries.sh
+
+# Create symlink for latest version (assuming last version in list is latest)
+RUN cd /binaries && \
+    LAST_VERSION=$(echo $VERSIONS | tr ',' '\n' | tail -1) && \
+    if [ "$LAST_VERSION" != "latest" ]; then \
+        ln -sf $LAST_VERSION latest; \
+    fi
+
+# Final stage - minimal Caddy image with security hardening
+FROM caddy:2-alpine
+
+# Install libcap for setcap functionality
+RUN apk add --no-cache libcap
+
+# Copy built binaries and scripts
+COPY --from=builder /binaries /srv/binaries
+COPY deploy/scripts/generate-caddyfile.sh /generate-caddyfile.sh
+
+# Create caddy user and group with specific IDs, set up directories
+RUN addgroup -g 1000 -S caddy 2>/dev/null || true && \
+    adduser -u 1000 -D -S -G caddy -s /bin/sh caddy 2>/dev/null || true && \
+    mkdir -p /srv/config /srv/data && \
+    chown -R caddy:caddy /srv && \
+    chmod +x /generate-caddyfile.sh
+
+# Set capabilities on caddy binary to bind to ports without root
+RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
+
+# Generate Caddyfile using external script (in app directory to avoid volume conflicts)
+RUN chmod +x /generate-caddyfile.sh && \
+    mkdir -p /app/config && \
+    /generate-caddyfile.sh /app/config/Caddyfile /srv/binaries 8080 && \
+    chown -R caddy:caddy /app/config && \
+    chmod 644 /app/config/Caddyfile
+
+# Set environment variables for caddy
+ENV XDG_CONFIG_HOME=/srv/config
+ENV XDG_DATA_HOME=/srv/data
+
+# Switch to caddy user
+USER caddy
+
+
+
+# Expose port 8080 (non-privileged port)
+EXPOSE 8080
+
+# Health check on non-privileged port
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+
+# Labels for metadata
+LABEL org.opencontainers.image.title="DC Util Multi-Version Fileserver"
+LABEL org.opencontainers.image.description="Caddy-based fileserver for multiple versions of dc_util binaries"
+LABEL org.opencontainers.image.vendor="Crate.io"
+LABEL org.opencontainers.image.documentation="https://github.com/crate/crate-operator/tree/main/utils/dc_util"
+
+# Run Caddy with configuration
+CMD ["caddy", "run", "--config", "/app/config/Caddyfile", "--adapter", "caddyfile"]
