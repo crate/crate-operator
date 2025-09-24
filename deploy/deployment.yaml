@@ -46,7 +46,7 @@ spec:
         - name: CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS
           value: "default"
         - name: CRATEDB_OPERATOR_JMX_EXPORTER_VERSION
-          value: "1.2.0"
+          value: "1.2.1"
         - name: CRATEDB_OPERATOR_LOG_LEVEL
           value: "INFO"
         - name: CRATEDB_OPERATOR_ROLLING_RESTART_TIMEOUT
