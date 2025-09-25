@@ -5,7 +5,14 @@ Changelog
 Unreleased
 ----------
 
+2.53.0 (2025-09-25)
+-------------------
+
 * Added watermark_collector to sql_exporter config.
+
+* Updated JMX exporter to ``1.2.1``
+
+* Bumped sql_exporter to ``0.18.2``
 
 2.52.1 (2025-09-15)
 -------------------
