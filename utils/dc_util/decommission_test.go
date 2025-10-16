@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"testing"
+	"time"
 )
 
 // Test the extractNodeName function directly with comprehensive cases
@@ -866,6 +868,281 @@ func TestDisabledAndDryRunInteraction(t *testing.T) {
 			}
 
 			t.Logf("%s: disabled=%t, dry-run=%t", tt.description, disabled, tt.dryRun)
+		})
+	}
+}
+
+func TestGetNoPreStartFromLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected bool
+	}{
+		{
+			name:     "No label present - use default false",
+			labels:   map[string]string{},
+			expected: false,
+		},
+		{
+			name:     "TRUE value",
+			labels:   map[string]string{"dc-util-no-prestart": "TRUE"},
+			expected: true,
+		},
+		{
+			name:     "true value",
+			labels:   map[string]string{"dc-util-no-prestart": "true"},
+			expected: true,
+		},
+		{
+			name:     "True value",
+			labels:   map[string]string{"dc-util-no-prestart": "True"},
+			expected: true,
+		},
+		{
+			name:     "FALSE value",
+			labels:   map[string]string{"dc-util-no-prestart": "FALSE"},
+			expected: false,
+		},
+		{
+			name:     "false value",
+			labels:   map[string]string{"dc-util-no-prestart": "false"},
+			expected: false,
+		},
+		{
+			name:     "False value",
+			labels:   map[string]string{"dc-util-no-prestart": "False"},
+			expected: false,
+		},
+		{
+			name:     "Invalid value - use default false",
+			labels:   map[string]string{"dc-util-no-prestart": "maybe"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getNoPreStartFromLabels(tt.labels)
+			if result != tt.expected {
+				t.Errorf("Expected %t, got %t", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetPreStopRoutingAllocationFromLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected string
+	}{
+		{
+			name:     "No label present - use default",
+			labels:   map[string]string{},
+			expected: "new_primaries",
+		},
+		{
+			name:     "Valid new_primaries value",
+			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "new_primaries"},
+			expected: "new_primaries",
+		},
+		{
+			name:     "Valid all value",
+			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "all"},
+			expected: "all",
+		},
+		{
+			name:     "Invalid value - use default",
+			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "invalid"},
+			expected: "new_primaries",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getPreStopRoutingAllocationFromLabels(tt.labels)
+			if result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestCreateAndRemoveLockFile(t *testing.T) {
+	// Test dry-run mode
+	t.Run("Create lock file - dry run", func(t *testing.T) {
+		err := createLockFile(true)
+		if err != nil {
+			t.Errorf("createLockFile in dry-run should not error, got: %v", err)
+		}
+	})
+
+	t.Run("Remove lock file - dry run", func(t *testing.T) {
+		err := removeLockFile(true)
+		if err != nil {
+			t.Errorf("removeLockFile in dry-run should not error, got: %v", err)
+		}
+	})
+}
+
+func TestLockFileExists(t *testing.T) {
+	// This test just verifies the function doesn't panic
+	// Actual file operations would require filesystem setup
+	exists := lockFileExists()
+	t.Logf("Lock file exists: %t", exists)
+}
+
+func TestWaitForClusterReadiness(t *testing.T) {
+	// Test dry-run mode
+	t.Run("Wait for cluster readiness - dry run", func(t *testing.T) {
+		err := waitForClusterReadiness("https", time.Minute, true)
+		if err != nil {
+			t.Errorf("waitForClusterReadiness in dry-run should not error, got: %v", err)
+		}
+	})
+}
+
+func TestResetRoutingIntegration(t *testing.T) {
+	tests := []struct {
+		name                      string
+		labels                    map[string]string
+		dryRun                    bool
+		expectedNoPreStart        bool
+		expectedRoutingAllocation string
+		description               string
+	}{
+		{
+			name:                      "Normal operation - all defaults",
+			labels:                    map[string]string{},
+			dryRun:                    false,
+			expectedNoPreStart:        false,
+			expectedRoutingAllocation: "new_primaries",
+			description:               "Default behavior",
+		},
+		{
+			name: "PreStart disabled",
+			labels: map[string]string{
+				"dc-util-no-prestart": "true",
+			},
+			dryRun:                    false,
+			expectedNoPreStart:        true,
+			expectedRoutingAllocation: "new_primaries",
+			description:               "PostStart should be skipped",
+		},
+		{
+			name: "Custom routing allocation with dry-run",
+			labels: map[string]string{
+				"dc-util-pre-stop-routing-allocation": "all",
+				"dc-util-no-prestart":                 "false",
+			},
+			dryRun:                    true,
+			expectedNoPreStart:        false,
+			expectedRoutingAllocation: "all",
+			description:               "Custom routing with dry-run mode",
+		},
+		{
+			name: "All routing labels configured",
+			labels: map[string]string{
+				"dc-util-no-prestart":                 "false",
+				"dc-util-pre-stop-routing-allocation": "new_primaries",
+			},
+			dryRun:                    false,
+			expectedNoPreStart:        false,
+			expectedRoutingAllocation: "new_primaries",
+			description:               "Complete routing configuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test no-prestart label parsing
+			noPreStart := getNoPreStartFromLabels(tt.labels)
+			if noPreStart != tt.expectedNoPreStart {
+				t.Errorf("Expected no-prestart=%t, got %t", tt.expectedNoPreStart, noPreStart)
+			}
+
+			// Test pre-stop routing allocation label parsing
+			routingAllocation := getPreStopRoutingAllocationFromLabels(tt.labels)
+			if routingAllocation != tt.expectedRoutingAllocation {
+				t.Errorf("Expected routing allocation=%s, got %s", tt.expectedRoutingAllocation, routingAllocation)
+			}
+
+			// Test lock file operations in dry-run mode
+			if tt.dryRun {
+				err := createLockFile(true)
+				if err != nil {
+					t.Errorf("createLockFile in dry-run should not error: %v", err)
+				}
+
+				err = removeLockFile(true)
+				if err != nil {
+					t.Errorf("removeLockFile in dry-run should not error: %v", err)
+				}
+			}
+
+			t.Logf("%s: no-prestart=%t, routing=%s, dry-run=%t",
+				tt.description, noPreStart, routingAllocation, tt.dryRun)
+		})
+	}
+}
+
+func TestCompleteDryRunWorkflow(t *testing.T) {
+	// This test demonstrates what a complete dry-run should look like
+	// when dc_util is NOT disabled
+	tests := []struct {
+		name        string
+		labels      map[string]string
+		description string
+	}{
+		{
+			name: "Complete workflow with routing allocation",
+			labels: map[string]string{
+				"dc-util-disabled":                    "false", // Important: NOT disabled
+				"dc-util-pre-stop-routing-allocation": "new_primaries",
+				"dc-util-min-availability":            "PRIMARIES",
+				"dc-util-graceful-stop":               "true",
+			},
+			description: "Shows complete dry-run workflow including routing allocation",
+		},
+		{
+			name: "Workflow with custom routing allocation",
+			labels: map[string]string{
+				"dc-util-pre-stop-routing-allocation": "all",
+				"dc-util-min-availability":            "FULL",
+			},
+			description: "Shows workflow with custom routing allocation value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test the label parsing functions that would be used
+			disabled := getDisabledFromLabels(tt.labels)
+			if disabled {
+				t.Skip("Test is for non-disabled scenarios")
+			}
+
+			preStopRouting := getPreStopRoutingAllocationFromLabels(tt.labels)
+			minAvail := getMinAvailabilityFromLabels(tt.labels, "FULL")
+			gracefulStop := getGracefulStopForceFromLabels(tt.labels)
+
+			t.Logf("Expected dry-run workflow for: %s", tt.description)
+			t.Logf("1. Pre-stop routing allocation: SET GLOBAL TRANSIENT \"cluster.routing.allocation.enable\" = '%s';", preStopRouting)
+			t.Logf("2. Lock file creation")
+			t.Logf("3. Graceful stop settings (timeout, force=%t, min_availability='%s')", gracefulStop, minAvail)
+			t.Logf("4. Decommission statement")
+
+			// Test that dry-run mode works for these operations
+			routingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRouting)
+			err := sendSQLStatement("https", routingStmt, true) // dry-run mode
+			if err != nil {
+				t.Errorf("Routing allocation statement in dry-run should not error: %v", err)
+			}
+
+			err = createLockFile(true) // dry-run mode
+			if err != nil {
+				t.Errorf("Lock file creation in dry-run should not error: %v", err)
+			}
 		})
 	}
 }

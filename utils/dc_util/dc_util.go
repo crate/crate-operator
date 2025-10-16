@@ -32,9 +32,20 @@ const (
 	minimumTimeout                       = 360 // minimum effective timeout in seconds
 
 	// StatefulSet label keys (using dashes instead of underscores)
-	labelMinAvailability = "dc-util-min-availability"
-	labelGracefulStop    = "dc-util-graceful-stop"
-	labelDisabled        = "dc-util-disabled"
+	labelMinAvailability          = "dc-util-min-availability"
+	labelGracefulStop             = "dc-util-graceful-stop"
+	labelDisabled                 = "dc-util-disabled"
+	labelNoPreStart               = "dc-util-no-prestart"
+	labelPreStopRoutingAllocation = "dc-util-pre-stop-routing-allocation"
+
+	// Lock file path for tracking dc_util shutdowns
+	dcUtilLockFile = "/resource/heapdump/dc_util.lock"
+
+	// Default routing allocation value for preStop
+	defaultPreStopRoutingAllocation = "new_primaries"
+
+	// PostStart readiness timeout (10 minutes)
+	postStartTimeout = 10 * time.Minute
 )
 
 type customError struct{ msg string }
@@ -183,6 +194,251 @@ func getDisabledFromLabels(labels map[string]string) bool {
 	return false // default behavior
 }
 
+// getNoPreStartFromLabels reads no-prestart setting from StatefulSet labels
+func getNoPreStartFromLabels(labels map[string]string) bool {
+	if value, exists := labels[labelNoPreStart]; exists {
+		switch value {
+		case "TRUE", "true", "True":
+			log.Printf("Using no-prestart from StatefulSet label: true")
+			return true
+		case "FALSE", "false", "False":
+			log.Printf("Using no-prestart from StatefulSet label: false")
+			return false
+		default:
+			log.Printf("Invalid no-prestart value in StatefulSet label '%s': %s, using default: false",
+				labelNoPreStart, value)
+		}
+	}
+	return false // default behavior
+}
+
+// getPreStopRoutingAllocationFromLabels reads pre-stop routing allocation setting from StatefulSet labels
+func getPreStopRoutingAllocationFromLabels(labels map[string]string) string {
+	if value, exists := labels[labelPreStopRoutingAllocation]; exists {
+		switch value {
+		case "new_primaries", "all":
+			log.Printf("Using pre-stop routing allocation from StatefulSet label: %s", value)
+			return value
+		default:
+			log.Printf("Invalid pre-stop routing allocation value in StatefulSet label '%s': %s, using default: %s",
+				labelPreStopRoutingAllocation, value, defaultPreStopRoutingAllocation)
+		}
+	}
+	return defaultPreStopRoutingAllocation // default behavior
+}
+
+// createLockFile creates the dc_util lock file
+func createLockFile(dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY-RUN] Would create lock file: %s", dcUtilLockFile)
+		return nil
+	}
+
+	file, err := os.Create(dcUtilLockFile)
+	if err != nil {
+		return fmt.Errorf("failed to create lock file %s: %w", dcUtilLockFile, err)
+	}
+	defer file.Close()
+
+	// Write timestamp for debugging
+	_, err = file.WriteString(fmt.Sprintf("dc_util lock created at: %s\n", time.Now().Format(time.RFC3339)))
+	if err != nil {
+		return fmt.Errorf("failed to write to lock file %s: %w", dcUtilLockFile, err)
+	}
+
+	log.Printf("Created lock file: %s", dcUtilLockFile)
+	return nil
+}
+
+// removeLockFile removes the dc_util lock file
+func removeLockFile(dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY-RUN] Would remove lock file: %s", dcUtilLockFile)
+		return nil
+	}
+
+	if err := os.Remove(dcUtilLockFile); err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Lock file %s does not exist (already removed)", dcUtilLockFile)
+			return nil
+		}
+		return fmt.Errorf("failed to remove lock file %s: %w", dcUtilLockFile, err)
+	}
+
+	log.Printf("Removed lock file: %s", dcUtilLockFile)
+	return nil
+}
+
+// lockFileExists checks if the dc_util lock file exists
+func lockFileExists() bool {
+	_, err := os.Stat(dcUtilLockFile)
+	return !os.IsNotExist(err)
+}
+
+// waitForClusterReadiness waits for CrateDB to be ready to accept SQL commands
+func waitForClusterReadiness(proto string, timeout time.Duration, dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY-RUN] Would wait for cluster readiness (timeout: %v)", timeout)
+		log.Printf("[DRY-RUN] Would poll URL: %s://127.0.0.1:4200/_sql", proto)
+		return nil
+	}
+
+	log.Printf("Waiting for cluster readiness (timeout: %v)...", timeout)
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 10 * time.Second,
+	}
+
+	url := fmt.Sprintf("%s://127.0.0.1:4200/_sql", proto)
+	testPayload := `{"stmt": "SELECT 1"}`
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+
+	for time.Now().Before(deadline) {
+		attempt++
+
+		resp, err := client.Post(url, "application/json", strings.NewReader(testPayload))
+		if err != nil {
+			if attempt%6 == 0 { // Log every 30 seconds (6 attempts * 5s)
+				log.Printf("Cluster not ready yet (attempt %d), retrying in 5s: %v", attempt, err)
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			log.Printf("Cluster is ready after %d attempts", attempt)
+			return nil
+		}
+
+		if attempt%6 == 0 {
+			log.Printf("Cluster not ready yet (attempt %d), status: %s, retrying in 5s", attempt, resp.Status)
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for cluster readiness after %v", timeout)
+}
+
+// handleResetRouting handles the PostStart reset-routing functionality
+func handleResetRouting(hostname string, dryRun bool) error {
+	log.SetPrefix("ResetRouting: ")
+	log.SetOutput(os.Stdout)
+
+	log.Printf("Starting reset-routing mode for hostname: %s", hostname)
+
+	// Determine if we are running in-cluster or using kubeconfig
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	inClusterConfig := kubeconfigPath == ""
+
+	var (
+		config     *rest.Config
+		kubeconfig clientcmd.ClientConfig
+		err        error
+	)
+
+	if inClusterConfig {
+		log.Println("Using in-cluster configuration")
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			return fmt.Errorf("failed to create in-cluster config: %w", err)
+		}
+	} else {
+		log.Printf("Using kubeconfig from %s", kubeconfigPath)
+		kubeconfig = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+			clientcmd.NewDefaultClientConfigLoadingRules(),
+			&clientcmd.ConfigOverrides{},
+		)
+		config, err = kubeconfig.ClientConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load kubeconfig: %w", err)
+		}
+	}
+
+	// Create a Kubernetes client
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	// Get the namespace
+	namespace, err := getNamespace(inClusterConfig, kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	// Construct the StatefulSet name from HOSTNAME
+	hostnameParts := strings.Split(hostname, "-")
+	if len(hostnameParts) < 2 {
+		return fmt.Errorf("invalid HOSTNAME format: %s", hostname)
+	}
+	statefulSetName := strings.Join(hostnameParts[:len(hostnameParts)-1], "-")
+
+	ctx := context.Background()
+	statefulSet, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, statefulSetName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get StatefulSet: %w", err)
+	}
+
+	// Check if prestart is disabled
+	noPreStart := getNoPreStartFromLabels(statefulSet.Labels)
+	if noPreStart {
+		log.Println("PreStart is disabled via StatefulSet label, exiting")
+		return nil
+	}
+
+	// Check if lock file exists
+	if !lockFileExists() {
+		log.Println("No lock file found, this appears to be a normal startup (not after dc_util shutdown), exiting")
+		return nil
+	}
+
+	log.Printf("Lock file found at %s, proceeding with routing allocation reset", dcUtilLockFile)
+
+	// Wait for cluster readiness
+	proto := defaultProto
+	if err := waitForClusterReadiness(proto, postStartTimeout, dryRun); err != nil {
+		log.Printf("Cluster readiness check failed: %v", err)
+		// Remove lock file even on failure to prevent retry loops
+		if removeErr := removeLockFile(dryRun); removeErr != nil {
+			log.Printf("Warning: Failed to remove lock file: %v", removeErr)
+		}
+		return err
+	}
+
+	// Execute the routing allocation reset
+	resetStmt := `SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = 'all';`
+	log.Printf("Executing routing allocation reset")
+	if err := sendSQLStatement(proto, resetStmt, dryRun); err != nil {
+		log.Printf("Failed to reset routing allocation: %v", err)
+		// Remove lock file even on failure to prevent retry loops
+		if removeErr := removeLockFile(dryRun); removeErr != nil {
+			log.Printf("Warning: Failed to remove lock file: %v", removeErr)
+		}
+		return err
+	}
+
+	if dryRun {
+		log.Println("[DRY-RUN] Would have reset routing allocation successfully")
+	} else {
+		log.Println("Routing allocation reset completed successfully")
+	}
+
+	// Remove lock file regardless of SET command success/failure
+	if err := removeLockFile(dryRun); err != nil {
+		log.Printf("Warning: Failed to remove lock file: %v", err)
+		// Don't return error here, as the main operation succeeded
+	}
+
+	log.Println("Reset-routing completed")
+	return nil
+}
+
 func sendSQLStatement(proto, stmt string, dryRun bool) error {
 	if dryRun {
 		log.Printf("[DRY-RUN] Would send SQL statement: %s", stmt)
@@ -258,6 +514,7 @@ func run() error {
 		hostname            string
 		minAvailability     string
 		dryRun              bool
+		resetRouting        bool
 	)
 
 	flag.StringVar(&crateNodePrefix, "crate-node-prefix", defaultCrateNodePrefix, "Prefix of the CrateDB node name")
@@ -267,10 +524,16 @@ func run() error {
 	flag.StringVar(&hostname, "hostname", envHostname, "Hostname of the pod")
 	flag.StringVar(&minAvailability, "min-availability", defaultMinAvailability, "Minimum availability during decommission (FULL/PRIMARIES)")
 	flag.BoolVar(&dryRun, "dry-run", false, "Log all actions without sending SQL commands to the node")
+	flag.BoolVar(&resetRouting, "reset-routing", false, "PostStart mode: reset routing allocation if dc_util lock file exists")
 	flag.Parse()
 
 	if hostname == "" {
 		return fmt.Errorf("hostname is required")
+	}
+
+	// Handle reset-routing mode (PostStart hook)
+	if resetRouting {
+		return handleResetRouting(hostname, dryRun)
 	}
 
 	// Determine if we are running in-cluster or using kubeconfig
@@ -350,6 +613,27 @@ func run() error {
 
 	if dryRun {
 		log.Println("[DRY-RUN] Running in dry-run mode - no SQL commands will be sent")
+	}
+
+	// Handle pre-stop routing allocation (BEFORE decommissioning)
+	preStopRoutingAllocation := getPreStopRoutingAllocationFromLabels(statefulSet.Labels)
+	preStopRoutingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRoutingAllocation)
+
+	log.Printf("Setting pre-stop routing allocation to: %s", preStopRoutingAllocation)
+	if err := sendSQLStatement(proto, preStopRoutingStmt, dryRun); err != nil {
+		log.Printf("Warning: Failed to set pre-stop routing allocation: %v", err)
+		// Continue with decommission process even if this fails
+	}
+
+	// Create lock file to indicate dc_util handled this shutdown
+	if dryRun {
+		log.Printf("[DRY-RUN] Would create lock file: %s", dcUtilLockFile)
+	} else {
+		log.Printf("Creating lock file: %s", dcUtilLockFile)
+	}
+	if err := createLockFile(dryRun); err != nil {
+		log.Printf("Warning: Failed to create lock file: %v", err)
+		// Continue with decommission process even if this fails
 	}
 
 	// Calculate effective timeout based on terminationGracePeriodSeconds

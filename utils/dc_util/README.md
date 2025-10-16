@@ -58,10 +58,10 @@ to the cratedb containers configuration:
               - /bin/sh
               - -c
               - |
-                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64 && \
-                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64.sha256 && \
-                sha256sum -c dc_util-linux-amd64.sha256 && \
-                chmod u+x ./dc_util-linux-amd64 && \
+                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64
+                curl -sLO https://github.com/crate/crate-operator/releases/download/dc_util_v1.0.0/dc_util-linux-amd64.sha256
+                sha256sum -c dc_util-linux-amd64.sha256
+                chmod u+x ./dc_util-linux-amd64
                 ./dc_util-linux-amd64 -min-availability PRIMARIES
 
         terminationGracePeriodSeconds: 7230
@@ -94,6 +94,7 @@ are used for testing purpose:
 | `--hostname`          | Is used to derive the name of the kubernetes statefulset, the _replica number_ of the pod is _stripped_ from it, which returns the sts name. eg. `crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd-0 -> crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd` |
 | `--min-availability`  | Either `PRIMARIES`, `FULL`, or `NONE`. Can be overridden by StatefulSet labels (see below). Please refer to the crateDB documentation.                                                                                                                        |
 | `--dry-run`           | **Testing mode**: Logs all SQL statements that would be sent but doesn't actually send them to the node. Skips process monitoring. Perfect for testing dc_util behavior in pods without affecting the CrateDB cluster.                                     |
+| `--reset-routing`     | **PostStart mode**: Resets routing allocation to 'all' if dc_util lock file exists. Used in PostStart hooks to restore routing allocation after dc_util shutdown. Includes 10-minute cluster readiness timeout.                                            |
 
 # Timeout Logic
 
@@ -118,6 +119,8 @@ The tool can read configuration from StatefulSet labels, overriding CLI paramete
 - **`dc-util-min-availability`**: Sets min-availability (values: `NONE`, `PRIMARIES`, `FULL`)
 - **`dc-util-graceful-stop`**: Controls graceful stop force setting (values: `true`, `false`)
 - **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
+- **`dc-util-no-prestart`**: Disables PostStart reset-routing behavior (values: `true`, `false`, default: `false`)
+- **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `new_primaries`, `all`, default: `new_primaries`)
 
 ## Example StatefulSet with labels:
 ```yaml
@@ -129,6 +132,8 @@ metadata:
     dc-util-min-availability: "PRIMARIES"
     dc-util-graceful-stop: "false"
     dc-util-disabled: "false"
+    dc-util-no-prestart: "false"
+    dc-util-pre-stop-routing-allocation: "new_primaries"
 spec:
   # ... rest of StatefulSet spec
 ```
@@ -139,6 +144,7 @@ spec:
 - **Invalid labels**: Uses CLI defaults, logs the invalid value
 - **Label precedence**: StatefulSet labels override CLI parameters
 - **When disabled=true**: dc_util logs a message and exits without performing any decommission work
+- **When no-prestart=true**: PostStart reset-routing behavior is skipped
 
 ## Sample Logs
 Please note that you will not be able to see the commands log output! It is run in the backgroud by k8s and is not logged
@@ -205,4 +211,75 @@ In dry-run mode:
 - Process monitoring is skipped since no actual decommission occurs
 - Perfect for testing in pods without impacting the cluster
 
+## PostStart Hook - Routing Allocation Reset
+
+dc_util now supports a PostStart hook mode to automatically restore routing allocation after a graceful shutdown:
+
+### Usage in PostStart Hook:
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+      - name: crate
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                curl --insecure -sLO https://example.com/dc_util-linux-amd64
+                curl --insecure -sLO https://example.com/dc_util-linux-amd64.sha256
+                sha256sum -c dc_util-linux-amd64.sha256
+                chmod u+x dc_util-linux-amd64
+                ./dc_util-linux-amd64 --reset-routing || true
+          preStop:
+            exec:
+              command:
+              - /path/to/dc_util
+              - --min-availability
+              - PRIMARIES
 ```
+
+**Important PostStart Hook Failure Behavior**: PostStart hooks are **NOT failsafe** - if any command fails, Kubernetes kills the container, causing CrashLoopBackOff. The `|| true` at the end is crucial to prevent this:
+
+- **Without `|| true`**: Download failures, network issues, or dc_util errors kill the container
+- **With `|| true`**: Container starts successfully even if PostStart hook fails
+- **Trade-off**: Hook failures become silent - check container logs to see what actually happened
+
+For production deployments, consider embedding dc_util in your container image to eliminate download dependencies.
+
+### How it Works:
+
+**PreStop Process (Enhanced)**:
+1. Sets routing allocation to restricted value (`new_primaries` by default)
+2. Creates lock file `/resource/heapdump/dc_util.lock`
+3. Continues with normal decommission process
+
+**PostStart Process (`--reset-routing`)**:
+1. Checks `dc-util-no-prestart` label (exit if `true`)
+2. Checks for lock file existence (exit if not found)
+3. Waits for cluster readiness (10-minute timeout)
+4. Executes: `SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = 'all';`
+5. Removes lock file (prevents retry loops)
+
+### Sample PostStart Logs:
+```
+ResetRouting: 2025/10/16 19:23:49 Starting reset-routing mode for hostname: crate-data-hot-abc123-0
+ResetRouting: 2025/10/16 19:23:49 Using in-cluster configuration
+ResetRouting: 2025/10/16 19:23:49 Lock file found at /resource/heapdump/dc_util.lock, proceeding with routing allocation reset
+ResetRouting: 2025/10/16 19:23:50 Waiting for cluster readiness (timeout: 10m0s)...
+ResetRouting: 2025/10/16 19:23:52 Cluster is ready after 3 attempts
+ResetRouting: 2025/10/16 19:23:52 Executing routing allocation reset
+ResetRouting: 2025/10/16 19:23:52 Payload: {"stmt":"SET GLOBAL TRANSIENT \"cluster.routing.allocation.enable\" = 'all';"}
+ResetRouting: 2025/10/16 19:23:52 Response from server: {"cols":[],"rows":[[]],"rowcount":1,"duration":15.234}
+ResetRouting: 2025/10/16 19:23:52 Routing allocation reset completed successfully
+ResetRouting: 2025/10/16 19:23:52 Removed lock file: /resource/heapdump/dc_util.lock
+ResetRouting: 2025/10/16 19:23:52 Reset-routing completed
+```
+
+### Configuration Options:
+- **Disable PostStart**: Set `dc-util-no-prestart: "true"`
+- **Custom PreStop routing**: Set `dc-util-pre-stop-routing-allocation: "all"`
+- **Testing**: Use `--reset-routing --dry-run` for safe testing
