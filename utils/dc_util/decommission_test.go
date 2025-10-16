@@ -616,7 +616,260 @@ func TestStatefulSetLabelIntegration(t *testing.T) {
 	}
 }
 
-// Helper function to create int64 pointer
+func TestStatefulSetLabelIntegrationWithDisabled(t *testing.T) {
+	tests := []struct {
+		name                    string
+		labels                  map[string]string
+		flagMinAvailability     string
+		expectedMinAvailability string
+		expectedForce           bool
+		expectedDisabled        bool
+		description             string
+	}{
+		{
+			name:                    "No labels - all defaults",
+			labels:                  map[string]string{},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "FULL",
+			expectedForce:           true,
+			expectedDisabled:        false,
+			description:             "Default behavior when no labels present",
+		},
+		{
+			name: "All labels present - complete override",
+			labels: map[string]string{
+				"dc-util-min-availability": "PRIMARIES",
+				"dc-util-graceful-stop":    "false",
+				"dc-util-disabled":         "true",
+			},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "PRIMARIES",
+			expectedForce:           false,
+			expectedDisabled:        true,
+			description:             "All labels override defaults",
+		},
+		{
+			name: "Disabled true with other settings",
+			labels: map[string]string{
+				"dc-util-disabled":         "true",
+				"dc-util-min-availability": "NONE",
+			},
+			flagMinAvailability:     "FULL",
+			expectedMinAvailability: "NONE",
+			expectedForce:           true,
+			expectedDisabled:        true,
+			description:             "When disabled, other settings still parsed but won't be used",
+		},
+		{
+			name: "Disabled false - normal operation",
+			labels: map[string]string{
+				"dc-util-disabled":      "false",
+				"dc-util-graceful-stop": "false",
+			},
+			flagMinAvailability:     "PRIMARIES",
+			expectedMinAvailability: "PRIMARIES",
+			expectedForce:           false,
+			expectedDisabled:        false,
+			description:             "Explicitly disabled=false allows normal operation",
+		},
+		{
+			name: "Invalid disabled value - use default false",
+			labels: map[string]string{
+				"dc-util-disabled":         "maybe",
+				"dc-util-min-availability": "FULL",
+			},
+			flagMinAvailability:     "PRIMARIES",
+			expectedMinAvailability: "FULL",
+			expectedForce:           true,
+			expectedDisabled:        false,
+			description:             "Invalid disabled value falls back to false",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test min-availability
+			resultMinAvail := getMinAvailabilityFromLabels(tt.labels, tt.flagMinAvailability)
+			if resultMinAvail != tt.expectedMinAvailability {
+				t.Errorf("Min-availability: expected %q, got %q", tt.expectedMinAvailability, resultMinAvail)
+			}
+
+			// Test graceful stop force
+			resultForce := getGracefulStopForceFromLabels(tt.labels)
+			if resultForce != tt.expectedForce {
+				t.Errorf("Graceful stop force: expected %t, got %t", tt.expectedForce, resultForce)
+			}
+
+			// Test disabled
+			resultDisabled := getDisabledFromLabels(tt.labels)
+			if resultDisabled != tt.expectedDisabled {
+				t.Errorf("Disabled: expected %t, got %t", tt.expectedDisabled, resultDisabled)
+			}
+
+			t.Logf("%s: min-availability=%s, force=%t, disabled=%t",
+				tt.description, resultMinAvail, resultForce, resultDisabled)
+		})
+	}
+}
+
+func TestGetDisabledFromLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected bool
+	}{
+		{
+			name:     "No label present - use default false",
+			labels:   map[string]string{},
+			expected: false,
+		},
+		{
+			name:     "TRUE value",
+			labels:   map[string]string{"dc-util-disabled": "TRUE"},
+			expected: true,
+		},
+		{
+			name:     "true value",
+			labels:   map[string]string{"dc-util-disabled": "true"},
+			expected: true,
+		},
+		{
+			name:     "True value",
+			labels:   map[string]string{"dc-util-disabled": "True"},
+			expected: true,
+		},
+		{
+			name:     "FALSE value",
+			labels:   map[string]string{"dc-util-disabled": "FALSE"},
+			expected: false,
+		},
+		{
+			name:     "false value",
+			labels:   map[string]string{"dc-util-disabled": "false"},
+			expected: false,
+		},
+		{
+			name:     "False value",
+			labels:   map[string]string{"dc-util-disabled": "False"},
+			expected: false,
+		},
+		{
+			name:     "Invalid value - use default false",
+			labels:   map[string]string{"dc-util-disabled": "maybe"},
+			expected: false,
+		},
+		{
+			name:     "Other labels present but not target label",
+			labels:   map[string]string{"other-label": "value", "another": "test"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getDisabledFromLabels(tt.labels)
+			if result != tt.expected {
+				t.Errorf("Expected %t, got %t", tt.expected, result)
+			} else {
+				t.Logf("Successfully got disabled: %t", result)
+			}
+		})
+	}
+}
+
+func TestSendSQLStatementDryRun(t *testing.T) {
+	tests := []struct {
+		name   string
+		proto  string
+		stmt   string
+		dryRun bool
+	}{
+		{
+			name:   "Dry run mode - logs statement without sending",
+			proto:  "https",
+			stmt:   "alter cluster decommission 'data-hot-0'",
+			dryRun: true,
+		},
+		{
+			name:   "Dry run mode - set global statement",
+			proto:  "http",
+			stmt:   `set global transient "cluster.graceful_stop.timeout" = '7200s';`,
+			dryRun: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// In dry-run mode, sendSQLStatement should not return an error
+			// and should just log the statements
+			err := sendSQLStatement(tt.proto, tt.stmt, tt.dryRun)
+			if err != nil {
+				t.Errorf("sendSQLStatement in dry-run mode should not return error, got: %v", err)
+			}
+			t.Logf("Successfully tested dry-run for statement: %s", tt.stmt)
+		})
+	}
+}
+
+func TestDisabledAndDryRunInteraction(t *testing.T) {
+	tests := []struct {
+		name        string
+		labels      map[string]string
+		dryRun      bool
+		shouldSkip  bool
+		description string
+	}{
+		{
+			name:        "Disabled=true, dry-run=false - should skip entirely",
+			labels:      map[string]string{"dc-util-disabled": "true"},
+			dryRun:      false,
+			shouldSkip:  true,
+			description: "When disabled, dry-run flag is irrelevant",
+		},
+		{
+			name:        "Disabled=true, dry-run=true - should skip entirely",
+			labels:      map[string]string{"dc-util-disabled": "true"},
+			dryRun:      true,
+			shouldSkip:  true,
+			description: "When disabled, dry-run flag is irrelevant",
+		},
+		{
+			name:        "Disabled=false, dry-run=true - should run in dry-run mode",
+			labels:      map[string]string{"dc-util-disabled": "false"},
+			dryRun:      true,
+			shouldSkip:  false,
+			description: "When not disabled, dry-run mode should work normally",
+		},
+		{
+			name:        "No disabled label, dry-run=true - should run in dry-run mode",
+			labels:      map[string]string{},
+			dryRun:      true,
+			shouldSkip:  false,
+			description: "Default disabled=false allows dry-run to work",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			disabled := getDisabledFromLabels(tt.labels)
+
+			if disabled != tt.shouldSkip {
+				t.Errorf("Expected disabled=%t, got disabled=%t", tt.shouldSkip, disabled)
+			}
+
+			// Test that sendSQLStatement works correctly in dry-run mode when not disabled
+			if !disabled && tt.dryRun {
+				err := sendSQLStatement("https", "test statement", tt.dryRun)
+				if err != nil {
+					t.Errorf("sendSQLStatement in dry-run mode should not error when not disabled, got: %v", err)
+				}
+			}
+
+			t.Logf("%s: disabled=%t, dry-run=%t", tt.description, disabled, tt.dryRun)
+		})
+	}
+}
+
 func int64Ptr(i int64) *int64 {
 	return &i
 }

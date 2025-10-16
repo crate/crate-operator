@@ -183,7 +183,12 @@ func getDisabledFromLabels(labels map[string]string) bool {
 	return false // default behavior
 }
 
-func sendSQLStatement(proto, stmt string) error {
+func sendSQLStatement(proto, stmt string, dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY-RUN] Would send SQL statement: %s", stmt)
+		log.Printf("[DRY-RUN] Would send to URL: %s://127.0.0.1:4200/_sql", proto)
+		return nil
+	}
 	payload := map[string]string{"stmt": stmt}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -252,6 +257,7 @@ func run() error {
 		proto               string
 		hostname            string
 		minAvailability     string
+		dryRun              bool
 	)
 
 	flag.StringVar(&crateNodePrefix, "crate-node-prefix", defaultCrateNodePrefix, "Prefix of the CrateDB node name")
@@ -260,6 +266,7 @@ func run() error {
 	flag.StringVar(&proto, "proto", defaultProto, "Protocol to use for the HTTP server")
 	flag.StringVar(&hostname, "hostname", envHostname, "Hostname of the pod")
 	flag.StringVar(&minAvailability, "min-availability", defaultMinAvailability, "Minimum availability during decommission (FULL/PRIMARIES)")
+	flag.BoolVar(&dryRun, "dry-run", false, "Log all actions without sending SQL commands to the node")
 	flag.Parse()
 
 	if hostname == "" {
@@ -341,6 +348,10 @@ func run() error {
 		return nil
 	}
 
+	if dryRun {
+		log.Println("[DRY-RUN] Running in dry-run mode - no SQL commands will be sent")
+	}
+
 	// Calculate effective timeout based on terminationGracePeriodSeconds
 	effectiveTimeout, err := calculateEffectiveTimeout(decommissionTimeout, statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds)
 	if err != nil {
@@ -368,24 +379,30 @@ func run() error {
 		}
 
 		for _, stmt := range statements {
-			if err := sendSQLStatement(proto, stmt); err != nil {
+			if err := sendSQLStatement(proto, stmt, dryRun); err != nil {
 				return err
 			}
 		}
 
-		log.Println("Decommission command sent successfully")
+		if dryRun {
+			log.Println("[DRY-RUN] Would have sent decommission commands successfully")
+			log.Printf("[DRY-RUN] Would monitor process %d until it stops", pid)
+			log.Println("[DRY-RUN] Dry-run completed successfully")
+		} else {
+			log.Println("Decommission command sent successfully")
 
-		// Loop to check if the process is running
-		counter := 0
-		for isProcessRunning(pid) {
-			if counter%10 == 0 {
-				log.Printf("Process %d is still running (check count: %d)", pid, counter)
+			// Loop to check if the process is running
+			counter := 0
+			for isProcessRunning(pid) {
+				if counter%10 == 0 {
+					log.Printf("Process %d is still running (check count: %d)", pid, counter)
+				}
+				counter++
+				time.Sleep(2 * time.Second)
 			}
-			counter++
-			time.Sleep(2 * time.Second)
-		}
 
-		log.Printf("Process %d has stopped", pid)
+			log.Printf("Process %d has stopped", pid)
+		}
 	} else {
 		log.Printf("No replicas are configured -- Skipping decommission")
 	}

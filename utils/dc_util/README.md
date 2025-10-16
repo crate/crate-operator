@@ -93,6 +93,7 @@ are used for testing purpose:
 | `--pid`               | For testing locally only                                                                                                                                                                                                                                        |
 | `--hostname`          | Is used to derive the name of the kubernetes statefulset, the _replica number_ of the pod is _stripped_ from it, which returns the sts name. eg. `crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd-0 -> crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd` |
 | `--min-availability`  | Either `PRIMARIES`, `FULL`, or `NONE`. Can be overridden by StatefulSet labels (see below). Please refer to the crateDB documentation.                                                                                                                        |
+| `--dry-run`           | **Testing mode**: Logs all SQL statements that would be sent but doesn't actually send them to the node. Skips process monitoring. Perfect for testing dc_util behavior in pods without affecting the CrateDB cluster.                                     |
 
 # Timeout Logic
 
@@ -164,5 +165,44 @@ Decommissioner: 2025/10/09 17:16:48 Payload: {"stmt":"alter cluster decommission
 Decommissioner: 2025/10/09 17:16:48 Response from server: {"cols":[],"rows":[[]],"rowcount":1,"duration":3.827284}
 Decommissioner: 2025/10/09 17:16:48 Decommission command sent successfully
 Decommissioner: 2025/10/09 17:16:48 Process 1 is still running (check count: 0)
+
+```
+
+## Dry-Run Mode
+
+For testing purposes, you can use the `--dry-run` flag to simulate the decommission process without actually sending SQL commands to the CrateDB node:
+
+```bash
+./dc_util-linux-amd64 --dry-run -min-availability PRIMARIES -timeout 120s
+```
+
+### Sample Dry-Run Logs
+```
+Decommissioner: 2025/10/16 14:41:10 Using in-cluster configuration
+Decommissioner: 2025/10/16 14:41:10 Parsing hostname: crate-data-hot-abc123-0
+Decommissioner: 2025/10/16 14:41:10 Extracted CrateDB node name: data-hot-0
+Decommissioner: 2025/10/16 14:41:10 StatefulSet has 3 replicas configured
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Running in dry-run mode - no SQL commands will be sent
+Decommissioner: 2025/10/16 14:41:10 StatefulSet terminationGracePeriodSeconds: 900s
+Decommissioner: 2025/10/16 14:41:10 Decommissioning node data-hot-0 with graceful_stop.timeout of 780s, min_availability=PRIMARIES, force=true
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send SQL statement: set global transient "cluster.graceful_stop.timeout" = '780s';
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send to URL: https://127.0.0.1:4200/_sql
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send SQL statement: set global transient "cluster.graceful_stop.force" = true;
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send to URL: https://127.0.0.1:4200/_sql
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send SQL statement: set global transient "cluster.graceful_stop.min_availability"='PRIMARIES';
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send to URL: https://127.0.0.1:4200/_sql
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send SQL statement: alter cluster decommission 'data-hot-0'
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would send to URL: https://127.0.0.1:4200/_sql
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would have sent decommission commands successfully
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Would monitor process 1 until it stops
+Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Dry-run completed successfully
+```
+
+In dry-run mode:
+- All StatefulSet parsing and label reading happens normally
+- All decommission logic is executed (timeout calculation, statement preparation)
+- SQL statements are logged with `[DRY-RUN]` prefix but not sent to CrateDB
+- Process monitoring is skipped since no actual decommission occurs
+- Perfect for testing in pods without impacting the cluster
 
 ```
