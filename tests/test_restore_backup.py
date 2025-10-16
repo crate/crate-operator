@@ -96,19 +96,15 @@ def backup_repository_data(faker):
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @mock.patch("crate.operator.webhooks.webhook_client._send")
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._create_backup_repository"
-)
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._ensure_snapshot_exists"
-)
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
-)
+@mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
+@mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
+@mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
+@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
 @pytest.mark.parametrize(
     "gc_enabled, backup_provider_str", [(True, "aws"), (False, None)]
 )
 async def test_restore_backup_aws(
+    mock_remove_gc_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -268,6 +264,19 @@ async def test_restore_backup_aws(
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
+        mock_remove_gc_tables,
+        mock.call(
+            mock.ANY,
+            mock.ANY,
+            snapshot,
+            mock.ANY,
+        ),
+        err_msg="Did not call remove grand central tables.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        mocked_coro_func_called_with,
         mock_start_restore_snapshot,
         mock.call(mock.ANY, mock.ANY, snapshot, "all", mock.ANY, [], [], []),
         err_msg="Did not call start restore snapshot.",
@@ -336,17 +345,13 @@ async def test_restore_backup_aws(
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @mock.patch("crate.operator.webhooks.webhook_client._send")
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._create_backup_repository"
-)
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._ensure_snapshot_exists"
-)
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
-)
+@mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
+@mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
+@mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
+@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
 @pytest.mark.parametrize("gc_enabled", [True, False])
 async def test_restore_backup_azure_blob(
+    mock_remove_gc_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -507,6 +512,19 @@ async def test_restore_backup_azure_blob(
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
+        mock_remove_gc_tables,
+        mock.call(
+            mock.ANY,
+            mock.ANY,
+            snapshot,
+            mock.ANY,
+        ),
+        err_msg="Did not call remove grand central tables.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        mocked_coro_func_called_with,
         mock_start_restore_snapshot,
         mock.call(mock.ANY, mock.ANY, snapshot, "all", mock.ANY, [], [], []),
         err_msg="Did not call start restore snapshot.",
@@ -575,19 +593,18 @@ async def test_restore_backup_azure_blob(
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @mock.patch("crate.operator.webhooks.webhook_client._send")
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._create_backup_repository",
+@mock.patch.object(
+    RestoreBackupSubHandler,
+    "_create_backup_repository",
     side_effect=kopf.PermanentError(
         "Backup repository is not accessible with the given credentials."
     ),
 )
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._ensure_snapshot_exists"
-)
-@mock.patch(
-    "crate.operator.restore_backup.RestoreBackupSubHandler._start_restore_snapshot"
-)
+@mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
+@mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
+@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
 async def test_restore_backup_create_repo_fails(
+    mock_remove_gc_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -946,3 +963,42 @@ async def does_credentials_secret_exist(
     return config.RESTORE_BACKUP_SECRET_NAME.format(name=name) in (
         s.metadata.name for s in secrets.items
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gc_enabled, table_missing", [(True, False), (True, True), (False, True)]
+)
+async def test_remove_gc_tables(
+    gc_enabled, table_missing, faker, mock_cratedb_connection
+):
+    repository = faker.domain_word()
+    snapshot = faker.domain_word()
+    table = f"gc.{faker.domain_word()}"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor.fetchall.return_value = [(table,)] if gc_enabled else []
+    mock_cursor.fetchone.return_value = None if table_missing else table
+
+    mock_logger = mock.Mock(spec=logging.Logger)
+    conn_factory = connection_factory("host", "password")
+
+    await RestoreBackupSubHandler._remove_gc_tables(
+        conn_factory, repository, snapshot, mock_logger
+    )
+
+    stmts = [
+        mock.call(
+            "SELECT * FROM (SELECT unnest(tables) AS t FROM sys.snapshots "
+            "WHERE repository=%s AND name=%s) AS tables WHERE t LIKE 'gc.%';",
+            (repository, snapshot),
+        ),
+    ]
+
+    if gc_enabled:
+        stmts.append(mock.call("SELECT * FROM %s LIMIT 1;", (table,)))
+
+    if not table_missing:
+        stmts.append(mock.call("DROP TABLE %s;", (table,)))
+
+    mock_cursor.execute.assert_has_awaits(stmts)

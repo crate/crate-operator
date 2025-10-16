@@ -596,6 +596,9 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 conn_factory, repository, snapshot, logger
             )
 
+            if restore_type == SnapshotRestoreType.ALL.value:
+                await self._remove_gc_tables(conn_factory, repository, snapshot, logger)
+
             await self._start_restore_snapshot(
                 conn_factory,
                 repository,
@@ -700,6 +703,51 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                             f"Snapshot {snapshot} does not exist "
                             f"in repository {repository}."
                         )
+        except DatabaseError as e:
+            logger.warning("DatabaseError in _ensure_snapshot_exists", exc_info=e)
+            raise kopf.PermanentError("Snapshots could not be fetched.")
+
+    @staticmethod
+    async def _remove_gc_tables(
+        conn_factory,
+        repository: str,
+        snapshot: str,
+        logger: logging.Logger,
+    ):
+        """
+        If the snapshot contains grand-central tables, remove them if they exist
+        in the cluster in order to recreate the new ones from the snapshot.
+
+        :param conn_factory: A function that establishes a database connection to
+            the CrateDB cluster used for SQL queries.
+        :param repository: The name of the repository.
+        :param snapshot: The name of the snapshot to restore.
+        :param logger: the logger on which we're logging
+        """
+        logger.info("Start _remove_gc_tables")
+        try:
+            async with conn_factory() as conn:
+                async with conn.cursor(timeout=120) as cursor:
+                    await cursor.execute(
+                        "WITH tables AS ("
+                        "  SELECT unnest(tables) AS t "
+                        "  FROM sys.snapshots "
+                        "  WHERE repository=%s AND name=%s"
+                        ") "
+                        "SELECT * FROM tables WHERE t LIKE 'gc.%%';",
+                        (repository, snapshot),
+                    )
+                    tables = await cursor.fetchall()
+                    logger.info(f"tables: {tables}")
+                    for (table,) in tables:
+                        logger.info(f"table: {table}")
+                        await cursor.execute(f"SELECT * FROM {table} LIMIT 1;")
+                        row = await cursor.fetchone()
+                        logger.info(f"row: {row}")
+                        if row:
+                            logger.info(f"Dropping table: {table}")
+                            await cursor.execute(f"DROP TABLE {table};")
+
         except DatabaseError as e:
             logger.warning("DatabaseError in _ensure_snapshot_exists", exc_info=e)
             raise kopf.PermanentError("Snapshots could not be fetched.")
