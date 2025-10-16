@@ -1158,9 +1158,8 @@ class RestoreInternalTables:
                 async with conn.cursor(timeout=120) as cursor:
                     if tables is not None:
                         gc_tables = self.get_gc_tables(cursor, tables)
-                        where_stmt = (
-                            f"t IN ({','.join(f"'{table}'" for table in gc_tables)})"
-                        )
+                        tables_str = ",".join(f"'{table}'" for table in gc_tables)
+                        where_stmt = f"t IN ({tables_str})"
                     else:
                         where_stmt = "t LIKE 'gc.%%'"
 
