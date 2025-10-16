@@ -34,6 +34,7 @@ const (
 	// StatefulSet label keys (using dashes instead of underscores)
 	labelMinAvailability = "dc-util-min-availability"
 	labelGracefulStop    = "dc-util-graceful-stop"
+	labelDisabled        = "dc-util-disabled"
 )
 
 type customError struct{ msg string }
@@ -162,6 +163,24 @@ func getGracefulStopForceFromLabels(labels map[string]string) bool {
 		}
 	}
 	return true // default behavior
+}
+
+// getDisabledFromLabels reads disabled setting from StatefulSet labels
+func getDisabledFromLabels(labels map[string]string) bool {
+	if value, exists := labels[labelDisabled]; exists {
+		switch value {
+		case "TRUE", "true", "True":
+			log.Printf("Using disabled from StatefulSet label: true")
+			return true
+		case "FALSE", "false", "False":
+			log.Printf("Using disabled from StatefulSet label: false")
+			return false
+		default:
+			log.Printf("Invalid disabled value in StatefulSet label '%s': %s, using default: false",
+				labelDisabled, value)
+		}
+	}
+	return false // default behavior
 }
 
 func sendSQLStatement(proto, stmt string) error {
@@ -314,6 +333,13 @@ func run() error {
 	// Get configuration from StatefulSet labels
 	effectiveMinAvailability := getMinAvailabilityFromLabels(statefulSet.Labels, minAvailability)
 	gracefulStopForce := getGracefulStopForceFromLabels(statefulSet.Labels)
+	disabled := getDisabledFromLabels(statefulSet.Labels)
+
+	// Check if dc_util is disabled
+	if disabled {
+		log.Println("dc_util is disabled via StatefulSet label, exiting without performing decommission")
+		return nil
+	}
 
 	// Calculate effective timeout based on terminationGracePeriodSeconds
 	effectiveTimeout, err := calculateEffectiveTimeout(decommissionTimeout, statefulSet.Spec.Template.Spec.TerminationGracePeriodSeconds)

@@ -116,6 +116,7 @@ The tool can read configuration from StatefulSet labels, overriding CLI paramete
 ## Labels:
 - **`dc-util-min-availability`**: Sets min-availability (values: `NONE`, `PRIMARIES`, `FULL`)
 - **`dc-util-graceful-stop`**: Controls graceful stop force setting (values: `true`, `false`)
+- **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
 
 ## Example StatefulSet with labels:
 ```yaml
@@ -126,15 +127,17 @@ metadata:
   labels:
     dc-util-min-availability: "PRIMARIES"
     dc-util-graceful-stop: "false"
+    dc-util-disabled: "false"
 spec:
   # ... rest of StatefulSet spec
 ```
 
 ## Behavior:
-- **No labels**: Uses CLI parameter values (`--min-availability`, default force=true)
+- **No labels**: Uses CLI parameter values (`--min-availability`, default force=true, disabled=false)
 - **Valid labels**: Uses label values, logs the override
 - **Invalid labels**: Uses CLI defaults, logs the invalid value
 - **Label precedence**: StatefulSet labels override CLI parameters
+- **When disabled=true**: dc_util logs a message and exits without performing any decommission work
 
 ## Sample Logs
 Please note that you will not be able to see the commands log output! It is run in the backgroud by k8s and is not logged
