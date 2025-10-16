@@ -45,6 +45,7 @@ from crate.operator.restore_backup import (
     RESTORE_CLUSTER_CONCURRENT_REBALANCE,
     RESTORE_MAX_BYTES_PER_SEC,
     RestoreBackupSubHandler,
+    RestoreInternalTables,
     RestoreType,
 )
 from crate.operator.restore_backup_repository_data import (
@@ -99,12 +100,14 @@ def backup_repository_data(faker):
 @mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
+@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "cleanup_tables")
 @pytest.mark.parametrize(
     "gc_enabled, backup_provider_str", [(True, "aws"), (False, None)]
 )
 async def test_restore_backup_aws(
-    mock_remove_gc_tables,
+    mock_cleanup_gc_tables,
+    mock_remove_duplicated_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -264,14 +267,9 @@ async def test_restore_backup_aws(
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
-        mock_remove_gc_tables,
-        mock.call(
-            mock.ANY,
-            mock.ANY,
-            snapshot,
-            mock.ANY,
-        ),
-        err_msg="Did not call remove grand central tables.",
+        mock_remove_duplicated_tables,
+        mock.call(),
+        err_msg="Did not call remove duplicate tables.",
         timeout=DEFAULT_TIMEOUT,
     )
     await assert_wait_for(
@@ -280,6 +278,14 @@ async def test_restore_backup_aws(
         mock_start_restore_snapshot,
         mock.call(mock.ANY, mock.ANY, snapshot, "all", mock.ANY, [], [], []),
         err_msg="Did not call start restore snapshot.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        mocked_coro_func_called_with,
+        mock_cleanup_gc_tables,
+        mock.call(),
+        err_msg="Did not call cleanup grand central tables.",
         timeout=DEFAULT_TIMEOUT,
     )
     await assert_wait_for(
@@ -347,11 +353,12 @@ async def test_restore_backup_aws(
 @mock.patch("crate.operator.webhooks.webhook_client._send")
 @mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
-@mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
+@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "cleanup_tables")
 @pytest.mark.parametrize("gc_enabled", [True, False])
 async def test_restore_backup_azure_blob(
-    mock_remove_gc_tables,
+    mock_cleanup_gc_tables,
+    mock_remove_duplicated_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -512,13 +519,8 @@ async def test_restore_backup_azure_blob(
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
-        mock_remove_gc_tables,
-        mock.call(
-            mock.ANY,
-            mock.ANY,
-            snapshot,
-            mock.ANY,
-        ),
+        mock_remove_duplicated_tables,
+        mock.call(),
         err_msg="Did not call remove grand central tables.",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -528,6 +530,14 @@ async def test_restore_backup_azure_blob(
         mock_start_restore_snapshot,
         mock.call(mock.ANY, mock.ANY, snapshot, "all", mock.ANY, [], [], []),
         err_msg="Did not call start restore snapshot.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    await assert_wait_for(
+        True,
+        mocked_coro_func_called_with,
+        mock_cleanup_gc_tables,
+        mock.call(),
+        err_msg="Did not call cleanup grand central tables.",
         timeout=DEFAULT_TIMEOUT,
     )
     await assert_wait_for(
@@ -602,9 +612,11 @@ async def test_restore_backup_azure_blob(
 )
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreBackupSubHandler, "_remove_gc_tables")
+@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "cleanup_tables")
 async def test_restore_backup_create_repo_fails(
-    mock_remove_gc_tables,
+    mock_cleanup_gc_tables,
+    mock_remove_duplicated_tables,
     mock_start_restore_snapshot,
     mock_ensure_snapshot_exists,
     mock_create_repository,
@@ -965,40 +977,118 @@ async def does_credentials_secret_exist(
     )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "gc_enabled, table_missing", [(True, False), (True, True), (False, True)]
-)
-async def test_remove_gc_tables(
-    gc_enabled, table_missing, faker, mock_cratedb_connection
-):
+@pytest.fixture
+def replace_gc_tables_data(faker, mock_cratedb_connection):
     repository = faker.domain_word()
     snapshot = faker.domain_word()
-    table = f"gc.{faker.domain_word()}"
+    table_a = f"gc.{faker.domain_word()}"
+    table_b = f"gc.{faker.domain_word()}"
 
     mock_cursor = mock_cratedb_connection["mock_cursor"]
-    mock_cursor.fetchall.return_value = [(table,)] if gc_enabled else []
-    mock_cursor.fetchone.return_value = None if table_missing else table
-
     mock_logger = mock.Mock(spec=logging.Logger)
     conn_factory = connection_factory("host", "password")
 
-    await RestoreBackupSubHandler._remove_gc_tables(
+    gc_tables_cls = RestoreInternalTables(
         conn_factory, repository, snapshot, mock_logger
     )
 
-    stmts = [
-        mock.call(
-            "SELECT * FROM (SELECT unnest(tables) AS t FROM sys.snapshots "
-            "WHERE repository=%s AND name=%s) AS tables WHERE t LIKE 'gc.%';",
-            (repository, snapshot),
-        ),
-    ]
+    return (
+        repository,
+        snapshot,
+        table_a,
+        table_b,
+        mock_cursor,
+        gc_tables_cls,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gc_enabled, type_all", [(True, False), (False, True), (True, True), (False, False)]
+)
+async def test_replace_gc_tables(gc_enabled, type_all, replace_gc_tables_data):
+    repository, snapshot, table_a, table_b, mock_cursor, gc_tables_cls = (
+        replace_gc_tables_data
+    )
+    mock_cursor.fetchall.return_value = [(table_a,), (table_b,)] if gc_enabled else []
+
+    tables_param = None if type_all else [table_a, table_b]
+
+    with mock.patch(
+        "crate.operator.restore_backup.quote_ident", side_effect=[table_a, table_b]
+    ):
+        await gc_tables_cls.remove_duplicated_tables(tables_param)
+
+    if type_all:
+        stmts = [
+            mock.call(
+                "WITH tables AS ("
+                "  SELECT unnest(tables) AS t "
+                "  FROM sys.snapshots "
+                "  WHERE repository=%s AND name=%s"
+                ") "
+                "SELECT * FROM tables WHERE t LIKE 'gc.%%';",
+                (repository, snapshot),
+            ),
+        ]
+    else:
+        stmts = [
+            mock.call(
+                "WITH tables AS ("
+                "  SELECT unnest(tables) AS t "
+                "  FROM sys.snapshots "
+                "  WHERE repository=%s AND name=%s"
+                ") "
+                f"SELECT * FROM tables WHERE t IN ('{table_a}','{table_b}');",
+                (repository, snapshot),
+            ),
+        ]
 
     if gc_enabled:
-        stmts.append(mock.call("SELECT * FROM %s LIMIT 1;", (table,)))
-
-    if not table_missing:
-        stmts.append(mock.call("DROP TABLE %s;", (table,)))
+        stmts.append(mock.call(f"ALTER TABLE {table_a} RENAME TO {table_a}_temp;"))
+        stmts.append(mock.call(f"ALTER TABLE {table_b} RENAME TO {table_b}_temp;"))
 
     mock_cursor.execute.assert_has_awaits(stmts)
+    assert gc_tables_cls.gc_tables_renamed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gc_tables_renamed", [True, False])
+async def test_restore_gc_tables(gc_tables_renamed, replace_gc_tables_data):
+    _, _, table_a, table_b, mock_cursor, gc_tables_cls = replace_gc_tables_data
+
+    gc_tables_cls.gc_tables_renamed = gc_tables_renamed
+    gc_tables_cls.gc_tables = [table_a, table_b]
+
+    await gc_tables_cls.restore_tables()
+
+    if not gc_tables_renamed:
+        mock_cursor.execute.assert_not_awaited()
+    else:
+        mock_cursor.execute.assert_has_awaits(
+            [
+                mock.call(f"ALTER TABLE {table_a}_temp RENAME TO {table_a};"),
+                mock.call(f"ALTER TABLE {table_b}_temp RENAME TO {table_b};"),
+            ]
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gc_tables_renamed", [True, False])
+async def test_cleanup_gc_tables(gc_tables_renamed, replace_gc_tables_data):
+    _, _, table_a, table_b, mock_cursor, gc_tables_cls = replace_gc_tables_data
+
+    gc_tables_cls.gc_tables_renamed = gc_tables_renamed
+    gc_tables_cls.gc_tables = [table_a, table_b]
+
+    await gc_tables_cls.cleanup_tables()
+
+    if not gc_tables_renamed:
+        mock_cursor.execute.assert_not_awaited()
+    else:
+        mock_cursor.execute.assert_has_awaits(
+            [
+                mock.call(f"DROP TABLE {table_a}_temp;"),
+                mock.call(f"DROP TABLE {table_b}_temp;"),
+            ]
+        )

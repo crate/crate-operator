@@ -596,19 +596,30 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 conn_factory, repository, snapshot, logger
             )
 
-            if restore_type == SnapshotRestoreType.ALL.value:
-                await self._remove_gc_tables(conn_factory, repository, snapshot, logger)
-
-            await self._start_restore_snapshot(
-                conn_factory,
-                repository,
-                snapshot,
-                restore_type,
-                logger,
-                tables,
-                partitions,
-                sections,
+            internal_tables = RestoreInternalTables(
+                conn_factory, repository, snapshot, logger
             )
+            if restore_type == SnapshotRestoreType.ALL.value:
+                await internal_tables.remove_duplicated_tables()
+            elif restore_type == SnapshotRestoreType.TABLES.value:
+                await internal_tables.remove_duplicated_tables(tables)
+
+            try:
+                await self._start_restore_snapshot(
+                    conn_factory,
+                    repository,
+                    snapshot,
+                    restore_type,
+                    logger,
+                    tables,
+                    partitions,
+                    sections,
+                )
+            except kopf.PermanentError as e:
+                await internal_tables.restore_tables()
+                raise e
+            else:
+                await internal_tables.cleanup_tables()
 
     @staticmethod
     async def _create_backup_repository(
@@ -703,51 +714,6 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                             f"Snapshot {snapshot} does not exist "
                             f"in repository {repository}."
                         )
-        except DatabaseError as e:
-            logger.warning("DatabaseError in _ensure_snapshot_exists", exc_info=e)
-            raise kopf.PermanentError("Snapshots could not be fetched.")
-
-    @staticmethod
-    async def _remove_gc_tables(
-        conn_factory,
-        repository: str,
-        snapshot: str,
-        logger: logging.Logger,
-    ):
-        """
-        If the snapshot contains grand-central tables, remove them if they exist
-        in the cluster in order to recreate the new ones from the snapshot.
-
-        :param conn_factory: A function that establishes a database connection to
-            the CrateDB cluster used for SQL queries.
-        :param repository: The name of the repository.
-        :param snapshot: The name of the snapshot to restore.
-        :param logger: the logger on which we're logging
-        """
-        logger.info("Start _remove_gc_tables")
-        try:
-            async with conn_factory() as conn:
-                async with conn.cursor(timeout=120) as cursor:
-                    await cursor.execute(
-                        "WITH tables AS ("
-                        "  SELECT unnest(tables) AS t "
-                        "  FROM sys.snapshots "
-                        "  WHERE repository=%s AND name=%s"
-                        ") "
-                        "SELECT * FROM tables WHERE t LIKE 'gc.%%';",
-                        (repository, snapshot),
-                    )
-                    tables = await cursor.fetchall()
-                    logger.info(f"tables: {tables}")
-                    for (table,) in tables:
-                        logger.info(f"table: {table}")
-                        await cursor.execute(f"SELECT * FROM {table} LIMIT 1;")
-                        row = await cursor.fetchone()
-                        logger.info(f"row: {row}")
-                        if row:
-                            logger.info(f"Dropping table: {table}")
-                            await cursor.execute(f"DROP TABLE {table};")
-
         except DatabaseError as e:
             logger.warning("DatabaseError in _ensure_snapshot_exists", exc_info=e)
             raise kopf.PermanentError("Snapshots could not be fetched.")
@@ -1162,3 +1128,110 @@ class ResetSnapshotSubHandler(StateBasedSubHandler):
                 name=name,
                 body=body,
             )
+
+
+class RestoreInternalTables:
+
+    def __init__(
+        self,
+        conn_factory,
+        repository: str,
+        snapshot: str,
+        logger: logging.Logger,
+    ):
+        self.conn_factory = conn_factory
+        self.repository: str = repository
+        self.snapshot: str = snapshot
+        self.logger: logging.Logger = logger
+
+        self.gc_tables_renamed: bool = False
+        self.gc_tables: list[str] = []
+
+    async def remove_duplicated_tables(self, tables: Optional[List[str]] = None):
+        """
+        If the snapshot contains grand-central tables, rename them if they exist
+        in the cluster in order to recreate the new ones from the snapshot.
+        """
+        self.gc_tables_renamed = True
+        try:
+            async with self.conn_factory() as conn:
+                async with conn.cursor(timeout=120) as cursor:
+                    if tables is not None:
+                        gc_tables = self.get_gc_tables(cursor, tables)
+                        where_stmt = (
+                            f"t IN ({','.join(f"'{table}'" for table in gc_tables)})"
+                        )
+                    else:
+                        where_stmt = "t LIKE 'gc.%%'"
+
+                    await cursor.execute(
+                        "WITH tables AS ("
+                        "  SELECT unnest(tables) AS t "
+                        "  FROM sys.snapshots "
+                        "  WHERE repository=%s AND name=%s"
+                        ") "
+                        f"SELECT * FROM tables WHERE {where_stmt};",
+                        (self.repository, self.snapshot),
+                    )
+                    tables = await cursor.fetchall()
+                    self.gc_tables = [table[0] for table in tables] if tables else []
+                    for table in self.gc_tables:
+                        self.logger.info(f"Renaming GC table: {table} to {table}_temp")
+                        await cursor.execute(
+                            f"ALTER TABLE {table} RENAME TO {table}_temp;"
+                        )
+        except DatabaseError as e:
+            self.logger.warning(
+                "DatabaseError in RestoreInternalTables.remove_duplicated_tables",
+                exc_info=e,
+            )
+            raise kopf.PermanentError("internal tables couldn't be renamed.")
+
+    async def restore_tables(self):
+        """
+        If the restore operation failed, rename back the gc tables
+        to their original names.
+        """
+        if self.gc_tables_renamed is False:
+            return
+
+        try:
+            async with self.conn_factory() as conn:
+                async with conn.cursor(timeout=120) as cursor:
+                    for table in self.gc_tables:
+                        self.logger.info(f"Renaming GC table: {table}_temp to {table}")
+                        await cursor.execute(
+                            f"ALTER TABLE {table}_temp RENAME TO {table};"
+                        )
+        except DatabaseError as e:
+            self.logger.warning(
+                "DatabaseError in RestoreInternalTables.restore_tables", exc_info=e
+            )
+            raise kopf.PermanentError("internal table couldn't be renamed.")
+
+    async def cleanup_tables(self):
+        """
+        After a successful restore, the temporary renamed gc tables can be dropped.
+        """
+        if self.gc_tables_renamed is False:
+            return
+
+        try:
+            async with self.conn_factory() as conn:
+                async with conn.cursor(timeout=120) as cursor:
+                    for table in self.gc_tables:
+                        self.logger.info(f"Dropping old GC table: {table}_temp")
+                        await cursor.execute(f"DROP TABLE {table}_temp;")
+        except DatabaseError as e:
+            self.logger.warning(
+                "DatabaseError in RestoreGCTables.restore_tables", exc_info=e
+            )
+            raise kopf.PermanentError("grand-central table couldn't be renamed.")
+
+    @staticmethod
+    def get_gc_tables(cursor, tables: list[str]) -> list[str]:
+        return [
+            quote_ident(table, cursor._impl)
+            for table in tables
+            if table.startswith("gc.")
+        ]
