@@ -30,7 +30,7 @@ import kopf
 from aiopg import Cursor
 from kubernetes_asyncio.client import ApiException, CoreV1Api, CustomObjectsApi
 from psycopg2 import DatabaseError, ProgrammingError
-from psycopg2.errors import DuplicateTable
+from psycopg2.errors import DuplicateTable, UndefinedTable
 from psycopg2.extensions import AsIs, QuotedString, quote_ident
 
 from crate.operator.config import config
@@ -1162,9 +1162,15 @@ class RestoreInternalTables:
                         self.logger.info(f"Renaming GC table: {table} to {table}_temp")
                         table_name = quote_table(table, cursor)
                         temp_table_name = table_without_schema(f"{table}_temp", cursor)
-                        await cursor.execute(
-                            f"ALTER TABLE {table_name} RENAME TO {temp_table_name};"
-                        )
+                        try:
+                            await cursor.execute(
+                                f"ALTER TABLE {table_name} RENAME TO {temp_table_name};"
+                            )
+                        except UndefinedTable:
+                            self.logger.warning(
+                                f"Table {table} does not exist. Skipping."
+                            )
+                            pass
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreInternalTables.remove_duplicated_tables",
@@ -1187,9 +1193,15 @@ class RestoreInternalTables:
                         self.logger.info(f"Renaming GC table: {table}_temp to {table}")
                         table_name = table_without_schema(table, cursor)
                         temp_table_name = quote_table(f"{table}_temp", cursor)
-                        await cursor.execute(
-                            f"ALTER TABLE {temp_table_name} RENAME TO {table_name};"
-                        )
+                        try:
+                            await cursor.execute(
+                                f"ALTER TABLE {temp_table_name} RENAME TO {table_name};"
+                            )
+                        except UndefinedTable:
+                            self.logger.warning(
+                                f"Table {temp_table_name} does not exist. Skipping."
+                            )
+                            pass
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreInternalTables.restore_tables", exc_info=e
@@ -1209,7 +1221,13 @@ class RestoreInternalTables:
                     for table in self.gc_tables:
                         self.logger.info(f"Dropping old GC table: {table}_temp")
                         temp_table_name = quote_table(f"{table}_temp", cursor)
-                        await cursor.execute(f"DROP TABLE {temp_table_name};")
+                        try:
+                            await cursor.execute(f"DROP TABLE {temp_table_name};")
+                        except UndefinedTable:
+                            self.logger.warning(
+                                f"Table {temp_table_name} does not exist. Skipping."
+                            )
+                            pass
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreGCTables.restore_tables", exc_info=e
