@@ -370,23 +370,7 @@ class RestoreTables(RestoreType):
         if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
             return "ALL"
 
-        def quote_table(table):
-            """
-            Ensure table names are correctly quoted. If it contains a schema
-            (e.g., 'doc.nyc_taxi'), quote both the schema and the table using
-            psycopg2.extensions.quote_ident.
-            """
-            if "." in table:
-                schema, table_name = table.split(".", 1)
-            else:
-                schema, table_name = None, table
-
-            quoted_schema = quote_ident(schema, cursor._impl) if schema else None
-            quoted_table = quote_ident(table_name, cursor._impl)
-
-            return f"{quoted_schema}.{quoted_table}" if quoted_schema else quoted_table
-
-        formatted_tables = [quote_table(table.strip()) for table in tables]
+        formatted_tables = [quote_table(table.strip(), cursor) for table in tables]
 
         return f'TABLE {",".join(formatted_tables)}'
 
@@ -1157,7 +1141,7 @@ class RestoreInternalTables:
             async with self.conn_factory() as conn:
                 async with conn.cursor(timeout=120) as cursor:
                     if tables is not None:
-                        gc_tables = self.get_gc_tables(cursor, tables)
+                        gc_tables = [t for t in tables if t.startswith("gc.")]
                         tables_str = ",".join(f"'{table}'" for table in gc_tables)
                         where_stmt = f"t IN ({tables_str})"
                     else:
@@ -1176,8 +1160,10 @@ class RestoreInternalTables:
                     self.gc_tables = [table[0] for table in tables] if tables else []
                     for table in self.gc_tables:
                         self.logger.info(f"Renaming GC table: {table} to {table}_temp")
+                        table_name = quote_table(table, cursor)
+                        temp_table_name = table_without_schema(f"{table}_temp", cursor)
                         await cursor.execute(
-                            f"ALTER TABLE {table} RENAME TO {table}_temp;"
+                            f"ALTER TABLE {table_name} RENAME TO {temp_table_name};"
                         )
         except DatabaseError as e:
             self.logger.warning(
@@ -1199,8 +1185,10 @@ class RestoreInternalTables:
                 async with conn.cursor(timeout=120) as cursor:
                     for table in self.gc_tables:
                         self.logger.info(f"Renaming GC table: {table}_temp to {table}")
+                        table_name = table_without_schema(table, cursor)
+                        temp_table_name = quote_table(f"{table}_temp", cursor)
                         await cursor.execute(
-                            f"ALTER TABLE {table}_temp RENAME TO {table};"
+                            f"ALTER TABLE {temp_table_name} RENAME TO {table_name};"
                         )
         except DatabaseError as e:
             self.logger.warning(
@@ -1220,17 +1208,39 @@ class RestoreInternalTables:
                 async with conn.cursor(timeout=120) as cursor:
                     for table in self.gc_tables:
                         self.logger.info(f"Dropping old GC table: {table}_temp")
-                        await cursor.execute(f"DROP TABLE {table}_temp;")
+                        temp_table_name = quote_table(f"{table}_temp", cursor)
+                        await cursor.execute(f"DROP TABLE {temp_table_name};")
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreGCTables.restore_tables", exc_info=e
             )
             raise kopf.PermanentError("grand-central table couldn't be renamed.")
 
-    @staticmethod
-    def get_gc_tables(cursor, tables: list[str]) -> list[str]:
-        return [
-            quote_ident(table, cursor._impl)
-            for table in tables
-            if table.startswith("gc.")
-        ]
+
+def quote_table(table, cursor) -> str:
+    """
+    Ensure table names are correctly quoted. If it contains a schema
+    (e.g., 'doc.nyc_taxi'), quote both the schema and the table using
+    psycopg2.extensions.quote_ident.
+    """
+    if "." in table:
+        schema, table_name = table.split(".", 1)
+    else:
+        schema, table_name = None, table
+
+    quoted_schema = quote_ident(schema, cursor._impl) if schema else None
+    quoted_table = quote_ident(table_name, cursor._impl)
+
+    return f"{quoted_schema}.{quoted_table}" if quoted_schema else quoted_table
+
+
+def table_without_schema(table, cursor) -> str:
+    """
+    Returns the table name without schema, ensuring it's correctly quoted..
+
+    :param table: The full table name, possibly including schema.
+    :param cursor: The database cursor used for quoting.
+    :return: The quoted table name without schema.
+    """
+    table_name = table.split(".")[1] if "." in table else table
+    return quote_ident(table_name, cursor._impl)

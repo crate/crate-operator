@@ -94,6 +94,20 @@ def backup_repository_data(faker):
     }
 
 
+@pytest.fixture
+def mock_quote_ident():
+
+    def mock_quote_ident(value, connection):
+        if value.startswith('"') and value.endswith('"'):
+            return value
+        return f'"{value}"'
+
+    with mock.patch(
+        "crate.operator.restore_backup.quote_ident", side_effect=mock_quote_ident
+    ):
+        yield
+
+
 @pytest.mark.k8s
 @pytest.mark.asyncio
 @mock.patch("crate.operator.webhooks.webhook_client._send")
@@ -353,6 +367,7 @@ async def test_restore_backup_aws(
 @mock.patch("crate.operator.webhooks.webhook_client._send")
 @mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
+@mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
 @mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
 @pytest.mark.parametrize("gc_enabled", [True, False])
@@ -782,24 +797,17 @@ async def test_restore_backup_create_repo_fails(
         ),
     ],
 )
-def test_get_restore_type_keyword(restore_type, expected_keyword, params):
+def test_get_restore_type_keyword(
+    restore_type, expected_keyword, params, mock_quote_ident
+):
     cursor = mock.AsyncMock()
-
-    def mock_quote_ident(value, connection):
-        if value.startswith('"') and value.endswith('"'):
-            return value
-        return f'"{value}"'
-
-    with mock.patch(
-        "crate.operator.restore_backup.quote_ident", side_effect=mock_quote_ident
-    ):
-        func_kwargs = {}
-        if params:
-            func_kwargs[restore_type.value] = params
-        restore_keyword = RestoreType.create(
-            restore_type.value, **func_kwargs
-        ).get_restore_keyword(cursor=cursor)
-        assert restore_keyword == expected_keyword
+    func_kwargs = {}
+    if params:
+        func_kwargs[restore_type.value] = params
+    restore_keyword = RestoreType.create(
+        restore_type.value, **func_kwargs
+    ).get_restore_keyword(cursor=cursor)
+    assert restore_keyword == expected_keyword
 
 
 @pytest.mark.asyncio
@@ -981,8 +989,10 @@ async def does_credentials_secret_exist(
 def replace_gc_tables_data(faker, mock_cratedb_connection):
     repository = faker.domain_word()
     snapshot = faker.domain_word()
-    table_a = f"gc.{faker.domain_word()}"
-    table_b = f"gc.{faker.domain_word()}"
+    table_a = faker.domain_word()
+    table_b = faker.domain_word()
+    tables = [table_a, table_b]
+    tables_with_schema = [f"gc.{t}" for t in tables]
 
     mock_cursor = mock_cratedb_connection["mock_cursor"]
     mock_logger = mock.Mock(spec=logging.Logger)
@@ -995,8 +1005,8 @@ def replace_gc_tables_data(faker, mock_cratedb_connection):
     return (
         repository,
         snapshot,
-        table_a,
-        table_b,
+        tables,
+        tables_with_schema,
         mock_cursor,
         gc_tables_cls,
     )
@@ -1006,18 +1016,18 @@ def replace_gc_tables_data(faker, mock_cratedb_connection):
 @pytest.mark.parametrize(
     "gc_enabled, type_all", [(True, False), (False, True), (True, True), (False, False)]
 )
-async def test_replace_gc_tables(gc_enabled, type_all, replace_gc_tables_data):
-    repository, snapshot, table_a, table_b, mock_cursor, gc_tables_cls = (
+async def test_replace_gc_tables(
+    gc_enabled, type_all, replace_gc_tables_data, mock_quote_ident
+):
+    repository, snapshot, tables, tables_with_schema, mock_cursor, gc_tables_cls = (
         replace_gc_tables_data
     )
-    mock_cursor.fetchall.return_value = [(table_a,), (table_b,)] if gc_enabled else []
 
-    tables_param = None if type_all else [table_a, table_b]
+    fetch_response = [(t,) for t in tables_with_schema]
+    mock_cursor.fetchall.return_value = fetch_response if gc_enabled else []
+    tables_param = None if type_all else tables_with_schema
 
-    with mock.patch(
-        "crate.operator.restore_backup.quote_ident", side_effect=[table_a, table_b]
-    ):
-        await gc_tables_cls.remove_duplicated_tables(tables_param)
+    await gc_tables_cls.remove_duplicated_tables(tables_param)
 
     if type_all:
         stmts = [
@@ -1039,14 +1049,19 @@ async def test_replace_gc_tables(gc_enabled, type_all, replace_gc_tables_data):
                 "  FROM sys.snapshots "
                 "  WHERE repository=%s AND name=%s"
                 ") "
-                f"SELECT * FROM tables WHERE t IN ('{table_a}','{table_b}');",
+                "SELECT * FROM tables WHERE t IN "
+                f"('{tables_with_schema[0]}','{tables_with_schema[1]}');",
                 (repository, snapshot),
             ),
         ]
 
     if gc_enabled:
-        stmts.append(mock.call(f"ALTER TABLE {table_a} RENAME TO {table_a}_temp;"))
-        stmts.append(mock.call(f"ALTER TABLE {table_b} RENAME TO {table_b}_temp;"))
+        stmts.append(
+            mock.call(f'ALTER TABLE "gc"."{tables[0]}" RENAME TO "{tables[0]}_temp";')
+        )
+        stmts.append(
+            mock.call(f'ALTER TABLE "gc"."{tables[1]}" RENAME TO "{tables[1]}_temp";')
+        )
 
     mock_cursor.execute.assert_has_awaits(stmts)
     assert gc_tables_cls.gc_tables_renamed is True
@@ -1054,11 +1069,15 @@ async def test_replace_gc_tables(gc_enabled, type_all, replace_gc_tables_data):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("gc_tables_renamed", [True, False])
-async def test_restore_gc_tables(gc_tables_renamed, replace_gc_tables_data):
-    _, _, table_a, table_b, mock_cursor, gc_tables_cls = replace_gc_tables_data
+async def test_restore_gc_tables(
+    gc_tables_renamed, replace_gc_tables_data, mock_quote_ident
+):
+    _, _, tables, tables_with_schema, mock_cursor, gc_tables_cls = (
+        replace_gc_tables_data
+    )
 
     gc_tables_cls.gc_tables_renamed = gc_tables_renamed
-    gc_tables_cls.gc_tables = [table_a, table_b]
+    gc_tables_cls.gc_tables = tables_with_schema
 
     await gc_tables_cls.restore_tables()
 
@@ -1067,19 +1086,27 @@ async def test_restore_gc_tables(gc_tables_renamed, replace_gc_tables_data):
     else:
         mock_cursor.execute.assert_has_awaits(
             [
-                mock.call(f"ALTER TABLE {table_a}_temp RENAME TO {table_a};"),
-                mock.call(f"ALTER TABLE {table_b}_temp RENAME TO {table_b};"),
+                mock.call(
+                    f'ALTER TABLE "gc"."{tables[0]}_temp" RENAME TO "{tables[0]}";'
+                ),
+                mock.call(
+                    f'ALTER TABLE "gc"."{tables[1]}_temp" RENAME TO "{tables[1]}";'
+                ),
             ]
         )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("gc_tables_renamed", [True, False])
-async def test_cleanup_gc_tables(gc_tables_renamed, replace_gc_tables_data):
-    _, _, table_a, table_b, mock_cursor, gc_tables_cls = replace_gc_tables_data
+async def test_cleanup_gc_tables(
+    gc_tables_renamed, replace_gc_tables_data, mock_quote_ident
+):
+    _, _, tables, tables_with_schema, mock_cursor, gc_tables_cls = (
+        replace_gc_tables_data
+    )
 
     gc_tables_cls.gc_tables_renamed = gc_tables_renamed
-    gc_tables_cls.gc_tables = [table_a, table_b]
+    gc_tables_cls.gc_tables = tables_with_schema
 
     await gc_tables_cls.cleanup_tables()
 
@@ -1088,7 +1115,7 @@ async def test_cleanup_gc_tables(gc_tables_renamed, replace_gc_tables_data):
     else:
         mock_cursor.execute.assert_has_awaits(
             [
-                mock.call(f"DROP TABLE {table_a}_temp;"),
-                mock.call(f"DROP TABLE {table_b}_temp;"),
+                mock.call(f'DROP TABLE "gc"."{tables[0]}_temp";'),
+                mock.call(f'DROP TABLE "gc"."{tables[1]}_temp";'),
             ]
         )
