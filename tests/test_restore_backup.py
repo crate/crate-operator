@@ -1029,6 +1029,7 @@ async def test_replace_gc_tables(
 
     await gc_tables_cls.remove_duplicated_tables(tables_param)
 
+    # Verify query for restore types ALL and TABLES
     if type_all:
         stmts = [
             mock.call(

@@ -1230,9 +1230,9 @@ class RestoreInternalTables:
                             pass
         except DatabaseError as e:
             self.logger.warning(
-                "DatabaseError in RestoreGCTables.restore_tables", exc_info=e
+                "DatabaseError in RestoreInternalTables.cleanup_tables", exc_info=e
             )
-            raise kopf.PermanentError("grand-central table couldn't be renamed.")
+            raise kopf.PermanentError("internal temporary table couldn't be dropped.")
 
 
 def quote_table(table, cursor) -> str:
@@ -1254,7 +1254,7 @@ def quote_table(table, cursor) -> str:
 
 def table_without_schema(table, cursor) -> str:
     """
-    Returns the table name without schema, ensuring it's correctly quoted..
+    Returns the table name without schema, ensuring it's correctly quoted.
 
     :param table: The full table name, possibly including schema.
     :param cursor: The database cursor used for quoting.

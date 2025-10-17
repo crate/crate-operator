@@ -5,7 +5,7 @@ Changelog
 Unreleased
 ----------
 
-* Remove grand-central tables before restoring a full snapshot.
+* Remove grand-central tables when restoring a full snapshot or grand-central tables.
 
 2.53.0 (2025-09-25)
 -------------------
