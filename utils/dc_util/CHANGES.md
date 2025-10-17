@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Maintains backward compatibility with existing deployments
   - Better error handling and validation
 
+- **Multi-Architecture Support**: Automatic CPU architecture detection in hook configurations
+  - Hook examples now include automatic detection of x86_64/amd64 and aarch64/arm64 architectures
+  - Downloads appropriate binary based on detected architecture (`dc_util-linux-amd64` or `dc_util-linux-arm64`)
+  - Eliminates need for separate configuration files for different node architectures
+  - Graceful error handling for unsupported architectures
+
 ### Changed
 
 - **Routing Allocation Logic**: Enhanced PreStop process with PostStart hook detection
@@ -74,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced "PostStart Hook Detection" documentation
   - Added complete "Persistent Logging" section with usage examples
   - Updated sample logs sections to reflect new capabilities
+  - All hook configuration examples now include automatic architecture detection
+  - Clear separation between basic (preStop only) and complete (both hooks) configurations
 
 - **Testing**: Comprehensive test coverage for all new features
   - `TestHasPostStartHookWithResetRouting`: PostStart hook detection with various scenarios
@@ -106,6 +114,15 @@ Decommissioner: No postStart hook with dc_util --reset-routing or -reset-routing
 # Single node cluster detection
 Decommissioner: Single node cluster detected (replicas=1) -- Skipping decommission
 
+# Architecture detection in hooks
+ARCH=$(uname -m)
+case $ARCH in
+  x86_64) BINARY_ARCH="amd64" ;;
+  aarch64) BINARY_ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+curl -sLO https://example.com/dc_util-linux-${BINARY_ARCH}
+
 # Persistent logging
 Decommissioner: 2025/10/17 15:02:38 Using kubeconfig from /Users/walter/.kube/config
 # (Same message appears in both STDOUT and /resource/heapdump/dc_util.log)
@@ -124,3 +141,4 @@ Decommissioner: 2025/10/17 15:02:38 Using kubeconfig from /Users/walter/.kube/co
 - **For Development**: Enhanced testing capabilities with better dry-run logging
 - **For Reliability**: Prevents cluster misconfigurations and single node failures
 - **For Maintenance**: Clear logging and automatic file rotation reduce operational overhead
+- **For Multi-Architecture**: Automatic architecture detection ensures compatibility across heterogeneous Kubernetes clusters
