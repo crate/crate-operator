@@ -11,10 +11,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -38,8 +40,11 @@ const (
 	labelNoPreStart               = "dc-util-no-prestart"
 	labelPreStopRoutingAllocation = "dc-util-pre-stop-routing-allocation"
 
-	// Lock file path for tracking dc_util shutdowns
-	dcUtilLockFile = "/resource/heapdump/dc_util.lock"
+	// Default lock file path for tracking dc_util shutdowns
+	defaultDcUtilLockFile = "/resource/heapdump/dc_util.lock"
+
+	// Default log file path
+	defaultLogFile = "/resource/heapdump/dc_util.log"
 
 	// Default routing allocation value for preStop
 	defaultPreStopRoutingAllocation = "new_primaries"
@@ -227,52 +232,78 @@ func getPreStopRoutingAllocationFromLabels(labels map[string]string) string {
 	return defaultPreStopRoutingAllocation // default behavior
 }
 
+// hasPostStartHookWithResetRouting checks if the StatefulSet has a postStart hook
+// that calls dc_util with --reset-routing flag
+func hasPostStartHookWithResetRouting(statefulSet *appsv1.StatefulSet) bool {
+	containers := statefulSet.Spec.Template.Spec.Containers
+
+	for _, container := range containers {
+		if container.Lifecycle != nil && container.Lifecycle.PostStart != nil {
+			if container.Lifecycle.PostStart.Exec != nil {
+				command := container.Lifecycle.PostStart.Exec.Command
+				// Join all command parts to handle shell commands like "/bin/sh -c 'dc_util --reset-routing'"
+				fullCommand := strings.Join(command, " ")
+				// Check if the command contains both dc_util and exact reset-routing flag (with single or double dash)
+				if strings.Contains(fullCommand, "dc_util") {
+					// Use word boundaries to match exact flags
+					if strings.Contains(fullCommand, " --reset-routing") || strings.Contains(fullCommand, " -reset-routing") ||
+						strings.HasSuffix(fullCommand, "--reset-routing") || strings.HasSuffix(fullCommand, "-reset-routing") {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // createLockFile creates the dc_util lock file
-func createLockFile(dryRun bool) error {
+func createLockFile(dryRun bool, lockFile string) error {
 	if dryRun {
-		log.Printf("[DRY-RUN] Would create lock file: %s", dcUtilLockFile)
+		log.Printf("[DRY-RUN] Would create lock file: %s", lockFile)
 		return nil
 	}
 
-	file, err := os.Create(dcUtilLockFile)
+	file, err := os.Create(lockFile)
 	if err != nil {
-		return fmt.Errorf("failed to create lock file %s: %w", dcUtilLockFile, err)
+		return fmt.Errorf("failed to create lock file %s: %w", lockFile, err)
 	}
 	defer file.Close()
 
 	// Write timestamp for debugging
 	_, err = file.WriteString(fmt.Sprintf("dc_util lock created at: %s\n", time.Now().Format(time.RFC3339)))
 	if err != nil {
-		return fmt.Errorf("failed to write to lock file %s: %w", dcUtilLockFile, err)
+		return fmt.Errorf("failed to write to lock file %s: %w", lockFile, err)
 	}
 
-	log.Printf("Created lock file: %s", dcUtilLockFile)
+	log.Printf("Created lock file: %s", lockFile)
 	return nil
 }
 
 // removeLockFile removes the dc_util lock file
-func removeLockFile(dryRun bool) error {
+func removeLockFile(dryRun bool, lockFile string) error {
 	if dryRun {
-		log.Printf("[DRY-RUN] Would remove lock file: %s", dcUtilLockFile)
+		log.Printf("[DRY-RUN] Would remove lock file: %s", lockFile)
 		return nil
 	}
 
-	if err := os.Remove(dcUtilLockFile); err != nil {
+	if err := os.Remove(lockFile); err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("Lock file %s does not exist (already removed)", dcUtilLockFile)
+			log.Printf("Lock file %s does not exist (already removed)", lockFile)
 			return nil
 		}
-		return fmt.Errorf("failed to remove lock file %s: %w", dcUtilLockFile, err)
+		return fmt.Errorf("failed to remove lock file %s: %w", lockFile, err)
 	}
 
-	log.Printf("Removed lock file: %s", dcUtilLockFile)
+	log.Printf("Removed lock file: %s", lockFile)
 	return nil
 }
 
 // lockFileExists checks if the dc_util lock file exists
-func lockFileExists() bool {
-	_, err := os.Stat(dcUtilLockFile)
-	return !os.IsNotExist(err)
+func lockFileExists(lockFile string) bool {
+	_, err := os.Stat(lockFile)
+	return err == nil
 }
 
 // waitForClusterReadiness waits for CrateDB to be ready to accept SQL commands
@@ -326,10 +357,7 @@ func waitForClusterReadiness(proto string, timeout time.Duration, dryRun bool) e
 }
 
 // handleResetRouting handles the PostStart reset-routing functionality
-func handleResetRouting(hostname string, dryRun bool) error {
-	log.SetPrefix("ResetRouting: ")
-	log.SetOutput(os.Stdout)
-
+func handleResetRouting(hostname string, dryRun bool, lockFile string) error {
 	log.Printf("Starting reset-routing mode for hostname: %s", hostname)
 
 	// Determine if we are running in-cluster or using kubeconfig
@@ -393,19 +421,19 @@ func handleResetRouting(hostname string, dryRun bool) error {
 	}
 
 	// Check if lock file exists
-	if !lockFileExists() {
+	if !lockFileExists(lockFile) {
 		log.Println("No lock file found, this appears to be a normal startup (not after dc_util shutdown), exiting")
 		return nil
 	}
 
-	log.Printf("Lock file found at %s, proceeding with routing allocation reset", dcUtilLockFile)
+	log.Printf("Lock file found at %s, proceeding with routing allocation reset", lockFile)
 
 	// Wait for cluster readiness
 	proto := defaultProto
 	if err := waitForClusterReadiness(proto, postStartTimeout, dryRun); err != nil {
 		log.Printf("Cluster readiness check failed: %v", err)
 		// Remove lock file even on failure to prevent retry loops
-		if removeErr := removeLockFile(dryRun); removeErr != nil {
+		if removeErr := removeLockFile(dryRun, lockFile); removeErr != nil {
 			log.Printf("Warning: Failed to remove lock file: %v", removeErr)
 		}
 		return err
@@ -417,7 +445,7 @@ func handleResetRouting(hostname string, dryRun bool) error {
 	if err := sendSQLStatement(proto, resetStmt, dryRun); err != nil {
 		log.Printf("Failed to reset routing allocation: %v", err)
 		// Remove lock file even on failure to prevent retry loops
-		if removeErr := removeLockFile(dryRun); removeErr != nil {
+		if removeErr := removeLockFile(dryRun, lockFile); removeErr != nil {
 			log.Printf("Warning: Failed to remove lock file: %v", removeErr)
 		}
 		return err
@@ -430,7 +458,7 @@ func handleResetRouting(hostname string, dryRun bool) error {
 	}
 
 	// Remove lock file regardless of SET command success/failure
-	if err := removeLockFile(dryRun); err != nil {
+	if err := removeLockFile(dryRun, lockFile); err != nil {
 		log.Printf("Warning: Failed to remove lock file: %v", err)
 		// Don't return error here, as the main operation succeeded
 	}
@@ -500,40 +528,40 @@ func getNamespace(inCluster bool, kubeconfig clientcmd.ClientConfig) (string, er
 	return namespace, nil
 }
 
-func run() error {
-	log.SetPrefix("Decommissioner: ")
-	log.SetOutput(os.Stdout)
-
-	envHostname := os.Getenv("HOSTNAME")
-
-	var (
-		crateNodePrefix     string
-		decommissionTimeout string
-		pid                 int
-		proto               string
-		hostname            string
-		minAvailability     string
-		dryRun              bool
-		resetRouting        bool
-	)
-
-	flag.StringVar(&crateNodePrefix, "crate-node-prefix", defaultCrateNodePrefix, "Prefix of the CrateDB node name")
-	flag.StringVar(&decommissionTimeout, "timeout", defaultTimeout, "Timeout for decommission statement in seconds")
-	flag.IntVar(&pid, "pid", defaultPID, "PID of the process to check")
-	flag.StringVar(&proto, "proto", defaultProto, "Protocol to use for the HTTP server")
-	flag.StringVar(&hostname, "hostname", envHostname, "Hostname of the pod")
-	flag.StringVar(&minAvailability, "min-availability", defaultMinAvailability, "Minimum availability during decommission (FULL/PRIMARIES)")
-	flag.BoolVar(&dryRun, "dry-run", false, "Log all actions without sending SQL commands to the node")
-	flag.BoolVar(&resetRouting, "reset-routing", false, "PostStart mode: reset routing allocation if dc_util lock file exists")
-	flag.Parse()
-
-	if hostname == "" {
-		return fmt.Errorf("hostname is required")
+// setupLogging configures logging to both STDOUT and a file with size-based rotation
+func setupLogging(logFile string) error {
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(logFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	// Handle reset-routing mode (PostStart hook)
-	if resetRouting {
-		return handleResetRouting(hostname, dryRun)
+	// Check if log file exists and its size
+	if info, err := os.Stat(logFile); err == nil {
+		// If file is approaching 1MB (1000000 bytes), truncate it
+		if info.Size() > 900000 { // Leave some buffer
+			if err := os.Truncate(logFile, 0); err != nil {
+				log.Printf("Warning: Failed to truncate log file %s: %v", logFile, err)
+			}
+		}
+	}
+
+	// Open log file for appending
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	// Create multi-writer for both STDOUT and file
+	multiWriter := io.MultiWriter(os.Stdout, file)
+	log.SetOutput(multiWriter)
+
+	return nil
+}
+
+func run(crateNodePrefix, decommissionTimeout string, pid int, proto, hostname, minAvailability string, dryRun bool, lockFile string) error {
+	if hostname == "" {
+		return fmt.Errorf("hostname is required")
 	}
 
 	// Determine if we are running in-cluster or using kubeconfig
@@ -616,22 +644,27 @@ func run() error {
 	}
 
 	// Handle pre-stop routing allocation (BEFORE decommissioning)
-	preStopRoutingAllocation := getPreStopRoutingAllocationFromLabels(statefulSet.Labels)
-	preStopRoutingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRoutingAllocation)
+	// Only set routing allocation if there's a postStart hook to reset it
+	if hasPostStartHookWithResetRouting(statefulSet) {
+		preStopRoutingAllocation := getPreStopRoutingAllocationFromLabels(statefulSet.Labels)
+		preStopRoutingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRoutingAllocation)
 
-	log.Printf("Setting pre-stop routing allocation to: %s", preStopRoutingAllocation)
-	if err := sendSQLStatement(proto, preStopRoutingStmt, dryRun); err != nil {
-		log.Printf("Warning: Failed to set pre-stop routing allocation: %v", err)
-		// Continue with decommission process even if this fails
+		log.Printf("Setting pre-stop routing allocation to: %s", preStopRoutingAllocation)
+		if err := sendSQLStatement(proto, preStopRoutingStmt, dryRun); err != nil {
+			log.Printf("Warning: Failed to set pre-stop routing allocation: %v", err)
+			// Continue with decommission process even if this fails
+		}
+	} else {
+		log.Println("No postStart hook with dc_util --reset-routing or -reset-routing found, skipping pre-stop routing allocation change")
 	}
 
 	// Create lock file to indicate dc_util handled this shutdown
 	if dryRun {
-		log.Printf("[DRY-RUN] Would create lock file: %s", dcUtilLockFile)
+		log.Printf("[DRY-RUN] Would create lock file: %s", lockFile)
 	} else {
-		log.Printf("Creating lock file: %s", dcUtilLockFile)
+		log.Printf("Creating lock file: %s", lockFile)
 	}
-	if err := createLockFile(dryRun); err != nil {
+	if err := createLockFile(dryRun, lockFile); err != nil {
 		log.Printf("Warning: Failed to create lock file: %v", err)
 		// Continue with decommission process even if this fails
 	}
@@ -650,7 +683,11 @@ func run() error {
 
 	time.Sleep(2 * time.Second) // Sleep to catch up with the replica settings
 
-	if replicas > 0 {
+	if replicas == 0 {
+		log.Printf("No replicas are configured -- Skipping decommission")
+	} else if replicas == 1 {
+		log.Printf("Single node cluster detected (replicas=1) -- Skipping decommission")
+	} else {
 		// Send the SQL statements to decommission the node
 		log.Printf("Decommissioning node %s with graceful_stop.timeout of %s, min_availability=%s, force=%t",
 			actualCrateNodeName, effectiveTimeout, effectiveMinAvailability, gracefulStopForce)
@@ -687,15 +724,53 @@ func run() error {
 
 			log.Printf("Process %d has stopped", pid)
 		}
-	} else {
-		log.Printf("No replicas are configured -- Skipping decommission")
 	}
 
 	return nil
 }
 
 func main() {
-	if err := run(); err != nil {
-		log.Fatalf("Error: %v", err)
+	envHostname := os.Getenv("HOSTNAME")
+
+	var (
+		crateNodePrefix     string
+		decommissionTimeout string
+		pid                 int
+		proto               string
+		hostname            string
+		minAvailability     string
+		dryRun              bool
+		resetRouting        bool
+		logFile             string
+		lockFile            string
+	)
+
+	flag.StringVar(&crateNodePrefix, "crate-node-prefix", defaultCrateNodePrefix, "Prefix of the CrateDB node name")
+	flag.StringVar(&decommissionTimeout, "timeout", defaultTimeout, "Timeout for decommission statement in seconds")
+	flag.IntVar(&pid, "pid", defaultPID, "PID of the process to check")
+	flag.StringVar(&proto, "proto", defaultProto, "Protocol to use for the HTTP server")
+	flag.StringVar(&hostname, "hostname", envHostname, "Hostname of the pod")
+	flag.StringVar(&minAvailability, "min-availability", defaultMinAvailability, "Minimum availability during decommission (FULL/PRIMARIES)")
+	flag.BoolVar(&dryRun, "dry-run", false, "Log all actions without sending SQL commands to the node")
+	flag.BoolVar(&resetRouting, "reset-routing", false, "PostStart mode: reset routing allocation if dc_util lock file exists")
+	flag.StringVar(&logFile, "log-file", defaultLogFile, "Path to log file for persistent logging")
+	flag.StringVar(&lockFile, "lock-file", defaultDcUtilLockFile, "Path to lock file for tracking dc_util shutdowns")
+	flag.Parse()
+
+	// Setup logging to both STDOUT and file
+	if err := setupLogging(logFile); err != nil {
+		log.Printf("Warning: Failed to setup file logging to %s: %v", logFile, err)
+	}
+
+	if resetRouting {
+		log.SetPrefix("ResetRouting: ")
+		if err := handleResetRouting(hostname, dryRun, lockFile); err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	} else {
+		log.SetPrefix("Decommissioner: ")
+		if err := run(crateNodePrefix, decommissionTimeout, pid, proto, hostname, minAvailability, dryRun, lockFile); err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 	}
 }

@@ -6,10 +6,17 @@ to use a preStop Hook and issue a `alter cluster decommission` for that node.
 
 The cratedb Documentation explains the rolling restart process here: https://cratedb.com/docs/guide/admin/upgrade/rolling.html
 
-Please note that due to the nature of using a preStop Hook, the first stop describe in the
-documentation is omitted, as we would not be able to reliably detect that the shutdown was
-initiated by dc_util. Therefore the _NEW_PRIMARIES_ would not be
-reset!
+## Recent Updates
+
+**🎉 NEW FEATURES:**
+
+- **Persistent Logging**: Dual logging to STDOUT and persistent file with auto-rotation (see "Persistent Logging" section)
+- **PostStart Hook Detection**: Automatically detects PostStart hooks to prevent permanent routing allocation misconfiguration
+- **Single Node Cluster Detection**: Automatically skips decommission for single node clusters (replicas=1) to prevent failures
+- **Enhanced Flag Support**: Now supports both `-reset-routing` and `--reset-routing` flag formats
+- **Configurable Paths**: New `--log-file` and `--lock-file` CLI flags for customized deployments
+
+These updates solve the historical issue where _NEW_PRIMARIES_ routing allocation could not be reliably reset, and make hook debugging significantly easier in Kubernetes environments.
 
 # What does the tool do?
 
@@ -20,10 +27,18 @@ in kubernetes, the shutdown cannot be canceled - therefore _force_ is typically 
 cratedb side. However, this can now be controlled via the `dc-util-graceful-stop`
 StatefulSet label or remains true by default.
 
+**NEW**: The tool now intelligently detects if a StatefulSet has a PostStart hook configured
+with dc_util reset-routing capability. If no such PostStart hook exists, routing allocation
+changes are skipped to prevent permanent cluster misconfiguration.
+
 Before doing that, the STS is checked for the number of replicas configured. This is done
 to figure out whether a FULL stop of all PODS in the cratedb Cluster is _scheduled_. In
 case of a FULL restart there is **NO** decommission sent to the cluster and the k8s shutdown
 continues by sending `SIGTERM`.
+
+**NEW**: The tool now also detects single node clusters (replicas=1) and automatically skips
+decommission since there are no other nodes to migrate data to, preventing potential failures
+or hanging operations.
 
 For having access to the number of replicas on the sts, additional permission need to be granted
 to the ServiceAccount:
@@ -45,6 +60,7 @@ kubelet is monitoring this timer and would eventually assume the preStop process
 and continue with _TERMINATING_ the containers/POD.
 
 # How to configure it?
+
 The preStop Hook needs to be configured on the _Statefulset_ by adding something like this
 to the cratedb containers configuration:
 
@@ -83,18 +99,21 @@ shasum -a 256 dc_util
 This builds the binary for `Linux` in case you are building it on MacOS. For convenience and to test locally - without running cratedb - as tiny `http_server` is available.
 
 # Command Line
+
 There are a bunch of CLI parameters that can be set to fine-tune the behavior. Most
 are used for testing purpose:
 
-| Paramter              | setting |
+| Paramter              | setting                                                                                                                                                                                                                                                         |
 | --------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--crate-node-prefix` | allows to customize the cratedb node names in the statefulset in case it is not the default `data-hot`. This is not to be confused with the _hostname_!                                                                                                         |
-| `--timeout`           | CrateDB's default timeout is 7200s - this is automatically adjusted based on `terminationGracePeriodSeconds` (see below)                                                                                                                                       |
+| `--timeout`           | CrateDB's default timeout is 7200s - this is automatically adjusted based on `terminationGracePeriodSeconds` (see below)                                                                                                                                        |
 | `--pid`               | For testing locally only                                                                                                                                                                                                                                        |
 | `--hostname`          | Is used to derive the name of the kubernetes statefulset, the _replica number_ of the pod is _stripped_ from it, which returns the sts name. eg. `crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd-0 -> crate-data-hot-eadf76b5-c634-4f0f-abcc-7442d01cb7dd` |
-| `--min-availability`  | Either `PRIMARIES`, `FULL`, or `NONE`. Can be overridden by StatefulSet labels (see below). Please refer to the crateDB documentation.                                                                                                                        |
-| `--dry-run`           | **Testing mode**: Logs all SQL statements that would be sent but doesn't actually send them to the node. Skips process monitoring. Perfect for testing dc_util behavior in pods without affecting the CrateDB cluster.                                     |
-| `--reset-routing`     | **PostStart mode**: Resets routing allocation to 'all' if dc_util lock file exists. Used in PostStart hooks to restore routing allocation after dc_util shutdown. Includes 10-minute cluster readiness timeout.                                            |
+| `--min-availability`  | Either `PRIMARIES`, `FULL`, or `NONE`. Can be overridden by StatefulSet labels (see below). Please refer to the crateDB documentation.                                                                                                                          |
+| `--dry-run`           | **Testing mode**: Logs all SQL statements that would be sent but doesn't actually send them to the node. Skips process monitoring. Perfect for testing dc_util behavior in pods without affecting the CrateDB cluster.                                          |
+| `--reset-routing`     | **PostStart mode**: Resets routing allocation to 'all' if dc_util lock file exists. Used in PostStart hooks to restore routing allocation after dc_util shutdown. Includes 10-minute cluster readiness timeout.                                                 |
+| `--log-file`          | **Path to persistent log file** (default: `/resource/heapdump/dc_util.log`). Logs are written to both STDOUT and this file simultaneously. File is auto-rotated when approaching 1MB. Essential for debugging Kubernetes hooks.                                 |
+| `--lock-file`         | **Path to lock file** (default: `/resource/heapdump/dc_util.lock`). Used to track dc_util shutdowns and coordinate PostStart hook behavior. Customizable for different deployment scenarios.                                                                    |
 
 # Timeout Logic
 
@@ -106,16 +125,39 @@ The tool automatically determines the appropriate decommission timeout based on 
 - **Logging**: Reports when using derived timeout instead of flag timeout
 
 ## Real-world scenarios:
+
 - **Standard deployment** (30s default): Uses `--timeout` flag (e.g., 7200s)
 - **Long-running workload** (1800s): Uses 1680s for decommission, keeps 120s for shutdown
 - **Short custom period** (300s): Uses 360s minimum (logs the adjustment)
 - **Very long period** (3600s): Uses 3480s for decommission
+
+## Replica Count Logic
+
+The tool intelligently handles different cluster sizes:
+
+- **Zero replicas** (replicas=0): Skips decommission - StatefulSet is scaled down
+- **Single node cluster** (replicas=1): Skips decommission - no other nodes to migrate data to
+- **Multi-node cluster** (replicas≥2): Proceeds with normal decommission process
+
+### Sample Logs for Different Scenarios:
+
+```
+# Zero replicas
+Decommissioner: No replicas are configured -- Skipping decommission
+
+# Single node cluster
+Decommissioner: Single node cluster detected (replicas=1) -- Skipping decommission
+
+# Multi-node cluster
+Decommissioner: Decommissioning node data-hot-2 with graceful_stop.timeout of 7200s...
+```
 
 # StatefulSet Label Configuration
 
 The tool can read configuration from StatefulSet labels, overriding CLI parameters:
 
 ## Labels:
+
 - **`dc-util-min-availability`**: Sets min-availability (values: `NONE`, `PRIMARIES`, `FULL`)
 - **`dc-util-graceful-stop`**: Controls graceful stop force setting (values: `true`, `false`)
 - **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
@@ -123,6 +165,7 @@ The tool can read configuration from StatefulSet labels, overriding CLI paramete
 - **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `new_primaries`, `all`, default: `new_primaries`)
 
 ## Example StatefulSet with labels:
+
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
@@ -139,6 +182,7 @@ spec:
 ```
 
 ## Behavior:
+
 - **No labels**: Uses CLI parameter values (`--min-availability`, default force=true, disabled=false)
 - **Valid labels**: Uses label values, logs the override
 - **Invalid labels**: Uses CLI defaults, logs the invalid value
@@ -147,8 +191,10 @@ spec:
 - **When no-prestart=true**: PostStart reset-routing behavior is skipped
 
 ## Sample Logs
-Please note that you will not be able to see the commands log output! It is run in the backgroud by k8s and is not logged
-to STDOUT where you would expect them.
+
+**UPDATE**: With the new persistent logging feature (see "Persistent Logging" section below), dc_util now logs to both STDOUT and a persistent file (`/resource/heapdump/dc_util.log` by default), making hook debugging much easier!
+
+Legacy note: Previously, you could not see PreStop hook log output as it wasn't logged to STDOUT where you would expect them.
 
 ```
 bash-5.2# ./dc_util-linux-amd64 -min-availability PRIMARIES -timeout 120s
@@ -183,6 +229,7 @@ For testing purposes, you can use the `--dry-run` flag to simulate the decommiss
 ```
 
 ### Sample Dry-Run Logs
+
 ```
 Decommissioner: 2025/10/16 14:41:10 Using in-cluster configuration
 Decommissioner: 2025/10/16 14:41:10 Parsing hostname: crate-data-hot-abc123-0
@@ -205,6 +252,7 @@ Decommissioner: 2025/10/16 14:41:10 [DRY-RUN] Dry-run completed successfully
 ```
 
 In dry-run mode:
+
 - All StatefulSet parsing and label reading happens normally
 - All decommission logic is executed (timeout calculation, statement preparation)
 - SQL statements are logged with `[DRY-RUN]` prefix but not sent to CrateDB
@@ -216,30 +264,31 @@ In dry-run mode:
 dc_util now supports a PostStart hook mode to automatically restore routing allocation after a graceful shutdown:
 
 ### Usage in PostStart Hook:
+
 ```yaml
 spec:
   template:
     spec:
       containers:
-      - name: crate
-        lifecycle:
-          postStart:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - |
-                curl --insecure -sLO https://example.com/dc_util-linux-amd64
-                curl --insecure -sLO https://example.com/dc_util-linux-amd64.sha256
-                sha256sum -c dc_util-linux-amd64.sha256
-                chmod u+x dc_util-linux-amd64
-                ./dc_util-linux-amd64 --reset-routing || true
-          preStop:
-            exec:
-              command:
-              - /path/to/dc_util
-              - --min-availability
-              - PRIMARIES
+        - name: crate
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    curl --insecure -sLO https://example.com/dc_util-linux-amd64
+                    curl --insecure -sLO https://example.com/dc_util-linux-amd64.sha256
+                    sha256sum -c dc_util-linux-amd64.sha256
+                    chmod u+x dc_util-linux-amd64
+                    ./dc_util-linux-amd64 --reset-routing || true
+            preStop:
+              exec:
+                command:
+                  - /path/to/dc_util
+                  - --min-availability
+                  - PRIMARIES
 ```
 
 **Important PostStart Hook Failure Behavior**: PostStart hooks are **NOT failsafe** - if any command fails, Kubernetes kills the container, causing CrashLoopBackOff. The `|| true` at the end is crucial to prevent this:
@@ -252,12 +301,22 @@ For production deployments, consider embedding dc_util in your container image t
 
 ### How it Works:
 
+**PostStart Hook Detection** (NEW):
+
+- dc_util now automatically detects if a StatefulSet has a PostStart hook configured with `dc_util --reset-routing` (or `-reset-routing`)
+- If no PostStart hook is found, the PreStop process skips routing allocation changes to prevent permanent cluster misconfiguration
+- Supports both single dash (`-reset-routing`) and double dash (`--reset-routing`) flag formats
+- Prevents false positives from similar flag names using precise word boundary matching
+
 **PreStop Process (Enhanced)**:
-1. Sets routing allocation to restricted value (`new_primaries` by default)
-2. Creates lock file `/resource/heapdump/dc_util.lock`
-3. Continues with normal decommission process
+
+1. **Checks for PostStart hook** with dc_util reset-routing capability
+2. Sets routing allocation to restricted value (`new_primaries` by default) **only if PostStart hook exists**
+3. Creates lock file (configurable via `--lock-file`)
+4. Continues with normal decommission process
 
 **PostStart Process (`--reset-routing`)**:
+
 1. Checks `dc-util-no-prestart` label (exit if `true`)
 2. Checks for lock file existence (exit if not found)
 3. Waits for cluster readiness (10-minute timeout)
@@ -265,6 +324,7 @@ For production deployments, consider embedding dc_util in your container image t
 5. Removes lock file (prevents retry loops)
 
 ### Sample PostStart Logs:
+
 ```
 ResetRouting: 2025/10/16 19:23:49 Starting reset-routing mode for hostname: crate-data-hot-abc123-0
 ResetRouting: 2025/10/16 19:23:49 Using in-cluster configuration
@@ -280,6 +340,39 @@ ResetRouting: 2025/10/16 19:23:52 Reset-routing completed
 ```
 
 ### Configuration Options:
+
 - **Disable PostStart**: Set `dc-util-no-prestart: "true"`
 - **Custom PreStop routing**: Set `dc-util-pre-stop-routing-allocation: "all"`
 - **Testing**: Use `--reset-routing --dry-run` for safe testing
+
+## Persistent Logging
+
+**NEW FEATURE**: dc_util now supports persistent logging to both STDOUT and a file simultaneously, essential for debugging Kubernetes lifecycle hooks where container logs may not be easily accessible.
+
+### Key Features:
+
+- **Dual output**: Every log message appears in both STDOUT and the specified log file
+- **Automatic rotation**: Log file is truncated when approaching 1MB to prevent disk space issues
+- **Configurable path**: Use `--log-file` to customize the log location (default: `/resource/heapdump/dc_util.log`)
+- **Failsafe design**: If file logging fails, STDOUT logging continues uninterrupted
+- **Zero code changes**: All existing `log.Printf()` statements automatically use dual logging
+
+### Usage Examples:
+
+```bash
+# Default logging (logs to both STDOUT and /resource/heapdump/dc_util.log)
+dc_util --dry-run --hostname crate-0
+
+# Custom log file location
+dc_util --reset-routing --log-file /custom/debug/dc_util.log
+
+# Custom lock file location
+dc_util --dry-run --lock-file /tmp/custom.lock
+```
+
+### Benefits for Kubernetes:
+
+- **Hook debugging**: PostStart and PreStop hook logs are now persistent and accessible
+- **Troubleshooting**: Historical logs available even after pod restarts
+- **Operations**: Easy to collect logs from multiple pods for analysis
+- **Development**: Simplified testing and validation of hook behavior

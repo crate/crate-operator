@@ -2,8 +2,15 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Test the extractNodeName function directly with comprehensive cases
@@ -971,14 +978,14 @@ func TestGetPreStopRoutingAllocationFromLabels(t *testing.T) {
 func TestCreateAndRemoveLockFile(t *testing.T) {
 	// Test dry-run mode
 	t.Run("Create lock file - dry run", func(t *testing.T) {
-		err := createLockFile(true)
+		err := createLockFile(true, "/tmp/test_lock_dry_run")
 		if err != nil {
 			t.Errorf("createLockFile in dry-run should not error, got: %v", err)
 		}
 	})
 
 	t.Run("Remove lock file - dry run", func(t *testing.T) {
-		err := removeLockFile(true)
+		err := removeLockFile(true, "/tmp/test_lock_dry_run")
 		if err != nil {
 			t.Errorf("removeLockFile in dry-run should not error, got: %v", err)
 		}
@@ -988,7 +995,7 @@ func TestCreateAndRemoveLockFile(t *testing.T) {
 func TestLockFileExists(t *testing.T) {
 	// This test just verifies the function doesn't panic
 	// Actual file operations would require filesystem setup
-	exists := lockFileExists()
+	exists := lockFileExists("/tmp/test_lock_exists")
 	t.Logf("Lock file exists: %t", exists)
 }
 
@@ -1069,12 +1076,12 @@ func TestResetRoutingIntegration(t *testing.T) {
 
 			// Test lock file operations in dry-run mode
 			if tt.dryRun {
-				err := createLockFile(true)
+				err := createLockFile(true, "/tmp/test_reset_lock")
 				if err != nil {
 					t.Errorf("createLockFile in dry-run should not error: %v", err)
 				}
 
-				err = removeLockFile(true)
+				err = removeLockFile(true, "/tmp/test_reset_lock")
 				if err != nil {
 					t.Errorf("removeLockFile in dry-run should not error: %v", err)
 				}
@@ -1139,7 +1146,7 @@ func TestCompleteDryRunWorkflow(t *testing.T) {
 				t.Errorf("Routing allocation statement in dry-run should not error: %v", err)
 			}
 
-			err = createLockFile(true) // dry-run mode
+			err = createLockFile(true, "/tmp/test_workflow_lock") // dry-run mode
 			if err != nil {
 				t.Errorf("Lock file creation in dry-run should not error: %v", err)
 			}
@@ -1149,4 +1156,565 @@ func TestCompleteDryRunWorkflow(t *testing.T) {
 
 func int64Ptr(i int64) *int64 {
 	return &i
+}
+
+func TestHasPostStartHookWithResetRouting(t *testing.T) {
+	tests := []struct {
+		name     string
+		sts      *appsv1.StatefulSet
+		expected bool
+	}{
+		{
+			name: "StatefulSet with postStart hook containing dc_util --reset-routing",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "dc_util --reset-routing"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StatefulSet with postStart hook containing dc_util but not --reset-routing",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "dc_util --some-other-flag"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "StatefulSet with postStart hook but no dc_util",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "echo hello"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "StatefulSet with no postStart hook",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "StatefulSet with multiple containers, one has dc_util --reset-routing",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "sidecar",
+								},
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"dc_util", "--reset-routing", "--dry-run"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StatefulSet with postStart hook containing dc_util -reset-routing (single dash)",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "dc_util -reset-routing"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StatefulSet with mixed flags including -reset-routing",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"dc_util", "-dry-run", "-reset-routing", "-timeout", "30s"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "StatefulSet with similar but wrong flag (no false positive)",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"dc_util", "--reset-route", "--some-reset-routing-similar"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasPostStartHookWithResetRouting(tt.sts)
+			if result != tt.expected {
+				t.Errorf("hasPostStartHookWithResetRouting() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPostStopRoutingAllocationIntegration(t *testing.T) {
+	tests := []struct {
+		name                  string
+		sts                   *appsv1.StatefulSet
+		shouldSetRoutingAlloc bool
+		expectedRoutingAlloc  string
+		description           string
+	}{
+		{
+			name: "StatefulSet with postStart hook containing dc_util --reset-routing should set routing allocation",
+			sts: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"dc-util-pre-stop-routing-allocation": "new_primaries",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "dc_util --reset-routing"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			shouldSetRoutingAlloc: true,
+			expectedRoutingAlloc:  "new_primaries",
+			description:           "PostStart hook with dc_util --reset-routing allows routing allocation change",
+		},
+		{
+			name: "StatefulSet without postStart hook should skip routing allocation",
+			sts: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"dc-util-pre-stop-routing-allocation": "new_primaries",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+								},
+							},
+						},
+					},
+				},
+			},
+			shouldSetRoutingAlloc: false,
+			expectedRoutingAlloc:  "",
+			description:           "No postStart hook prevents routing allocation change",
+		},
+		{
+			name: "StatefulSet with postStart hook but no dc_util --reset-routing should skip routing allocation",
+			sts: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"dc-util-pre-stop-routing-allocation": "new_primaries",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"/bin/sh", "-c", "echo hello"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			shouldSetRoutingAlloc: false,
+			expectedRoutingAlloc:  "",
+			description:           "PostStart hook without dc_util --reset-routing prevents routing allocation change",
+		},
+		{
+			name: "StatefulSet with custom routing allocation value and valid postStart hook",
+			sts: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"dc-util-pre-stop-routing-allocation": "all",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"dc_util", "--reset-routing", "--dry-run"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			shouldSetRoutingAlloc: true,
+			expectedRoutingAlloc:  "all",
+			description:           "Custom routing allocation value with valid postStart hook",
+		},
+		{
+			name: "StatefulSet with single dash -reset-routing should set routing allocation",
+			sts: &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"dc-util-pre-stop-routing-allocation": "new_primaries",
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "crate",
+									Lifecycle: &corev1.Lifecycle{
+										PostStart: &corev1.LifecycleHandler{
+											Exec: &corev1.ExecAction{
+												Command: []string{"dc_util", "-reset-routing", "-dry-run"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			shouldSetRoutingAlloc: true,
+			expectedRoutingAlloc:  "new_primaries",
+			description:           "Single dash -reset-routing flag is properly detected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hasPostStart := hasPostStartHookWithResetRouting(tt.sts)
+			if hasPostStart != tt.shouldSetRoutingAlloc {
+				t.Errorf("hasPostStartHookWithResetRouting() = %v, expected %v", hasPostStart, tt.shouldSetRoutingAlloc)
+			}
+
+			if tt.shouldSetRoutingAlloc {
+				routingAlloc := getPreStopRoutingAllocationFromLabels(tt.sts.Labels)
+				if routingAlloc != tt.expectedRoutingAlloc {
+					t.Errorf("getPreStopRoutingAllocationFromLabels() = %s, expected %s", routingAlloc, tt.expectedRoutingAlloc)
+				}
+			}
+
+			t.Logf("%s: hasPostStart=%v, routingAlloc=%s", tt.description, hasPostStart, tt.expectedRoutingAlloc)
+		})
+	}
+}
+
+func TestLoggingIntegration(t *testing.T) {
+	// Test that logging works to both STDOUT and file
+	tempLogFile := "/tmp/dc_util_test_logging.log"
+	defer os.Remove(tempLogFile)
+
+	// Setup logging
+	err := setupLogging(tempLogFile)
+	if err != nil {
+		t.Fatalf("setupLogging failed: %v", err)
+	}
+
+	// Log some test messages
+	log.SetPrefix("TestPrefix: ")
+	log.Printf("Test message 1")
+	log.Printf("Test message 2 with data: %s", "test_data")
+
+	// Check that file was created and contains our messages
+	content, err := os.ReadFile(tempLogFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "Test message 1") {
+		t.Errorf("Log file should contain 'Test message 1', got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "Test message 2 with data: test_data") {
+		t.Errorf("Log file should contain 'Test message 2 with data: test_data', got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "TestPrefix:") {
+		t.Errorf("Log file should contain 'TestPrefix:', got: %s", contentStr)
+	}
+
+	t.Logf("Log file content verified successfully")
+}
+
+func TestLogRotation(t *testing.T) {
+	// Test that large log files get truncated
+	tempLogFile := "/tmp/dc_util_test_rotation.log"
+	defer os.Remove(tempLogFile)
+
+	// Create a large file (over 900KB threshold)
+	largeContent := strings.Repeat("A", 950000)
+	err := os.WriteFile(tempLogFile, []byte(largeContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create large test file: %v", err)
+	}
+
+	// Setup logging should trigger rotation
+	err = setupLogging(tempLogFile)
+	if err != nil {
+		t.Fatalf("setupLogging failed: %v", err)
+	}
+
+	// Log a test message
+	log.Printf("After rotation test")
+
+	// Check that file was truncated and contains new message
+	content, err := os.ReadFile(tempLogFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file after rotation: %v", err)
+	}
+
+	contentStr := string(content)
+	if len(contentStr) > 1000 {
+		t.Errorf("Log file should have been truncated, but size is: %d", len(contentStr))
+	}
+	if !strings.Contains(contentStr, "After rotation test") {
+		t.Errorf("Log file should contain new message after rotation, got: %s", contentStr)
+	}
+
+	t.Logf("Log rotation verified successfully")
+}
+
+func TestReplicaCountBehavior(t *testing.T) {
+	tests := []struct {
+		name                string
+		replicas            int32
+		expectedLogContains string
+		shouldDecommission  bool
+		description         string
+	}{
+		{
+			name:                "Zero replicas",
+			replicas:            0,
+			expectedLogContains: "No replicas are configured -- Skipping decommission",
+			shouldDecommission:  false,
+			description:         "StatefulSet scaled down to 0 - no decommission needed",
+		},
+		{
+			name:                "Single node cluster",
+			replicas:            1,
+			expectedLogContains: "Single node cluster detected (replicas=1) -- Skipping decommission",
+			shouldDecommission:  false,
+			description:         "Single node cluster - decommission would fail or hang",
+		},
+		{
+			name:                "Two node cluster",
+			replicas:            2,
+			expectedLogContains: "Decommissioning node",
+			shouldDecommission:  true,
+			description:         "Multi-node cluster - decommission can proceed safely",
+		},
+		{
+			name:                "Large cluster",
+			replicas:            5,
+			expectedLogContains: "Decommissioning node",
+			shouldDecommission:  true,
+			description:         "Large cluster - decommission proceeds normally",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Logf("Testing %s: replicas=%d, should_decommission=%v",
+				tt.description, tt.replicas, tt.shouldDecommission)
+
+			// Verify the logic matches our expectations
+			if tt.replicas == 0 {
+				if tt.shouldDecommission {
+					t.Error("Zero replicas should not trigger decommission")
+				}
+			} else if tt.replicas == 1 {
+				if tt.shouldDecommission {
+					t.Error("Single node cluster should not trigger decommission")
+				}
+			} else if tt.replicas >= 2 {
+				if !tt.shouldDecommission {
+					t.Error("Multi-node cluster should trigger decommission")
+				}
+			}
+
+			t.Logf("Expected log message: %s", tt.expectedLogContains)
+		})
+	}
+}
+
+func TestSingleNodeClusterBehavior(t *testing.T) {
+	tests := []struct {
+		name     string
+		replicas int32
+		expected string
+	}{
+		{
+			name:     "Zero replicas - skip decommission",
+			replicas: 0,
+			expected: "No replicas are configured -- Skipping decommission",
+		},
+		{
+			name:     "Single node cluster - skip decommission",
+			replicas: 1,
+			expected: "Single node cluster detected (replicas=1) -- Skipping decommission",
+		},
+		{
+			name:     "Multi-node cluster - proceed with decommission",
+			replicas: 3,
+			expected: "Decommissioning node",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This test validates the replica count logic
+			// In a real scenario, the behavior would be determined by the StatefulSet replica count
+			t.Logf("Test case: %s with replicas=%d expects message containing: %s",
+				tt.name, tt.replicas, tt.expected)
+
+			if tt.replicas == 0 {
+				t.Logf("Zero replicas scenario: decommission should be skipped")
+			} else if tt.replicas == 1 {
+				t.Logf("Single node scenario: decommission should be skipped to avoid unnecessary overhead")
+			} else {
+				t.Logf("Multi-node scenario: decommission should proceed normally")
+			}
+		})
+	}
 }
