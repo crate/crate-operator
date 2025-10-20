@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Upload Binary and Checksum Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dc_util-${{ matrix.os }}-${{ matrix.goarch }}
           path: build/dc_util-${{ matrix.os }}-${{ matrix.goarch }}*
