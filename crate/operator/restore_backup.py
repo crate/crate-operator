@@ -23,12 +23,18 @@ import abc
 import asyncio
 import logging
 import re
+from contextlib import asynccontextmanager
 from dataclasses import fields
 from typing import Any, Dict, List, Optional, Tuple
 
 import kopf
 from aiopg import Cursor
-from kubernetes_asyncio.client import ApiException, CoreV1Api, CustomObjectsApi
+from kubernetes_asyncio.client import (
+    ApiException,
+    AppsV1Api,
+    CoreV1Api,
+    CustomObjectsApi,
+)
 from psycopg2 import DatabaseError, ProgrammingError
 from psycopg2.errors import DuplicateTable, UndefinedTable
 from psycopg2.extensions import AsIs, QuotedString, quote_ident
@@ -52,6 +58,7 @@ from crate.operator.operations import (
     get_crash_scheme,
     run_crash_command,
     scale_backup_metrics_deployment,
+    suspend_or_start_grand_central,
 )
 from crate.operator.restore_backup_repository_data import BackupRepositoryData
 from crate.operator.utils import crate
@@ -561,6 +568,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
     ):
         async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
+            apps = AppsV1Api(api_client)
             data = await get_source_backup_repository_data(
                 core,
                 namespace,
@@ -580,30 +588,27 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 conn_factory, repository, snapshot, logger
             )
 
-            internal_tables = RestoreInternalTables(
-                conn_factory, repository, snapshot, logger
-            )
-            if restore_type == SnapshotRestoreType.ALL.value:
-                await internal_tables.remove_duplicated_tables()
-            elif restore_type == SnapshotRestoreType.TABLES.value:
-                await internal_tables.remove_duplicated_tables(tables)
+            async with restore_internal_tables_context(
+                apps, namespace, name, conn_factory, repository, snapshot, logger
+            ) as internal_tables:
+                await internal_tables.remove_duplicated_tables(restore_type, tables)
 
-            try:
-                await self._start_restore_snapshot(
-                    conn_factory,
-                    repository,
-                    snapshot,
-                    restore_type,
-                    logger,
-                    tables,
-                    partitions,
-                    sections,
-                )
-            except kopf.PermanentError as e:
-                await internal_tables.restore_tables()
-                raise e
-            else:
-                await internal_tables.cleanup_tables()
+                try:
+                    await self._start_restore_snapshot(
+                        conn_factory,
+                        repository,
+                        snapshot,
+                        restore_type,
+                        logger,
+                        tables,
+                        partitions,
+                        sections,
+                    )
+                except Exception as e:
+                    await internal_tables.restore_tables()
+                    raise e
+                else:
+                    await internal_tables.cleanup_tables()
 
     @staticmethod
     async def _create_backup_repository(
@@ -1114,6 +1119,20 @@ class ResetSnapshotSubHandler(StateBasedSubHandler):
             )
 
 
+@asynccontextmanager
+async def restore_internal_tables_context(
+    apps, namespace, name, conn_factory, repository, snapshot, logger
+):
+    logger.info("Suspending grand-central operations before restoring internal tables")
+    await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
+    internal_tables = RestoreInternalTables(conn_factory, repository, snapshot, logger)
+    try:
+        yield internal_tables
+    finally:
+        logger.info("Resuming grand-central operations after restoring internal tables")
+        await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
+
+
 class RestoreInternalTables:
 
     def __init__(
@@ -1131,7 +1150,15 @@ class RestoreInternalTables:
         self.gc_tables_renamed: bool = False
         self.gc_tables: list[str] = []
 
-    async def remove_duplicated_tables(self, tables: Optional[List[str]] = None):
+    async def remove_duplicated_tables(
+        self, restore_type, tables: Optional[List[str]] = None
+    ):
+        if restore_type == SnapshotRestoreType.ALL.value:
+            await self._remove_duplicated_tables()
+        elif restore_type == SnapshotRestoreType.TABLES.value:
+            await self._remove_duplicated_tables(tables)
+
+    async def _remove_duplicated_tables(self, tables: Optional[List[str]] = None):
         """
         If the snapshot contains grand-central tables, rename them if they exist
         in the cluster in order to recreate the new ones from the snapshot.
@@ -1158,6 +1185,7 @@ class RestoreInternalTables:
                     )
                     tables = await cursor.fetchall()
                     self.gc_tables = [table[0] for table in tables] if tables else []
+
                     for table in self.gc_tables:
                         self.logger.info(f"Renaming GC table: {table} to {table}_temp")
                         table_name = quote_table(table, cursor)
@@ -1173,7 +1201,7 @@ class RestoreInternalTables:
                             pass
         except DatabaseError as e:
             self.logger.warning(
-                "DatabaseError in RestoreInternalTables.remove_duplicated_tables",
+                "DatabaseError in RestoreInternalTables._remove_duplicated_tables",
                 exc_info=e,
             )
             raise kopf.PermanentError("internal tables couldn't be renamed.")

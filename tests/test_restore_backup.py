@@ -114,12 +114,14 @@ def mock_quote_ident():
 @mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "_remove_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
+@mock.patch("crate.operator.restore_backup.suspend_or_start_grand_central")
 @pytest.mark.parametrize(
     "gc_enabled, backup_provider_str", [(True, "aws"), (False, None)]
 )
 async def test_restore_backup_aws(
+    mock_suspend_gc,
     mock_cleanup_gc_tables,
     mock_remove_duplicated_tables,
     mock_start_restore_snapshot,
@@ -278,12 +280,21 @@ async def test_restore_backup_aws(
         err_msg="Did not call ensure snapshot exists.",
         timeout=DEFAULT_TIMEOUT,
     )
+    if gc_enabled:
+        await assert_wait_for(
+            True,
+            mocked_coro_func_called_with,
+            mock_suspend_gc,
+            mock.call(mock.ANY, namespace.metadata.name, name, suspend=True),
+            err_msg="Did not call pause grand central.",
+            timeout=DEFAULT_TIMEOUT,
+        )
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
         mock_remove_duplicated_tables,
         mock.call(),
-        err_msg="Did not call remove duplicate tables.",
+        err_msg="Did not call remove duplicated internal tables.",
         timeout=DEFAULT_TIMEOUT,
     )
     await assert_wait_for(
@@ -302,6 +313,15 @@ async def test_restore_backup_aws(
         err_msg="Did not call cleanup grand central tables.",
         timeout=DEFAULT_TIMEOUT,
     )
+    if gc_enabled:
+        await assert_wait_for(
+            True,
+            mocked_coro_func_called_with,
+            mock_suspend_gc,
+            mock.call(mock.ANY, namespace.metadata.name, name, suspend=False),
+            err_msg="Did not call resume grand central.",
+            timeout=DEFAULT_TIMEOUT,
+        )
     await assert_wait_for(
         True,
         does_backup_metrics_pod_exist,
@@ -368,10 +388,12 @@ async def test_restore_backup_aws(
 @mock.patch.object(RestoreBackupSubHandler, "_create_backup_repository")
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "_remove_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
+@mock.patch("crate.operator.restore_backup.suspend_or_start_grand_central")
 @pytest.mark.parametrize("gc_enabled", [True, False])
 async def test_restore_backup_azure_blob(
+    mock_suspend_gc,
     mock_cleanup_gc_tables,
     mock_remove_duplicated_tables,
     mock_start_restore_snapshot,
@@ -531,12 +553,21 @@ async def test_restore_backup_azure_blob(
         err_msg="Did not call ensure snapshot exists.",
         timeout=DEFAULT_TIMEOUT,
     )
+    if gc_enabled:
+        await assert_wait_for(
+            True,
+            mocked_coro_func_called_with,
+            mock_suspend_gc,
+            mock.call(mock.ANY, namespace.metadata.name, name, suspend=True),
+            err_msg="Did not call pause grand central.",
+            timeout=DEFAULT_TIMEOUT,
+        )
     await assert_wait_for(
         True,
         mocked_coro_func_called_with,
         mock_remove_duplicated_tables,
         mock.call(),
-        err_msg="Did not call remove grand central tables.",
+        err_msg="Did not call remove duplicated internal tables.",
         timeout=DEFAULT_TIMEOUT,
     )
     await assert_wait_for(
@@ -555,6 +586,15 @@ async def test_restore_backup_azure_blob(
         err_msg="Did not call cleanup grand central tables.",
         timeout=DEFAULT_TIMEOUT,
     )
+    if gc_enabled:
+        await assert_wait_for(
+            True,
+            mocked_coro_func_called_with,
+            mock_suspend_gc,
+            mock.call(mock.ANY, namespace.metadata.name, name, suspend=False),
+            err_msg="Did not call resume grand central.",
+            timeout=DEFAULT_TIMEOUT,
+        )
     await assert_wait_for(
         True,
         does_backup_metrics_pod_exist,
@@ -627,7 +667,7 @@ async def test_restore_backup_azure_blob(
 )
 @mock.patch.object(RestoreBackupSubHandler, "_ensure_snapshot_exists")
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
-@mock.patch.object(RestoreInternalTables, "remove_duplicated_tables")
+@mock.patch.object(RestoreInternalTables, "_remove_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
 async def test_restore_backup_create_repo_fails(
     mock_cleanup_gc_tables,
@@ -1027,7 +1067,7 @@ async def test_replace_gc_tables(
     mock_cursor.fetchall.return_value = fetch_response if gc_enabled else []
     tables_param = None if type_all else tables_with_schema
 
-    await gc_tables_cls.remove_duplicated_tables(tables_param)
+    await gc_tables_cls._remove_duplicated_tables(tables_param)
 
     # Verify query for restore types ALL and TABLES
     if type_all:
