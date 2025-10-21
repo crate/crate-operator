@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fix hostname parsing and add tests in dc_util.
+
 2.53.0 (2025-09-25)
 -------------------
 
