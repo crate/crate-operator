@@ -589,9 +589,17 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
             )
 
             async with restore_internal_tables_context(
-                apps, namespace, name, conn_factory, repository, snapshot, logger
+                apps,
+                namespace,
+                name,
+                conn_factory,
+                repository,
+                snapshot,
+                logger,
+                restore_type,
+                tables,
             ) as internal_tables:
-                await internal_tables.remove_duplicated_tables(restore_type, tables)
+                await internal_tables.rename_duplicated_tables()
 
                 try:
                     await self._start_restore_snapshot(
@@ -1121,16 +1129,27 @@ class ResetSnapshotSubHandler(StateBasedSubHandler):
 
 @asynccontextmanager
 async def restore_internal_tables_context(
-    apps, namespace, name, conn_factory, repository, snapshot, logger
+    apps,
+    namespace,
+    name,
+    conn_factory,
+    repository,
+    snapshot,
+    logger,
+    restore_type,
+    tables,
 ):
-    logger.info("Suspending grand-central operations before restoring internal tables")
-    await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
     internal_tables = RestoreInternalTables(conn_factory, repository, snapshot, logger)
+    await internal_tables.set_gc_tables(restore_type, tables)
+    if internal_tables.is_enabled():
+        logger.info("Suspending GC operations before restoring internal tables")
+        await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
     try:
         yield internal_tables
     finally:
-        logger.info("Resuming grand-central operations after restoring internal tables")
-        await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
+        if internal_tables.is_enabled():
+            logger.info("Resuming GC operations after restoring internal tables")
+            await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
 
 
 class RestoreInternalTables:
@@ -1147,33 +1166,34 @@ class RestoreInternalTables:
         self.snapshot: str = snapshot
         self.logger: logging.Logger = logger
 
-        self.gc_tables_renamed: bool = False
         self.gc_tables: list[str] = []
 
-    async def remove_duplicated_tables(
-        self, restore_type, tables: Optional[List[str]] = None
-    ):
-        if restore_type == SnapshotRestoreType.ALL.value:
-            await self._remove_duplicated_tables()
-        elif restore_type == SnapshotRestoreType.TABLES.value:
-            await self._remove_duplicated_tables(tables)
+    def is_enabled(self) -> bool:
+        return True if self.gc_tables else False
 
-    async def _remove_duplicated_tables(self, tables: Optional[List[str]] = None):
+    async def set_gc_tables(
+        self, restore_type: str, tables: Optional[list[str]] = None
+    ):
         """
-        If the snapshot contains grand-central tables, rename them if they exist
-        in the cluster in order to recreate the new ones from the snapshot.
+        Retrieve the grand central tables from the snapshot to be restored.
         """
-        self.gc_tables_renamed = True
+
+        if restore_type not in [
+            SnapshotRestoreType.ALL.value,
+            SnapshotRestoreType.TABLES.value,
+        ]:
+            return
+
+        if restore_type == SnapshotRestoreType.TABLES.value and tables is not None:
+            gc_tables = [table for table in tables if table.startswith("gc.")]
+            tables_str = ",".join(f"'{table}'" for table in gc_tables)
+            where_stmt = f"t IN ({tables_str})"
+        else:
+            where_stmt = "t LIKE 'gc.%%'"
+
         try:
             async with self.conn_factory() as conn:
                 async with conn.cursor(timeout=120) as cursor:
-                    if tables is not None:
-                        gc_tables = [t for t in tables if t.startswith("gc.")]
-                        tables_str = ",".join(f"'{table}'" for table in gc_tables)
-                        where_stmt = f"t IN ({tables_str})"
-                    else:
-                        where_stmt = "t LIKE 'gc.%%'"
-
                     await cursor.execute(
                         "WITH tables AS ("
                         "  SELECT unnest(tables) AS t "
@@ -1183,25 +1203,53 @@ class RestoreInternalTables:
                         f"SELECT * FROM tables WHERE {where_stmt};",
                         (self.repository, self.snapshot),
                     )
-                    tables = await cursor.fetchall()
-                    self.gc_tables = [table[0] for table in tables] if tables else []
+                    snapshot_gc_tables = await cursor.fetchall()
 
-                    for table in self.gc_tables:
-                        self.logger.info(f"Renaming GC table: {table} to {table}_temp")
-                        table_name = quote_table(table, cursor)
-                        temp_table_name = table_without_schema(f"{table}_temp", cursor)
-                        try:
-                            await cursor.execute(
-                                f"ALTER TABLE {table_name} RENAME TO {temp_table_name};"
-                            )
-                        except UndefinedTable:
-                            self.logger.warning(
-                                f"Table {table} does not exist. Skipping."
-                            )
-                            pass
+                    if snapshot_gc_tables:
+                        await cursor.execute('SHOW TABLES FROM "gc";')
+                        existing_gc_tables = await cursor.fetchall()
+
+                        if existing_gc_tables:
+                            existing_gc_tables = [
+                                f"gc.{table[0]}" for table in existing_gc_tables
+                            ]
+                            for (table,) in snapshot_gc_tables:
+                                if table in existing_gc_tables:
+                                    self.gc_tables.append(table)
+
         except DatabaseError as e:
             self.logger.warning(
-                "DatabaseError in RestoreInternalTables._remove_duplicated_tables",
+                "DatabaseError in RestoreInternalTables.set_gc_tables",
+                exc_info=e,
+            )
+            raise kopf.PermanentError("internal tables couldn't be retrieved.")
+
+    async def _rename_table(self, cursor, old_name: str, new_name: str):
+        self.logger.info(f"Renaming GC table: {old_name} to {new_name}")
+        try:
+            await cursor.execute(f"ALTER TABLE {old_name} RENAME TO {new_name};")
+        except UndefinedTable:
+            self.logger.warning(f"Table {old_name} does not exist. Skipping.")
+            pass
+
+    async def rename_duplicated_tables(self):
+        """
+        If the snapshot contains grand central tables, rename them if they exist
+        in the cluster in order to recreate the new ones from the snapshot.
+        """
+        if not self.gc_tables:
+            return
+
+        try:
+            async with self.conn_factory() as conn:
+                async with conn.cursor(timeout=120) as cursor:
+                    for table in self.gc_tables.copy():
+                        table_name = quote_table(table, cursor)
+                        temp_table_name = table_without_schema(f"{table}_temp", cursor)
+                        await self._rename_table(cursor, table_name, temp_table_name)
+        except DatabaseError as e:
+            self.logger.warning(
+                "DatabaseError in RestoreInternalTables.rename_duplicated_tables",
                 exc_info=e,
             )
             raise kopf.PermanentError("internal tables couldn't be renamed.")
@@ -1211,25 +1259,17 @@ class RestoreInternalTables:
         If the restore operation failed, rename back the gc tables
         to their original names.
         """
-        if self.gc_tables_renamed is False:
+        if not self.gc_tables:
             return
 
         try:
             async with self.conn_factory() as conn:
                 async with conn.cursor(timeout=120) as cursor:
                     for table in self.gc_tables:
-                        self.logger.info(f"Renaming GC table: {table}_temp to {table}")
                         table_name = table_without_schema(table, cursor)
                         temp_table_name = quote_table(f"{table}_temp", cursor)
-                        try:
-                            await cursor.execute(
-                                f"ALTER TABLE {temp_table_name} RENAME TO {table_name};"
-                            )
-                        except UndefinedTable:
-                            self.logger.warning(
-                                f"Table {temp_table_name} does not exist. Skipping."
-                            )
-                            pass
+                        await self._rename_table(cursor, temp_table_name, table_name)
+
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreInternalTables.restore_tables", exc_info=e
@@ -1240,15 +1280,15 @@ class RestoreInternalTables:
         """
         After a successful restore, the temporary renamed gc tables can be dropped.
         """
-        if self.gc_tables_renamed is False:
+        if not self.gc_tables:
             return
 
         try:
             async with self.conn_factory() as conn:
                 async with conn.cursor(timeout=120) as cursor:
                     for table in self.gc_tables:
-                        self.logger.info(f"Dropping old GC table: {table}_temp")
                         temp_table_name = quote_table(f"{table}_temp", cursor)
+                        self.logger.info(f"Dropping old GC table: {temp_table_name}")
                         try:
                             await cursor.execute(f"DROP TABLE {temp_table_name};")
                         except UndefinedTable:
