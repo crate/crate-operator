@@ -1100,8 +1100,10 @@ async def test_set_gc_tables(
         replace_gc_tables_data
     )
 
-    fetch_response = [(t,) for t in tables_with_schema]
-    mock_cursor.fetchall.return_value = fetch_response if gc_enabled else []
+    mock_cursor.fetchall.side_effect = [
+        [(t,) for t in tables_with_schema] if gc_enabled else [],
+        [(t,) for t in tables] if gc_enabled else [],
+    ]
 
     await gc_tables_cls.set_gc_tables(restore_type.value, tables_with_schema)
 
@@ -1118,6 +1120,8 @@ async def test_set_gc_tables(
                 (repository, snapshot),
             ),
         ]
+        if gc_enabled:
+            stmts.append(mock.call('SHOW TABLES FROM "gc";'))
         assert gc_tables_cls.gc_tables == (tables_with_schema if gc_enabled else [])
     elif restore_type == SnapshotRestoreType.TABLES:
         stmts = [
@@ -1132,6 +1136,8 @@ async def test_set_gc_tables(
                 (repository, snapshot),
             ),
         ]
+        if gc_enabled:
+            stmts.append(mock.call('SHOW TABLES FROM "gc";'))
         assert gc_tables_cls.gc_tables == (tables_with_schema if gc_enabled else [])
     else:
         stmts = []

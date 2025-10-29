@@ -1186,6 +1186,11 @@ class RestoreInternalTables:
 
         if restore_type == SnapshotRestoreType.TABLES.value and tables is not None:
             gc_tables = [table for table in tables if table.startswith("gc.")]
+
+            # There is no gc table to restore, no need to proceed further
+            if not gc_tables:
+                return
+
             tables_str = ",".join(f"'{table}'" for table in gc_tables)
             where_stmt = f"t IN ({tables_str})"
         else:
@@ -1237,7 +1242,7 @@ class RestoreInternalTables:
         If the snapshot contains grand central tables, rename them if they exist
         in the cluster in order to recreate the new ones from the snapshot.
         """
-        if not self.gc_tables:
+        if not self.is_enabled():
             return
 
         try:
@@ -1259,7 +1264,7 @@ class RestoreInternalTables:
         If the restore operation failed, rename back the gc tables
         to their original names.
         """
-        if not self.gc_tables:
+        if not self.is_enabled():
             return
 
         try:
@@ -1280,7 +1285,7 @@ class RestoreInternalTables:
         """
         After a successful restore, the temporary renamed gc tables can be dropped.
         """
-        if not self.gc_tables:
+        if not self.is_enabled():
             return
 
         try:
