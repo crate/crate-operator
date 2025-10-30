@@ -116,7 +116,7 @@ def mock_quote_ident():
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
 @mock.patch.object(RestoreInternalTables, "rename_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
-@mock.patch.object(RestoreInternalTables, "is_enabled")
+@mock.patch.object(RestoreInternalTables, "has_tables_to_process")
 @mock.patch.object(RestoreInternalTables, "set_gc_tables")
 @mock.patch("crate.operator.restore_backup.suspend_or_start_grand_central")
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ def mock_quote_ident():
 async def test_restore_backup_aws(
     mock_suspend_gc,
     mock_set_gc_tables,
-    mock_is_enabled,
+    mock_has_tables_to_process,
     mock_cleanup_gc_tables,
     mock_rename_duplicated_tables,
     mock_start_restore_snapshot,
@@ -175,7 +175,7 @@ async def test_restore_backup_aws(
         additional_cluster_spec = {
             "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net.",
         }
-        mock_is_enabled.return_value = True
+        mock_has_tables_to_process.return_value = True
 
     host, password = await start_cluster(
         name,
@@ -403,14 +403,14 @@ async def test_restore_backup_aws(
 @mock.patch.object(RestoreBackupSubHandler, "_start_restore_snapshot")
 @mock.patch.object(RestoreInternalTables, "rename_duplicated_tables")
 @mock.patch.object(RestoreInternalTables, "cleanup_tables")
-@mock.patch.object(RestoreInternalTables, "is_enabled")
+@mock.patch.object(RestoreInternalTables, "has_tables_to_process")
 @mock.patch.object(RestoreInternalTables, "set_gc_tables")
 @mock.patch("crate.operator.restore_backup.suspend_or_start_grand_central")
 @pytest.mark.parametrize("gc_enabled", [True, False])
 async def test_restore_backup_azure_blob(
     mock_suspend_gc,
     mock_set_gc_tables,
-    mock_is_enabled,
+    mock_has_tables_to_process,
     mock_cleanup_gc_tables,
     mock_rename_duplicated_tables,
     mock_start_restore_snapshot,
@@ -459,7 +459,7 @@ async def test_restore_backup_azure_blob(
         additional_cluster_spec = {
             "externalDNS": "my-crate-cluster.aks1.eastus.azure.cratedb-dev.net.",
         }
-        mock_is_enabled.return_value = True
+        mock_has_tables_to_process.return_value = True
 
     host, password = await start_cluster(
         name,
@@ -1147,7 +1147,9 @@ async def test_set_gc_tables(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("gc_tables", [True, False])
-async def test_replace_gc_tables(gc_tables, replace_gc_tables_data, mock_quote_ident):
+async def test_rename_duplicated_tables(
+    gc_tables, replace_gc_tables_data, mock_quote_ident
+):
     _, _, tables, tables_with_schema, mock_cursor, gc_tables_cls = (
         replace_gc_tables_data
     )
@@ -1160,14 +1162,7 @@ async def test_replace_gc_tables(gc_tables, replace_gc_tables_data, mock_quote_i
         mock_cursor.execute.assert_not_awaited()
     else:
         mock_cursor.execute.assert_has_awaits(
-            [
-                mock.call(
-                    f'ALTER TABLE "gc"."{tables[0]}" RENAME TO "{tables[0]}_temp";'
-                ),
-                mock.call(
-                    f'ALTER TABLE "gc"."{tables[1]}" RENAME TO "{tables[1]}_temp";'
-                ),
-            ]
+            [mock.call(f'ALTER TABLE "gc"."{t}" RENAME TO "{t}_temp";') for t in tables]
         )
 
 
@@ -1186,14 +1181,7 @@ async def test_restore_gc_tables(gc_tables, replace_gc_tables_data, mock_quote_i
         mock_cursor.execute.assert_not_awaited()
     else:
         mock_cursor.execute.assert_has_awaits(
-            [
-                mock.call(
-                    f'ALTER TABLE "gc"."{tables[0]}_temp" RENAME TO "{tables[0]}";'
-                ),
-                mock.call(
-                    f'ALTER TABLE "gc"."{tables[1]}_temp" RENAME TO "{tables[1]}";'
-                ),
-            ]
+            [mock.call(f'ALTER TABLE "gc"."{t}_temp" RENAME TO "{t}";') for t in tables]
         )
 
 
@@ -1212,8 +1200,5 @@ async def test_cleanup_gc_tables(gc_tables, replace_gc_tables_data, mock_quote_i
         mock_cursor.execute.assert_not_awaited()
     else:
         mock_cursor.execute.assert_has_awaits(
-            [
-                mock.call(f'DROP TABLE "gc"."{tables[0]}_temp";'),
-                mock.call(f'DROP TABLE "gc"."{tables[1]}_temp";'),
-            ]
+            [mock.call(f'DROP TABLE "gc"."{t}_temp";') for t in tables]
         )

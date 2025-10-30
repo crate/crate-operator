@@ -1141,13 +1141,13 @@ async def restore_internal_tables_context(
 ):
     internal_tables = RestoreInternalTables(conn_factory, repository, snapshot, logger)
     await internal_tables.set_gc_tables(restore_type, tables)
-    if internal_tables.is_enabled():
+    if internal_tables.has_tables_to_process():
         logger.info("Suspending GC operations before restoring internal tables")
         await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
     try:
         yield internal_tables
     finally:
-        if internal_tables.is_enabled():
+        if internal_tables.has_tables_to_process():
             logger.info("Resuming GC operations after restoring internal tables")
             await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
 
@@ -1168,7 +1168,7 @@ class RestoreInternalTables:
 
         self.gc_tables: list[str] = []
 
-    def is_enabled(self) -> bool:
+    def has_tables_to_process(self) -> bool:
         return True if self.gc_tables else False
 
     async def set_gc_tables(
@@ -1242,13 +1242,13 @@ class RestoreInternalTables:
         If the snapshot contains grand central tables, rename them if they exist
         in the cluster in order to recreate the new ones from the snapshot.
         """
-        if not self.is_enabled():
+        if not self.has_tables_to_process():
             return
 
         try:
             async with self.conn_factory() as conn:
                 async with conn.cursor(timeout=120) as cursor:
-                    for table in self.gc_tables.copy():
+                    for table in self.gc_tables:
                         table_name = quote_table(table, cursor)
                         temp_table_name = table_without_schema(f"{table}_temp", cursor)
                         await self._rename_table(cursor, table_name, temp_table_name)
@@ -1264,7 +1264,7 @@ class RestoreInternalTables:
         If the restore operation failed, rename back the gc tables
         to their original names.
         """
-        if not self.is_enabled():
+        if not self.has_tables_to_process():
             return
 
         try:
@@ -1285,7 +1285,7 @@ class RestoreInternalTables:
         """
         After a successful restore, the temporary renamed gc tables can be dropped.
         """
-        if not self.is_enabled():
+        if not self.has_tables_to_process():
             return
 
         try:
