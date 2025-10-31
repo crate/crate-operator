@@ -663,17 +663,9 @@ async def suspend_or_start_cluster(
                             apps, namespace, backup_metrics_name, 1
                         )
                     # scale grand central deployment back up if it exists
-                    deployment = await read_grand_central_deployment(
-                        namespace=namespace, name=name
+                    await suspend_or_start_grand_central(
+                        apps, namespace, name, suspend=False
                     )
-
-                    if deployment:
-                        await update_deployment_replicas(
-                            apps,
-                            namespace,
-                            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
-                            1,
-                        )
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
@@ -726,17 +718,9 @@ async def suspend_or_start_cluster(
                             apps, namespace, backup_metrics_name, 0
                         )
                     # scale grand central deployment down if it exists
-                    deployment = await read_grand_central_deployment(
-                        namespace=namespace, name=name
+                    await suspend_or_start_grand_central(
+                        apps, namespace, name, suspend=True
                     )
-
-                    if deployment:
-                        await update_deployment_replicas(
-                            apps,
-                            namespace,
-                            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
-                            0,
-                        )
                 await send_operation_progress_notification(
                     namespace=namespace,
                     name=name,
@@ -760,6 +744,20 @@ async def suspend_or_start_cluster(
 
                 # Try to delete the load balancing service if present
                 await delete_lb_service(core, namespace, name)
+
+
+async def suspend_or_start_grand_central(
+    apps: AppsV1Api, namespace: str, name: str, suspend: bool
+):
+    deployment = await read_grand_central_deployment(namespace=namespace, name=name)
+
+    if deployment:
+        await update_deployment_replicas(
+            apps,
+            namespace,
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+            0 if suspend else 1,
+        )
 
 
 async def _get_connection_factory(core, namespace: str, name: str):
