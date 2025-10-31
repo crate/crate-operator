@@ -1294,13 +1294,7 @@ class RestoreInternalTables:
                     for table in self.gc_tables:
                         temp_table_name = quote_table(f"{table}_temp", cursor)
                         self.logger.info(f"Dropping old GC table: {temp_table_name}")
-                        try:
-                            await cursor.execute(f"DROP TABLE {temp_table_name};")
-                        except UndefinedTable:
-                            self.logger.warning(
-                                f"Table {temp_table_name} does not exist. Skipping."
-                            )
-                            pass
+                        await cursor.execute(f"DROP TABLE IF EXISTS {temp_table_name};")
         except DatabaseError as e:
             self.logger.warning(
                 "DatabaseError in RestoreInternalTables.cleanup_tables", exc_info=e

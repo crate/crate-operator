@@ -1200,5 +1200,5 @@ async def test_cleanup_gc_tables(gc_tables, replace_gc_tables_data, mock_quote_i
         mock_cursor.execute.assert_not_awaited()
     else:
         mock_cursor.execute.assert_has_awaits(
-            [mock.call(f'DROP TABLE "gc"."{t}_temp";') for t in tables]
+            [mock.call(f'DROP TABLE IF EXISTS "gc"."{t}_temp";') for t in tables]
         )
