@@ -59,7 +59,7 @@ setup(
         "aiohttp==3.12.15",
         "verlib2==0.3.1",
         "wrapt==1.17.2",
-        "python-json-logger==3.3.0",
+        "python-json-logger==4.0.0",
     ],
     extras_require={
         "docs": [
