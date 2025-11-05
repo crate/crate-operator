@@ -9,6 +9,8 @@ Unreleased
 
 * Remove grand-central tables when restoring a full snapshot or grand-central tables.
 
+* Restore GC admin user password after snapshot restore.
+
 2.53.0 (2025-09-25)
 -------------------
 

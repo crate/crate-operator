@@ -32,7 +32,12 @@ from kubernetes_asyncio.client import (
 )
 
 from crate.operator.config import config
-from crate.operator.constants import API_GROUP, LABEL_USER_PASSWORD, RESOURCE_CRATEDB
+from crate.operator.constants import (
+    API_GROUP,
+    GC_USER_SECRET_NAME,
+    LABEL_USER_PASSWORD,
+    RESOURCE_CRATEDB,
+)
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.typing import K8sModel, SecretKeyRef
@@ -236,3 +241,18 @@ async def get_cratedb_resource(namespace: str, name: str) -> dict:
             namespace=namespace,
             name=name,
         )
+
+
+async def get_gc_user_password(core: CoreV1Api, namespace: str, name: str) -> str:
+    """
+    Return the password for the grand-central user of cluster ``name`` in ``namespace``.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The namespace where the CrateDB cluster is deployed.
+    :param name: The name of the CrateDB cluster.
+    """
+    return await resolve_secret_key_ref(
+        core,
+        namespace,
+        {"key": "password", "name": GC_USER_SECRET_NAME.format(name=name)},
+    )

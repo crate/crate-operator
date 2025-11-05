@@ -46,6 +46,7 @@ from crate.operator.restore_backup import (
     RESTORE_MAX_BYTES_PER_SEC,
     RestoreBackupSubHandler,
     RestoreInternalTables,
+    RestoreInternalUsersPasswordSubHandler,
     RestoreType,
 )
 from crate.operator.restore_backup_repository_data import (
@@ -948,6 +949,57 @@ async def test_create_backup_repository(
             mock.call(expected_stmt, expected_values),
         ]
     )
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.restore_backup.get_gc_user_password")
+@mock.patch("crate.operator.restore_backup.run_crash_command")
+async def test_gc_admin_password_restore(
+    mock_run_crash, mock_get_gc_user_password, faker
+):
+    name = faker.domain_word()
+    namespace = faker.uuid4()
+    hash = faker.md5()
+    pod_name = f"data-hot-{name}-0"
+    scheme = "https"
+    logger = mock.Mock()
+    core = mock.AsyncMock()
+
+    handler = RestoreInternalUsersPasswordSubHandler(namespace, name, hash, {})
+
+    # secret retrieval fails - should log and continue
+    mock_get_gc_user_password.side_effect = KeyError("missing secret")
+
+    await handler._restore_gc_admin_password(
+        core, namespace, name, pod_name, scheme, logger
+    )
+
+    logger.info.assert_called_with(
+        "GC admin secret not found or retrieval failed; skipping: %s", mock.ANY
+    )
+
+    # reset fails with kopf.TemporaryError - should re-raise
+    mock_get_gc_user_password.side_effect = None
+    mock_get_gc_user_password.return_value = "gc-secret-password"
+
+    mock_run_crash.return_value = "ERROR something wrong"
+
+    with pytest.raises(kopf.TemporaryError):
+        await handler._restore_gc_admin_password(
+            core, namespace, name, pod_name, scheme, logger
+        )
+
+    mock_run_crash.assert_called()
+
+    # successful password reset
+    mock_get_gc_user_password.return_value = "gc-secret-password"
+    mock_run_crash.return_value = "ALTER OK"
+
+    await handler._restore_gc_admin_password(
+        core, namespace, name, pod_name, scheme, logger
+    )
+
+    logger.info.assert_any_call("... %s password reset success", "gc_admin")
 
 
 def get_azure_blob_secrets(name: str) -> dict[str, Any]:

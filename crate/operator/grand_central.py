@@ -67,6 +67,7 @@ from kubernetes_asyncio.client import (
 from crate.operator.bootstrap import bootstrap_gc_admin_user
 from crate.operator.config import config
 from crate.operator.constants import (
+    GC_USER_SECRET_NAME,
     GC_USERNAME,
     GRAND_CENTRAL_BACKEND_API_PORT,
     GRAND_CENTRAL_INIT_CONTAINER,
@@ -133,7 +134,7 @@ def get_grand_central_deployment(
             name="GRAND_CENTRAL_CRATEDB_PASSWORD",
             value_from=V1EnvVarSource(
                 secret_key_ref=V1SecretKeySelector(
-                    key="password", name=f"user-gc-{name}"
+                    key="password", name=GC_USER_SECRET_NAME.format(name=name)
                 ),
             ),
         ),

@@ -95,6 +95,7 @@ from crate.operator.constants import (
     DCUTIL_BINARY,
     DCUTIL_CHECKSUM,
     DECOMMISSION_TIMEOUT,
+    GC_USER_SECRET_NAME,
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
@@ -1217,7 +1218,7 @@ def get_gc_user_secret(
     return V1Secret(
         data={"password": b64encode(gen_password(50))},
         metadata=V1ObjectMeta(
-            name=f"user-gc-{name}",
+            name=GC_USER_SECRET_NAME.format(name=name),
             labels=labels,
             owner_references=owner_references,
         ),
