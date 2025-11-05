@@ -30,6 +30,7 @@ from kubernetes_asyncio.client import (
 
 from crate.operator.constants import (
     API_GROUP,
+    GC_USER_SECRET_NAME,
     GC_USERNAME,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
@@ -200,10 +201,14 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
         does_secret_exist,
         core,
         namespace.metadata.name,
-        f"user-gc-{name}",
+        GC_USER_SECRET_NAME.format(name=name),
     )
     secrets = (await core.list_namespaced_secret(namespace.metadata.name)).items
-    secret_pw = next(filter(lambda x: x.metadata.name == f"user-gc-{name}", secrets))
+    secret_pw = next(
+        filter(
+            lambda x: x.metadata.name == GC_USER_SECRET_NAME.format(name=name), secrets
+        )
+    )
 
     gc_admin_pw = b64decode(secret_pw.data["password"])
 

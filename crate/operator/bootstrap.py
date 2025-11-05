@@ -29,7 +29,12 @@ from kubernetes_asyncio.client import ApiException, CoreV1Api
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
-from crate.operator.constants import CONNECT_TIMEOUT, GC_USERNAME, SYSTEM_USERNAME
+from crate.operator.constants import (
+    CONNECT_TIMEOUT,
+    GC_USER_SECRET_NAME,
+    GC_USERNAME,
+    SYSTEM_USERNAME,
+)
 from crate.operator.cratedb import create_user, get_connection
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
@@ -205,7 +210,9 @@ async def bootstrap_gc_admin_user(core: CoreV1Api, namespace: str, name: str):
     async with get_connection(host, password, timeout=CONNECT_TIMEOUT) as conn:
         async with conn.cursor() as cursor:
             password = await resolve_secret_key_ref(
-                core, namespace, {"key": "password", "name": f"user-gc-{name}"}
+                core,
+                namespace,
+                {"key": "password", "name": GC_USER_SECRET_NAME.format(name=name)},
             )
             await create_user(cursor, namespace, name, GC_USERNAME, password)
 

@@ -42,6 +42,7 @@ from psycopg2.extensions import AsIs, QuotedString, quote_ident
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    GC_USERNAME,
     RESOURCE_CRATEDB,
     SYSTEM_USERNAME,
     BackupStorageProvider,
@@ -66,6 +67,7 @@ from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
 from crate.operator.utils.kubeapi import (
     get_cratedb_resource,
+    get_gc_user_password,
     get_host,
     get_system_user_password,
     resolve_secret_key_ref,
@@ -765,7 +767,7 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
             raise kopf.PermanentError("Snapshot could not be restored")
 
 
-class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
+class RestoreInternalUsersPasswordSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
         self,
@@ -775,9 +777,9 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
         **kwargs: Any,
     ):
         """
-        Restore the system user password from the secret in the namespace.
-        Use crash here because during a restore the system user password was
-        probably set to a different value.
+        Restore the system user and grand-central user passwords from the secret
+        in the namespace. Use crash here because during a restore the system user
+        password was probably set to a different value.
 
         :param namespace: The Kubernetes namespace of the CrateDB cluster.
         :param name: The CrateDB custom resource name defining the CrateDB cluster.
@@ -786,7 +788,6 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
         async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             password = await get_system_user_password(core, namespace, name)
-            password_quoted = QuotedString(password).getquoted().decode()
 
             cratedb = await get_cratedb_resource(namespace, name)
             pod_name = get_crash_pod_name(cratedb, name)
@@ -798,17 +799,53 @@ class RestoreSystemUserPasswordSubHandler(StateBasedSubHandler):
             # system user password.
 
             # Reset the system user with the password from the CRD
-            command = (
-                f'ALTER USER "{SYSTEM_USERNAME}" SET (password={password_quoted});'
+            await self._reset_user_password(
+                SYSTEM_USERNAME, password, namespace, pod_name, scheme, logger
             )
-            result = await run_crash_command(
-                namespace, pod_name, scheme, command, logger
+
+            await self._restore_gc_admin_password(
+                core, namespace, name, pod_name, scheme, logger
             )
-            if "ALTER OK" in result:
-                logger.info("... success")
-            else:
-                logger.info("... error. %s", result)
-                raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
+    async def _restore_gc_admin_password(
+        self,
+        core: CoreV1Api,
+        namespace: str,
+        name: str,
+        pod_name: str,
+        scheme: str,
+        logger: logging.Logger,
+    ):
+        try:
+            gc_admin_password = await get_gc_user_password(core, namespace, name)
+            await self._reset_user_password(
+                GC_USERNAME, gc_admin_password, namespace, pod_name, scheme, logger
+            )
+        except kopf.TemporaryError as e:
+            logger.warning("GC admin password reset failed; will retry: %s", e)
+            raise
+        except Exception as e:
+            logger.info(
+                "GC admin secret not found or retrieval failed; skipping: %s", e
+            )
+
+    @staticmethod
+    async def _reset_user_password(
+        username: str,
+        password: str,
+        namespace: str,
+        pod_name: str,
+        scheme: str,
+        logger: logging.Logger,
+    ):
+        password_quoted = QuotedString(password).getquoted().decode()
+        command = f'ALTER USER "{username}" SET (password={password_quoted});'
+        result = await run_crash_command(namespace, pod_name, scheme, command, logger)
+        if "ALTER OK" in result:
+            logger.info("... %s password reset success", username)
+        else:
+            logger.info("... %s password reset error. %s", username, result)
+            raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
 
 async def update_cratedb_admin_username_in_cratedb(

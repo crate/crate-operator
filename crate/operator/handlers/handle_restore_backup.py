@@ -42,7 +42,7 @@ from crate.operator.restore_backup import (
     BeforeRestoreBackupSubHandler,
     ResetSnapshotSubHandler,
     RestoreBackupSubHandler,
-    RestoreSystemUserPasswordSubHandler,
+    RestoreInternalUsersPasswordSubHandler,
     SendSuccessNotificationSubHandler,
     ValidateRestoreCompleteSubHandler,
     ensure_no_restore_in_progress,
@@ -224,7 +224,7 @@ def register_restore_handlers(
     depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/restore_backup_data")
 
     kopf.register(
-        fn=RestoreSystemUserPasswordSubHandler(
+        fn=RestoreInternalUsersPasswordSubHandler(
             namespace,
             name,
             change_hash,
