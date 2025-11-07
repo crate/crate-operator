@@ -25,7 +25,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Any, Callable, Optional, TypedDict
+from typing import Any, Callable, List, Optional, TypedDict
 
 import kopf
 
@@ -270,6 +270,41 @@ class StateBasedSubHandler(abc.ABC):
                 "started": int(datetime.now(timezone.utc).timestamp()),
                 "ref": self.ref,
             }
+
+    def _get_failed_dependent_handlers(
+        self, annotations: dict, logger: logging.Logger
+    ) -> List[str]:
+        """
+        Determine which dependent handlers have failed based on kopf annotations.
+
+        This inspects the progress annotations stored by kopf for each dependency in
+        ``self.depends_on`` and returns a list of handlers that did not succeed.
+
+        Used by subhandlers that need to decide whether to perform cleanup or rollback
+        actions depending on the outcome of previous handlers.
+        """
+        failed_handlers: List[str] = []
+        logger.info("Checking dependent handler status...")
+
+        for dep in self.depends_on:
+            key = kopf.AnnotationsProgressStorage(
+                v1=False, prefix=KOPF_STATE_STORE_PREFIX
+            ).make_v2_key(dep)
+
+            status_str = annotations.get(key)
+            logger.info(f"[{dep}] annotation raw value: {status_str}")
+            if not status_str:
+                continue
+
+            try:
+                parsed = json.loads(status_str)
+                if not parsed.get("success"):
+                    failed_handlers.append(dep)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse status annotation for {dep}: {e}")
+
+        logger.info(f"Failed handlers detected: {failed_handlers}")
+        return failed_handlers
 
 
 async def send_webhook_notification(

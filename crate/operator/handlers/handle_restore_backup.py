@@ -42,6 +42,7 @@ from crate.operator.restore_backup import (
     BeforeRestoreBackupSubHandler,
     ResetSnapshotSubHandler,
     RestoreBackupSubHandler,
+    RestoreInternalTablesSubHandler,
     RestoreInternalUsersPasswordSubHandler,
     SendSuccessNotificationSubHandler,
     ValidateRestoreCompleteSubHandler,
@@ -268,6 +269,25 @@ def register_restore_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/validate_restore_complete")
+
+    kopf.register(
+        fn=RestoreInternalTablesSubHandler(
+            namespace,
+            name,
+            change_hash,
+            context,
+            depends_on=depends_on.copy(),
+            run_on_dep_failures=True,
+        )(
+            snapshot=snapshot,
+            repository=repository,
+            restore_type=restore_type,
+            tables=tables,
+        ),
+        id="restore_internal_tables",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_RESTORE_FIELD_ID}/restore_internal_tables")
 
 
 def register_after_restore_handlers(
