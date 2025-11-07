@@ -42,18 +42,7 @@ class FinalRollbackSubHandler(StateBasedSubHandler):
 
         logger.info("Evaluating rollback conditions...")
 
-        failed_handlers = []
-        for dep in self.depends_on:
-            key = kopf.AnnotationsProgressStorage(
-                v1=False, prefix=KOPF_STATE_STORE_PREFIX
-            ).make_v2_key(dep)
-
-            status_str = annotations.get(key)
-            logger.info(f"[{dep}] annotation raw value: {status_str}")
-            if status_str:
-                parsed = json.loads(status_str)
-                if not parsed.get("success"):
-                    failed_handlers.append(dep)
+        failed_handlers = self._get_failed_dependent_handlers(annotations, logger)
 
         if failed_handlers:
             logger.info(f"Rollback triggered due to failed handlers: {failed_handlers}")

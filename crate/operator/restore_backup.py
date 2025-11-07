@@ -617,8 +617,6 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                 except Exception as e:
                     await internal_tables.restore_tables()
                     raise e
-                else:
-                    await internal_tables.cleanup_tables()
 
     @staticmethod
     async def _create_backup_repository(
@@ -902,6 +900,60 @@ class ValidateRestoreCompleteSubHandler(StateBasedSubHandler):
             )
 
 
+class RestoreInternalTablesSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        snapshot: str,
+        repository: str,
+        restore_type: str,
+        tables: List[str],
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        """
+        Handles restoring or cleaning up internal tables after a snapshot restore.
+
+        This subhandler runs after dependent handlers (e.g. RestoreSubHandler and
+        ValidateRestoreCompleteSubHandler) have completed. It verifies their
+        results and then either restores temporary internal tables (on failure)
+        or drops them (on success).
+        """
+
+        # check whether any dependent handlers have failed.
+        annotations = kwargs["annotations"]
+        logger.info("RestoreInternalTablesSubHandler checking handler status...")
+        failed_handlers = self._get_failed_dependent_handlers(annotations, logger)
+
+        async with GlobalApiClient() as api_client:
+            core = CoreV1Api(api_client)
+            password, host = await asyncio.gather(
+                get_system_user_password(core, namespace, name),
+                get_host(core, namespace, name),
+            )
+            conn_factory = connection_factory(host, password)
+
+            internal_tables = RestoreInternalTables(
+                conn_factory, repository, snapshot, logger
+            )
+            await internal_tables.set_gc_tables(restore_type, tables)
+            logger.info("Processing internal tables...")
+            if internal_tables.has_tables_to_process():
+                if failed_handlers:
+                    logger.info(
+                        "Rolling back internal tables due to failed handlers: "
+                        f"{failed_handlers}"
+                    )
+                    await internal_tables.restore_tables()
+                else:
+                    logger.info(
+                        "All dependent handlers succeeded. Cleaning up temp tables."
+                    )
+                    await internal_tables.cleanup_tables()
+
+
 class AfterRestoreBackupSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     async def handle(  # type: ignore
@@ -940,6 +992,10 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
                 self._restart_backup_metrics, namespace, name, logger
             ),
             id="restart_backup_metrics",
+        )
+        kopf.register(
+            fn=subhandler_partial(self._restart_grand_central, namespace, name, logger),
+            id="restart_grand_central",
         )
 
     async def _reset_cluster_settings(
@@ -1052,6 +1108,13 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
         self, namespace: str, name: str, logger: logging.Logger
     ):
         await scale_backup_metrics_deployment(namespace, name, 1)
+
+    async def _restart_grand_central(
+        self, namespace: str, name: str, logger: logging.Logger
+    ):
+        async with GlobalApiClient() as api_client:
+            apps = AppsV1Api(api_client)
+            await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
 
 
 class SendSuccessNotificationSubHandler(StateBasedSubHandler):
@@ -1181,12 +1244,7 @@ async def restore_internal_tables_context(
     if internal_tables.has_tables_to_process():
         logger.info("Suspending GC operations before restoring internal tables")
         await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
-    try:
-        yield internal_tables
-    finally:
-        if internal_tables.has_tables_to_process():
-            logger.info("Resuming GC operations after restoring internal tables")
-            await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
+    yield internal_tables
 
 
 class RestoreInternalTables:
@@ -1252,8 +1310,10 @@ class RestoreInternalTables:
                         existing_gc_tables = await cursor.fetchall()
 
                         if existing_gc_tables:
+                            # strip '_temp' suffix if present
                             existing_gc_tables = [
-                                f"gc.{table[0]}" for table in existing_gc_tables
+                                f"gc.{table[0].removesuffix('_temp')}"
+                                for table in existing_gc_tables
                             ]
                             for (table,) in snapshot_gc_tables:
                                 if table in existing_gc_tables:
