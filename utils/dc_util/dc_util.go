@@ -651,6 +651,15 @@ func run(crateNodePrefix, decommissionTimeout string, pid int, proto, hostname, 
 
 	log.Printf("StatefulSet has %d replicas configured", replicas)
 
+	// Early exit for zero or single replica scenarios
+	if replicas == 0 {
+		log.Printf("No replicas are configured -- Skipping decommission")
+		return nil
+	} else if replicas == 1 {
+		log.Printf("Single node cluster detected (replicas=1) -- Skipping decommission")
+		return nil
+	}
+
 	// Get configuration from StatefulSet labels
 	effectiveMinAvailability := getMinAvailabilityFromLabels(statefulSet.Labels, minAvailability)
 	gracefulStopForce := getGracefulStopForceFromLabels(statefulSet.Labels)
@@ -706,47 +715,41 @@ func run(crateNodePrefix, decommissionTimeout string, pid int, proto, hostname, 
 
 	time.Sleep(2 * time.Second) // Sleep to catch up with the replica settings
 
-	if replicas == 0 {
-		log.Printf("No replicas are configured -- Skipping decommission")
-	} else if replicas == 1 {
-		log.Printf("Single node cluster detected (replicas=1) -- Skipping decommission")
+	// Send the SQL statements to decommission the node
+	log.Printf("Decommissioning node %s with graceful_stop.timeout of %s, min_availability=%s, force=%t",
+		actualCrateNodeName, effectiveTimeout, effectiveMinAvailability, gracefulStopForce)
+
+	statements := []string{
+		fmt.Sprintf(`set global transient "cluster.graceful_stop.timeout" = '%s';`, effectiveTimeout),
+		fmt.Sprintf(`set global transient "cluster.graceful_stop.force" = %t;`, gracefulStopForce),
+		fmt.Sprintf(`set global transient "cluster.graceful_stop.min_availability"='%s';`, effectiveMinAvailability),
+		makeDecommissionStmt(actualCrateNodeName),
+	}
+
+	for _, stmt := range statements {
+		if err := sendSQLStatement(proto, stmt, dryRun); err != nil {
+			return err
+		}
+	}
+
+	if dryRun {
+		log.Println("[DRY-RUN] Would have sent decommission commands successfully")
+		log.Printf("[DRY-RUN] Would monitor process %d until it stops", pid)
+		log.Println("[DRY-RUN] Dry-run completed successfully")
 	} else {
-		// Send the SQL statements to decommission the node
-		log.Printf("Decommissioning node %s with graceful_stop.timeout of %s, min_availability=%s, force=%t",
-			actualCrateNodeName, effectiveTimeout, effectiveMinAvailability, gracefulStopForce)
+		log.Println("Decommission command sent successfully")
 
-		statements := []string{
-			fmt.Sprintf(`set global transient "cluster.graceful_stop.timeout" = '%s';`, effectiveTimeout),
-			fmt.Sprintf(`set global transient "cluster.graceful_stop.force" = %t;`, gracefulStopForce),
-			fmt.Sprintf(`set global transient "cluster.graceful_stop.min_availability"='%s';`, effectiveMinAvailability),
-			makeDecommissionStmt(actualCrateNodeName),
-		}
-
-		for _, stmt := range statements {
-			if err := sendSQLStatement(proto, stmt, dryRun); err != nil {
-				return err
+		// Loop to check if the process is running
+		counter := 0
+		for isProcessRunning(pid) {
+			if counter%10 == 0 {
+				log.Printf("Process %d is still running (check count: %d)", pid, counter)
 			}
+			counter++
+			time.Sleep(2 * time.Second)
 		}
 
-		if dryRun {
-			log.Println("[DRY-RUN] Would have sent decommission commands successfully")
-			log.Printf("[DRY-RUN] Would monitor process %d until it stops", pid)
-			log.Println("[DRY-RUN] Dry-run completed successfully")
-		} else {
-			log.Println("Decommission command sent successfully")
-
-			// Loop to check if the process is running
-			counter := 0
-			for isProcessRunning(pid) {
-				if counter%10 == 0 {
-					log.Printf("Process %d is still running (check count: %d)", pid, counter)
-				}
-				counter++
-				time.Sleep(2 * time.Second)
-			}
-
-			log.Printf("Process %d has stopped", pid)
-		}
+		log.Printf("Process %d has stopped", pid)
 	}
 
 	return nil
@@ -778,6 +781,7 @@ func main() {
 	flag.BoolVar(&resetRouting, "reset-routing", false, "PostStart hook mode: reset routing allocation if dc_util lock file exists")
 	flag.StringVar(&logFile, "log-file", defaultLogFile, "Path to log file for persistent logging")
 	flag.StringVar(&lockFile, "lock-file", defaultDcUtilLockFile, "Path to lock file for tracking dc_util shutdowns")
+
 	flag.Parse()
 
 	// Setup logging to both STDOUT and file

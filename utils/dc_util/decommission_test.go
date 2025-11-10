@@ -1029,7 +1029,7 @@ func TestResetRoutingIntegration(t *testing.T) {
 		{
 			name: "PreStart disabled",
 			labels: map[string]string{
-				"dc-util-no-prestart": "true",
+				"dc-util-no-poststart": "true",
 			},
 			dryRun:                    false,
 			expectedNoPreStart:        true,
@@ -1040,7 +1040,7 @@ func TestResetRoutingIntegration(t *testing.T) {
 			name: "Custom routing allocation with dry-run",
 			labels: map[string]string{
 				"dc-util-pre-stop-routing-allocation": "all",
-				"dc-util-no-prestart":                 "false",
+				"dc-util-no-poststart":                "false",
 			},
 			dryRun:                    true,
 			expectedNoPreStart:        false,
@@ -1048,9 +1048,9 @@ func TestResetRoutingIntegration(t *testing.T) {
 			description:               "Custom routing with dry-run mode",
 		},
 		{
-			name: "All routing labels configured",
+			name: "All settings combined",
 			labels: map[string]string{
-				"dc-util-no-prestart":                 "false",
+				"dc-util-no-poststart":                "false",
 				"dc-util-pre-stop-routing-allocation": "new_primaries",
 			},
 			dryRun:                    false,
