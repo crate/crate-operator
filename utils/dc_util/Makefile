@@ -50,6 +50,7 @@ docker-build: build-binaries
 docker-build-multi:
 	@echo "Building multi-version container with versions: $(VERSIONS)"
 	docker build \
+		--no-cache \
 		--build-arg VERSIONS="$(VERSIONS)" \
 		--build-arg GITHUB_REPO="https://github.com/crate/crate-operator.git" \
 		-f deploy/Dockerfile.multi \

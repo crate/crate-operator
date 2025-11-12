@@ -25,7 +25,6 @@ from os import walk
 from typing import Any, Dict, Set
 from unittest import mock
 
-import aiohttp
 import pytest
 from kubernetes_asyncio.client import (
     AppsV1Api,
@@ -39,8 +38,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
-    DCUTIL_BASE_URL,
-    DCUTIL_BINARY,
+    DCUTIL_FILESERVER_URL,
     GRAND_CENTRAL_PROMETHEUS_PORT,
     GRAND_CENTRAL_RESOURCE_PREFIX,
     LABEL_COMPONENT,
@@ -1105,6 +1103,40 @@ class TestStatefulSet:
             {f"crate-data-{node_name}-{name}-{i}" for i in range(3)},
         )
 
+        # Verify lifecycle hooks are configured in the created StatefulSet
+        sts = await apps.read_namespaced_stateful_set(
+            f"crate-data-{node_name}-{name}", namespace.metadata.name
+        )
+        crate_container = next(
+            (c for c in sts.spec.template.spec.containers if c.name == "crate"), None
+        )
+        assert crate_container is not None, "CrateDB container not found"
+        assert crate_container.lifecycle is not None, "Lifecycle should be configured"
+        assert (
+            crate_container.lifecycle.post_start is not None
+        ), "postStart hook should be configured"
+        assert (
+            crate_container.lifecycle.pre_stop is not None
+        ), "preStop hook should be configured"
+
+        # Verify postStart contains dcutil download and reset-routing
+        post_start_cmd = crate_container.lifecycle.post_start._exec.command
+        assert len(post_start_cmd) == 3
+        assert post_start_cmd[0] == "/bin/sh"
+        assert post_start_cmd[1] == "-c"
+        assert "ARCH=$(uname -m)" in post_start_cmd[2]
+        assert DCUTIL_FILESERVER_URL in post_start_cmd[2]
+        assert "--reset-routing" in post_start_cmd[2]
+
+        # Verify preStop contains dcutil download and decommission
+        pre_stop_cmd = crate_container.lifecycle.pre_stop._exec.command
+        assert len(pre_stop_cmd) == 3
+        assert pre_stop_cmd[0] == "/bin/sh"
+        assert pre_stop_cmd[1] == "-c"
+        assert "ARCH=$(uname -m)" in pre_stop_cmd[2]
+        assert DCUTIL_FILESERVER_URL in pre_stop_cmd[2]
+        assert "--min-availability PRIMARIES" in pre_stop_cmd[2]
+
 
 class TestServiceModels:
     @pytest.mark.parametrize("dns", [None, "mycluster.example.com"])
@@ -1769,11 +1801,3 @@ def test_get_cluster_resource_limits(node_spec, expected_limits_cpu):
         get_cluster_resource_limits(node_spec, resource_type="cpu", fallback_key="cpus")
         == expected_limits_cpu
     )
-
-
-@pytest.mark.asyncio
-async def test_download_dc_util():
-    url = f"{DCUTIL_BASE_URL}/{DCUTIL_BINARY}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            assert response.status == 200, f"Expected status 200, got {response.status}"

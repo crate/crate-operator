@@ -91,9 +91,7 @@ from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
     DATA_PVC_NAME_PREFIX,
-    DCUTIL_BASE_URL,
-    DCUTIL_BINARY,
-    DCUTIL_CHECKSUM,
+    DCUTIL_FILESERVER_URL,
     DECOMMISSION_TIMEOUT,
     GC_USER_SECRET_NAME,
     LABEL_COMPONENT,
@@ -385,24 +383,38 @@ def get_statefulset_containers(
                 capabilities=V1Capabilities(add=["SYS_CHROOT"])
             ),
             lifecycle=V1Lifecycle(
-                pre_stop=(
-                    V1LifecycleHandler(
-                        _exec=V1ExecAction(
-                            command=[
-                                "/bin/sh",
-                                "-c",
-                                "curl -sLO "
-                                f"{DCUTIL_BASE_URL}/{DCUTIL_BINARY} && "
-                                "curl -sLO "
-                                f"{DCUTIL_BASE_URL}/{DCUTIL_CHECKSUM} && "
-                                f"sha256sum -c {DCUTIL_CHECKSUM} && "
-                                f"chmod u+x {DCUTIL_BINARY} &&"
-                                f"./{DCUTIL_BINARY} -min-availability PRIMARIES "
-                                f"-timeout {DECOMMISSION_TIMEOUT}",
-                            ]
-                        )
+                post_start=V1LifecycleHandler(
+                    _exec=V1ExecAction(
+                        command=[
+                            "/bin/sh",
+                            "-c",
+                            (
+                                "ARCH=$(uname -m) &&\n"
+                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
+                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
+                                "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
+                                "chmod +x dc_util-linux-${ARCH} &&\n"
+                                "./dc_util-linux-${ARCH} --reset-routing || true"
+                            ),
+                        ]
                     )
-                )
+                ),
+                pre_stop=V1LifecycleHandler(
+                    _exec=V1ExecAction(
+                        command=[
+                            "/bin/sh",
+                            "-c",
+                            (
+                                "ARCH=$(uname -m) &&\n"
+                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
+                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
+                                "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
+                                "chmod +x dc_util-linux-${ARCH} &&\n"
+                                f"./dc_util-linux-${{ARCH}} --min-availability PRIMARIES --timeout {DECOMMISSION_TIMEOUT} || true"  # noqa
+                            ),
+                        ]
+                    )
+                ),
             ),
         ),
     ]

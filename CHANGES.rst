@@ -11,6 +11,8 @@ Unreleased
 
 * Restore GC admin user password after snapshot restore.
 
+* Update preStop/postStart hooks to use dc_util for architecture detection.
+
 2.53.0 (2025-09-25)
 -------------------
 
