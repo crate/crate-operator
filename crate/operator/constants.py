@@ -58,15 +58,11 @@ GRAND_CENTRAL_INIT_CONTAINER = "wait-for-crate"
 GRAND_CENTRAL_BACKEND_API_PORT = 5050
 GRAND_CENTRAL_PROMETHEUS_PORT = 8000
 
-TERMINATION_GRACE_PERIOD_SECONDS = 900
+TERMINATION_GRACE_PERIOD_SECONDS = 1200
 DECOMMISSION_TIMEOUT = "720s"
 
-DCUTIL_VERSION = "0.0.1"
-DCUTIL_BASE_URL = (
-    f"https://github.com/crate/crate-operator/releases/download/dcutil-{DCUTIL_VERSION}"
-)
-DCUTIL_BINARY = "dc_util-linux-amd64"
-DCUTIL_CHECKSUM = f"{DCUTIL_BINARY}.sha256"
+# dcutil fileserver URL for dynamic architecture detection
+DCUTIL_FILESERVER_URL = "http://dc-util-fileserver.dcutil.svc.cluster.local/latest"
 
 INTERNAL_TABLES = [
     "gc.alembic_version",
