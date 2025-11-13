@@ -58,7 +58,7 @@ setup(
         "prometheus_client==0.22.1",
         "aiohttp==3.12.15",
         "verlib2==0.3.1",
-        "wrapt==1.17.2",
+        "wrapt==2.0.1",
         "python-json-logger==4.0.0",
     ],
     extras_require={
