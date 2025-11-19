@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.54.0 (2025-11-19)
+-------------------
+
 * Fix hostname parsing and add tests in dc_util.
 
 * Remove grand-central tables when restoring a full snapshot or grand-central tables.
