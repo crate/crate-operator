@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Bumped JMX exporter to ``1.2.3``
+
+* Bumped sql_exporter to ``0.18.4``
+
 2.54.0 (2025-11-19)
 -------------------
 
