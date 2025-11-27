@@ -9,6 +9,7 @@ collector_name: cratedb_max_shards_collector
 metrics:
 - help: "Indicates the maximum number of shards allowed per node defined in the configuration of the cluster."
   metric_name: cratedb_max_shards_per_node
+  no_prepared_statement: true
   query: |
     SELECT settings['cluster']['max_shards_per_node'] AS cratedb_max_shards_per_node
     FROM sys.cluster LIMIT 1;

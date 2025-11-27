@@ -9,6 +9,8 @@ Unreleased
 
 * Bumped sql_exporter to ``0.18.4``
 
+* Disable prepared statements for sql_exporter collectors
+
 2.54.0 (2025-11-19)
 -------------------
 

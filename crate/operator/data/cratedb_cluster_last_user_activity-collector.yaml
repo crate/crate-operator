@@ -5,6 +5,7 @@ collector_name: cratedb_cluster_last_user_activity_collector
 metrics:
 - help: "Indicates when the last job occured on the cluster."
   metric_name: cratedb_cluster_last_user_activity
+  no_prepared_statement: true
   query: |
     SELECT COALESCE(cast(extract(epoch from max(ended)) as integer), 0) AS cratedb_cluster_last_user_activity
     FROM sys.jobs_log
