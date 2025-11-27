@@ -7,6 +7,7 @@ metrics:
 - help: "Indicates tables with 0 replicas. Does not return if there are no unreplicated tables."
   key_labels: [table_name]
   metric_name: cratedb_unreplicated_tables
+  no_prepared_statement: true
   query: |
     SELECT concat(table_schema,'.', table_name) as table_name, number_of_replicas
     FROM information_schema.table_partitions

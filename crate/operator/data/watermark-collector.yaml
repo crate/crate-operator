@@ -5,6 +5,7 @@ metrics:
     key_labels:
       - watermark_level
     metric_name: cratedb_watermarks
+    no_prepared_statement: true
     query: |
       SELECT
         CASE

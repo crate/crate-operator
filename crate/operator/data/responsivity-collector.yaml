@@ -11,6 +11,7 @@ collector_name: responsivity_collector
 metrics:
 - help: "Indicates whether the CrateDB node is responding to queries. Will not return if the node is stuck."
   metric_name: responsivity
+  no_prepared_statement: true
   query: |
     SELECT count(state) as states, 1 AS responsive
     FROM sys.shards;

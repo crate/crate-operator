@@ -6,6 +6,7 @@ collector_name: cratedb_large_translogs_collector
 metrics:
 - help: "Number of translogs larger than 1GB."
   metric_name: cratedb_num_large_translogs
+  no_prepared_statement: true
   query: |-
     SELECT COUNT(*) as cratedb_num_large_translogs
     FROM sys.shards
