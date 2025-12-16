@@ -43,7 +43,7 @@ from crate.operator.constants import (
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.operations import get_pods_in_statefulset, is_lb_service_present
-from crate.operator.scale import parse_replicas, patch_command
+from crate.operator.scale import parse_replicas, patch_command, reset_allocation
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from tests.utils import (
@@ -134,6 +134,84 @@ def test_patch_sts_command_deprecated(total, quorum, new_total, new_quorum):
     new_cmd = patch_command(cmd, new_total)
     assert f"-Cgateway.recover_after_nodes={new_quorum}" in new_cmd
     assert f"-Cgateway.expected_nodes={new_total}" in new_cmd
+
+
+@pytest.mark.asyncio
+async def test_reset_allocation_removes_only_passed_nodes(
+    mock_cratedb_connection,
+):
+    """
+    Verify that reset_allocation() reads the current exclusions and only removes
+    the nodes passed in nodes_to_remove, preserving all others.
+    """
+    logger = mock.Mock()
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    # Current exclusion includes 3 nodes
+    mock_cursor.fetchone.return_value = ("data-hot-0,data-hot-1,data-hot-2",)
+    conn_factory = connection_factory("host", "password")
+
+    await reset_allocation(
+        conn_factory=conn_factory,
+        nodes_to_remove=["data-hot-2"],
+        logger=logger,
+    )
+
+    mock_cursor.execute.assert_has_awaits(
+        [
+            mock.call(
+                """
+                SELECT settings['cluster']['routing']['allocation']['exclude']['_name']
+                FROM sys.cluster
+                """
+            ),
+            mock.call(
+                """
+                SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
+                """,
+                ("data-hot-0,data-hot-1",),
+            ),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_allocation_noop_when_nodes_not_present(
+    mock_cratedb_connection,
+):
+    """
+    Verify that reset_allocation() keeps the allocation exclusions unchanged
+    when nodes_to_remove are not present.
+    """
+    logger = mock.Mock()
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    # Node to remove is not excluded
+    mock_cursor.fetchone.return_value = ("data-hot-0,data-hot-1",)
+    conn_factory = connection_factory("host", "password")
+
+    await reset_allocation(
+        conn_factory=conn_factory,
+        nodes_to_remove=["data-hot-2"],
+        logger=logger,
+    )
+
+    mock_cursor.execute.assert_has_awaits(
+        [
+            mock.call(
+                """
+                SELECT settings['cluster']['routing']['allocation']['exclude']['_name']
+                FROM sys.cluster
+                """
+            ),
+            mock.call(
+                """
+                SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
+                """,
+                ("data-hot-0,data-hot-1",),
+            ),
+        ]
+    )
 
 
 @pytest.mark.k8s
