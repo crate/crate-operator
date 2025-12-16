@@ -34,7 +34,6 @@ from kubernetes_asyncio.client import (
     V1StatefulSet,
     V1StatefulSetList,
 )
-from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
 from crate.operator.cratedb import connection_factory, is_cluster_healthy
@@ -331,11 +330,25 @@ async def deallocate_nodes(
 
             # 2. Exclude current-new nodes from allocating shards
             # A list of CrateDB node names that will be removed.
+            # Read current allocation exclusions
+            await cursor.execute(
+                """
+                SELECT settings['cluster']['routing']['allocation']['exclude']['_name']
+                FROM sys.cluster
+                """
+            )
+            row = await cursor.fetchone()
+            current_exclude = set(row[0].split(",") if row and row[0] else [])
+
+            # 3. Add excess nodes (avoid duplicates)
+            updated_exclude = current_exclude.union(excess_nodes)
+
+            # 4. Set updated allocation exclusions
             await cursor.execute(
                 """
                 SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
                 """,
-                (",".join(excess_nodes),),
+                (",".join(updated_exclude),),
             )
 
             # 3. Wait for nodes to be deallocated
@@ -379,57 +392,56 @@ async def scale_cluster_patch_total_nodes(
     await asyncio.gather(*updates)
 
 
-async def reset_allocation(namespace: str, pod_name: str, has_ssl: bool) -> None:
+async def reset_allocation(
+    conn_factory,
+    nodes_to_remove: List[str],
+    logger: logging.Logger,
+) -> None:
     """
-    Reset all temporary node deallocations to none.
+    Remove the given nodes from the cluster.routing.allocation.exclude._name
+    setting, preserving all other exclusions.
 
-    .. note::
-
-       Ideally, we'd be using the system user to reset the allocation
-       exclusions. However, `due to a bug
-       <https://github.com/crate/crate/pull/10083>`_, this isn't possible in
-       CrateDB <= 4.1.6. We therefore fall back to the "exec-in-container"
-       approach that we also use during cluster bootstrapping.
-
-    :param namespace: The Kubernetes namespace for the CrateDB cluster.
-    :param pod_name: The pod name of one of the eligible master nodes in
-        the cluster. Used to ``exec`` into.
-    :param has_ssl: When ``True``, ``crash`` will establish a connection to
-        the CrateDB cluster from inside the ``crate`` container using SSL/TLS.
-        This must match how the cluster is configured, otherwise ``crash``
-        won't be able to connect, since non-encrypted connections are forbidden
-        when SSL/TLS is enabled, and encrypted connections aren't possible when
-        no SSL/TLS is configured.
+    :param conn_factory: A function that establishes a database connection to
+        the CrateDB cluster used for SQL queries.
+    :param nodes_to_remove: A list of CrateDB node names to remove from the
+        allocation exclusion list.
+    :param logger: A logger instance.
     """
 
-    # async with conn_factory() as conn:
-    #     async with conn.cursor() as cursor:
-    #         await cursor.execute(
-    #             """
-    #             RESET GLOBAL "cluster.routing.allocation.exclude._name"
-    #             """,
-    #         )
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            # 1. Read current allocation exclusions
+            await cursor.execute(
+                """
+                SELECT settings['cluster']['routing']['allocation']['exclude']['_name']
+                FROM sys.cluster
+                """
+            )
+            row = await cursor.fetchone()
+            current_exclude = set(row[0].split(",") if row and row[0] else [])
 
-    scheme = "https" if has_ssl else "http"
-    command_grant = [
-        "crash",
-        "--verify-ssl=false",
-        f"--host={scheme}://localhost:4200",
-        "-c",
-        'RESET GLOBAL "cluster.routing.allocation.exclude._name";',
-    ]
-    async with WsApiClient() as ws_api_client:
-        core_ws = CoreV1Api(ws_api_client)
-        await core_ws.connect_get_namespaced_pod_exec(
-            namespace=namespace,
-            name=pod_name,
-            command=command_grant,
-            container="crate",
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False,
-        )
+            logger.info(
+                "current_exclude before reset: %s",
+                sorted(current_exclude),
+            )
+
+            # 2. Remove only the nodes we previously added
+            updated_exclude = current_exclude - set(nodes_to_remove)
+
+            logger.info(
+                "updated_exclude after reset: %s",
+                sorted(updated_exclude),
+            )
+
+            # 3. SET the updated allocation exclusions
+            new_value = ",".join(sorted(updated_exclude))
+
+            await cursor.execute(
+                """
+                SET GLOBAL "cluster.routing.allocation.exclude._name" = %s
+                """,
+                (new_value,),
+            )
 
 
 async def scale_cluster(
@@ -459,6 +471,7 @@ async def scale_cluster(
     spec = old["spec"]
     crate_version = spec["cluster"]["version"]
     total_number_of_nodes = get_total_nodes_count(spec["nodes"], "all")
+    excess_nodes: List[str] = []
     if CrateVersion(crate_version) >= CrateVersion(
         config.GATEWAY_SETTINGS_DATA_NODES_VERSION
     ):
@@ -568,15 +581,14 @@ async def scale_cluster(
                 node_spec = spec["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
+                excess_nodes = [
+                    f"data-{node_name}-{i}" for i in range(new_replicas, old_replicas)
+                ]
                 statefulset = await apps.read_namespaced_stateful_set(
                     namespace=namespace, name=sts_name
                 )
                 current_replicas = statefulset.spec.replicas
                 if current_replicas != new_replicas:
-                    excess_nodes = [
-                        f"data-{node_name}-{i}"
-                        for i in range(new_replicas, old_replicas)
-                    ]
                     new_num_data_nodes = total_number_of_nodes
                     if CrateVersion(crate_version) < CrateVersion(
                         config.GATEWAY_SETTINGS_DATA_NODES_VERSION
@@ -612,12 +624,13 @@ async def scale_cluster(
                         logger,
                     )
 
-    # Reset the deallocation
-    if "master" in spec["nodes"]:
-        reset_pod_name = f"crate-master-{name}-0"
-    else:
-        reset_pod_name = f"crate-data-{spec['nodes']['data'][0]['name']}-{name}-0"
-    await reset_allocation(namespace, reset_pod_name, "ssl" in spec["cluster"])
+    if excess_nodes:
+        # Reset the deallocation
+        await reset_allocation(
+            conn_factory,
+            excess_nodes,
+            logger,
+        )
 
     # Acknowledge all node checks that state that the expected number of nodes
     # doesn't line up. The StatefulSets have been adjusted, and once a pod
