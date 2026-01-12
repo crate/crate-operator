@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.56.0 (2026-01-12)
+-------------------
+
 * Preserve existing allocation excludes when scaling down nodes.
 
 2.55.1 (2025-12-01)
