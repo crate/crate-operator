@@ -101,4 +101,5 @@ async def ping_cratedb_status(
         WebhookClusterHealthPayload(status=status.name),
         WebhookStatus.SUCCESS,
         logger,
+        retry=False,
     )

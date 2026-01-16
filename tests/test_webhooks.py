@@ -28,6 +28,7 @@ from aiohttp.helpers import BasicAuth
 from aiohttp.test_utils import AioHTTPTestCase
 
 from crate.operator.webhooks import (
+    RETRY_MAX_ATTEMPTS,
     WebhookAdminUsernameChangedPayload,
     WebhookClient,
     WebhookClusterHealthPayload,
@@ -156,7 +157,20 @@ class TestWebhookClientSending(AioHTTPTestCase):
         async def error_handler(request: web.Request):
             return web.Response(status=418)
 
+        async def flaky_handler(request: web.Request):
+            request.app["calls"] += 1
+            if request.app["calls"] < 3:
+                return web.Response(status=502)
+            return web.json_response({"ok": True})
+
+        async def always_fail_handler(request: web.Request):
+            request.app["calls"] += 1
+            return web.Response(status=502)
+
         app = web.Application()
+        app["calls"] = 0
+        app.router.add_post("/flaky/", flaky_handler)
+        app.router.add_post("/always-fail/", always_fail_handler)
         app.router.add_post("/some/path/", webhook_handler)
         app.router.add_post("/error/", error_handler)
         return app
@@ -407,3 +421,68 @@ class TestWebhookClientSending(AioHTTPTestCase):
             logging.getLogger(__name__),
         )
         assert response is None
+
+    async def test_retries_then_success(self):
+        client = WebhookClient()
+        client.configure(
+            f"{self.server.scheme}://{self.server.host}:{self.server.port}/flaky/",
+            "itsme",
+            "secr3t password",
+        )
+
+        response = await client.send_notification(
+            "my-namespace",
+            "my-cluster",
+            WebhookEvent.UPGRADE,
+            WebhookUpgradePayload(
+                old_registry="a", new_registry="b", old_version="c", new_version="d"
+            ),
+            WebhookStatus.SUCCESS,
+            logging.getLogger(__name__),
+        )
+
+        assert response.status == 200
+        assert self.app["calls"] == 3
+
+    async def test_no_retry_when_disabled(self):
+        client = WebhookClient()
+        client.configure(
+            f"{self.server.scheme}://{self.server.host}:{self.server.port}/flaky/",
+            "itsme",
+            "secr3t password",
+        )
+
+        response = await client.send_notification(
+            "my-namespace",
+            "my-cluster",
+            WebhookEvent.HEALTH,
+            WebhookClusterHealthPayload(status="GREEN"),
+            WebhookStatus.SUCCESS,
+            logging.getLogger(__name__),
+            retry=False,
+        )
+
+        assert response.status == 502
+        assert self.app["calls"] == 1
+
+    async def test_retry_exhausted(self):
+        client = WebhookClient()
+        client.configure(
+            f"{self.server.scheme}://{self.server.host}:{self.server.port}/always-fail/",  # noqa
+            "itsme",
+            "secr3t password",
+        )
+
+        response = await client.send_notification(
+            "my-namespace",
+            "my-cluster",
+            WebhookEvent.UPGRADE,
+            WebhookUpgradePayload(
+                old_registry="a", new_registry="b", old_version="c", new_version="d"
+            ),
+            WebhookStatus.SUCCESS,
+            logging.getLogger(__name__),
+        )
+
+        assert response.status == 502
+        assert self.app["calls"] == RETRY_MAX_ATTEMPTS
