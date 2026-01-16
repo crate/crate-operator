@@ -19,16 +19,22 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import asyncio
 import enum
 import logging
+import random
 from typing import List, Optional, TypedDict
 
 import aiohttp
 import kopf
-from aiohttp import TCPConnector
+from aiohttp import ClientError, ClientResponseError, TCPConnector
 
 from crate.operator import __version__
 from crate.operator.utils.crd import has_compute_changed
+
+RETRYABLE_STATUS_CODES = {502, 503, 504}
+RETRY_MAX_ATTEMPTS = 5
+RETRY_BASE_DELAY = 0.5
 
 
 class WebhookEvent(str, enum.Enum):
@@ -266,6 +272,7 @@ class WebhookClient:
             WebhookAdminUsernameChangedPayload
         ] = None,
         unsafe: Optional[bool] = False,
+        retry: bool = True,
         logger: logging.Logger,
     ) -> Optional[aiohttp.ClientResponse]:
         """
@@ -288,6 +295,7 @@ class WebhookClient:
         :param admin_username_changed_data: Contains the new name of the admin username.
         :param logger: The logger to use
         :param unsafe: Whether to re-throw exceptions if any are caught.
+        :param retry: Whether to retry requests. Defaults to True
         """
         if not self.configured:
             # When the webhook is fired but not configured, we're short-circuiting here
@@ -319,28 +327,68 @@ class WebhookClient:
             event,
             status,
         )
-        try:
-            async with self._session.post(self._url, json=payload) as response:
-                response_text = await response.text()
-                response.raise_for_status()
-        except aiohttp.ClientResponseError:
-            logger.exception(
-                "Webhook for %s failed (%d %s). Response: %r",
-                event,
-                response.status,
-                response.reason,
-                response_text,
-            )
-            if unsafe:
-                raise
-            return response
-        except aiohttp.ClientError:
-            logger.exception("Webhook for %s failed.", event)
-            if unsafe:
-                raise
-        else:
-            logger.info("Webhook for %s succeeded.", event)
-            return response
+        for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+            response = None
+            response_text = None
+            try:
+                async with self._session.post(self._url, json=payload) as response:
+                    response_text = await response.text()
+                    if response.status in RETRYABLE_STATUS_CODES and retry:
+                        raise ClientResponseError(
+                            request_info=response.request_info,
+                            history=response.history,
+                            status=response.status,
+                            message=response.reason,
+                            headers=response.headers,
+                        )
+                    response.raise_for_status()
+                    logger.info("Webhook for %s succeeded.", event)
+                    return response
+            except ClientResponseError as e:
+                if (
+                    e.status not in RETRYABLE_STATUS_CODES
+                    or not retry
+                    or attempt == RETRY_MAX_ATTEMPTS
+                ):
+                    logger.exception(
+                        "Webhook for %s failed (%d %s). Response: %r",
+                        event,
+                        e.status,
+                        e.message,
+                        response_text,
+                    )
+                    if unsafe:
+                        raise
+                    return response
+
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                delay *= random.uniform(0.8, 1.2)
+                logger.warning(
+                    "Webhook for %s failed with %d, retrying in %.1fs (%d/%d)",
+                    event,
+                    e.status,
+                    delay,
+                    attempt,
+                    RETRY_MAX_ATTEMPTS,
+                )
+                await asyncio.sleep(delay)
+            except ClientError:
+                if attempt == RETRY_MAX_ATTEMPTS:
+                    logger.exception("Webhook for %s failed after retries.", event)
+                    if unsafe:
+                        raise
+                    return None
+
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                delay *= random.uniform(0.8, 1.2)
+                logger.warning(
+                    "Webhook for %s connection error, retrying in %.1fs (%d/%d)",
+                    event,
+                    delay,
+                    attempt,
+                    RETRY_MAX_ATTEMPTS,
+                )
+                await asyncio.sleep(delay)
 
         return None
 
@@ -354,6 +402,7 @@ class WebhookClient:
         logger: logging.Logger,
         *,
         unsafe: Optional[bool] = False,
+        retry: bool = True,
     ):
         """
         Send a webhook notification to the configured webhook URL.
@@ -372,6 +421,7 @@ class WebhookClient:
         :param logger: The logger to use
         :param unsafe: Whether to throw exceptions if any happen. Defaults to False -
                        exceptions will be logged but not propagated.
+        :param retry: Whether to retry requests. Defaults to True
         """
         if event == WebhookEvent.SCALE:
             kwargs = {"scale_data": sub_payload}
@@ -401,6 +451,7 @@ class WebhookClient:
             name,
             logger=logger,
             unsafe=unsafe,
+            retry=retry,
             **kwargs,  # type:ignore
         )
 
