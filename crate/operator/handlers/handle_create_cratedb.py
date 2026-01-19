@@ -23,18 +23,21 @@ import hashlib
 import logging
 
 import kopf
-from kubernetes_asyncio.client import V1OwnerReference
 
 from crate.operator.backup import CreateBackupsSubHandler
 from crate.operator.bootstrap import CreateUsersSubHandler
 from crate.operator.config import config
-from crate.operator.constants import API_GROUP, CLUSTER_CREATE_ID, Port
+from crate.operator.constants import CLUSTER_CREATE_ID, CloudProvider, Port
 from crate.operator.create import (
+    CreateCrateControlSubHandler,
+    CreateCrateSCCSubHandler,
+    CreateCrateServiceAccountSubHandler,
     CreateServicesSubHandler,
     CreateSqlExporterConfigSubHandler,
     CreateStatefulsetSubHandler,
     CreateSystemUserSubHandler,
     build_cratedb_labels,
+    get_owner_references,
 )
 from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
 from crate.operator.utils.secrets import get_image_pull_secrets
@@ -53,16 +56,7 @@ async def create_cratedb(
     name = meta["name"]
     cratedb_labels = build_cratedb_labels(name, meta)
 
-    owner_references = [
-        V1OwnerReference(
-            api_version=f"{API_GROUP}/v1",
-            block_owner_deletion=True,
-            controller=True,
-            kind="CrateDB",
-            name=name,
-            uid=meta["uid"],
-        )
-    ]
+    owner_references = get_owner_references(name, meta)
 
     image_pull_secrets = get_image_pull_secrets()
 
@@ -102,6 +96,26 @@ async def create_cratedb(
         ),
         id="system_user",
     )
+
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        kopf.register(
+            fn=CreateCrateSCCSubHandler(namespace, name, hash, context)(),
+            id="crate_scc",
+        )
+
+        kopf.register(
+            fn=CreateCrateServiceAccountSubHandler(namespace, name, hash, context)(
+                cratedb_labels=cratedb_labels, owner_references=owner_references
+            ),
+            id="crate_service_account",
+        )
+
+        kopf.register(
+            fn=CreateCrateControlSubHandler(namespace, name, hash, context)(
+                cratedb_labels=cratedb_labels, owner_references=owner_references
+            ),
+            id="crate_control",
+        )
 
     kopf.register(
         fn=CreateServicesSubHandler(namespace, name, hash, context)(

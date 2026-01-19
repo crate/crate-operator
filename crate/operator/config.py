@@ -62,6 +62,9 @@ class Config:
     #: The Docker image that contains scripts to run cluster backups.
     CLUSTER_BACKUP_IMAGE: Optional[str] = None
 
+    #: The Docker image that contains CrateControl sidecar.
+    CRATE_CONTROL_IMAGE: Optional[str] = None
+
     #: The volume size for the ``PersistentVolume`` that is used as a storage
     #: location for Java heap dumps.
     DEBUG_VOLUME_SIZE: bitmath.Byte = bitmath.GiB(64)
@@ -231,6 +234,10 @@ class Config:
 
         self.CLUSTER_BACKUP_IMAGE = self.env(
             "CLUSTER_BACKUP_IMAGE", default=self.CLUSTER_BACKUP_IMAGE
+        )
+
+        self.CRATE_CONTROL_IMAGE = self.env(
+            "CRATE_CONTROL_IMAGE", default=self.CRATE_CONTROL_IMAGE
         )
 
         debug_volume_size = self.env(

@@ -79,7 +79,7 @@ Previous versions might work, but the operator will not attempt to set a license
 
 
 🎉 Features
-==========
+===========
 
 - "all equal nodes" cluster setup
 - "master + data nodes" cluster setup
@@ -90,6 +90,7 @@ Previous versions might work, but the operator will not attempt to set a license
 - custom cluster settings
 - custom storage classes
 - region/zone awareness for AWS and Azure
+- OpenShift support (Red Hat OpenShift Container Platform 4.x)
 
 💽 Installation
 ===============
@@ -109,6 +110,23 @@ dependency of the `Operator Helm Chart`_.
 
 To override the environment variables from values.yaml, please refer to
 the `configuration documentation`_.
+
+Installation on OpenShift
+-------------------------
+
+When installing on Red Hat OpenShift Container Platform, additional configuration
+is required, after adding the Helm repo:
+
+.. code-block:: console
+
+   helm install crate-operator crate-operator/crate-operator \
+      --set env.CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift \
+      --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=your-registry/crate-control:latest \
+      --namespace crate-operator \
+      --create-namespace
+
+Replace ``your-registry/crate-control:latest`` with the location of your built
+crate-control sidecar image. See the `OpenShift documentation`_ for details.
 
 Installation with kubectl
 -------------------------
@@ -151,3 +169,4 @@ Please refer to the `Working on the operator`_ section of the documentation.
 .. _Working on the operator: ./docs/source/development.rst
 .. _CRD Helm Chart: ./deploy/charts/crate-operator-crds/README.md
 .. _Operator Helm Chart: ./deploy/charts/crate-operator/README.md
+.. _OpenShift documentation: ./docs/source/openshift.rst
