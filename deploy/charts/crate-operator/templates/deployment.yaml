@@ -40,8 +40,10 @@ spec:
                   key: {{ $value.key }}
             {{- end }}
             {{- range $name, $value := .Values.env }}
+            {{- if $value }}
             - name: {{ $name }}
               value: "{{ $value }}"
+            {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

@@ -5,6 +5,24 @@ Changelog
 Unreleased
 ----------
 
+* Added support for running CrateDB on Red Hat OpenShift Container Platform.
+  When ``CLOUD_PROVIDER`` is set to ``openshift``, the operator will:
+
+  - Use a lightweight ``crate-control`` sidecar for SQL execution instead of
+    ``pod_exec`` to comply with OpenShift's restricted security policies.
+  - Create OpenShift-specific SecurityContextConstraints (SCC) and ServiceAccounts
+    to allow CrateDB to run with the required ``SYS_CHROOT`` capability.
+  - Skip privileged init containers and adjust security contexts for compatibility
+    with OpenShift's security model.
+  - Disable ``blockOwnerDeletion`` on PVC owner references to work with OpenShift's
+    restricted RBAC permissions.
+
+* Refactored SQL execution logic to support both traditional ``pod_exec`` and
+  sidecar-based approaches, with automatic fallback based on available resources.
+
+* Updated RBAC permissions to include ``serviceaccounts`` and OpenShift
+  ``securitycontextconstraints`` resources.
+
 2.58.0 (2026-02-16)
 -------------------
 

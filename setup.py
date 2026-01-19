@@ -60,6 +60,7 @@ setup(
         "verlib2==0.3.1",
         "wrapt==2.1.0",
         "python-json-logger==4.0.0",
+        "httpx==0.28.1",
     ],
     extras_require={
         "docs": [

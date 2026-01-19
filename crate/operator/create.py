@@ -29,8 +29,10 @@ import bitmath
 import kopf
 import yaml
 from kubernetes_asyncio.client import (
+    ApiException,
     AppsV1Api,
     CoreV1Api,
+    CustomObjectsApi,
     PolicyV1Api,
     RbacAuthorizationV1Api,
     RbacV1Subject,
@@ -63,6 +65,7 @@ from kubernetes_asyncio.client import (
     V1PodAntiAffinity,
     V1PodDisruptionBudget,
     V1PodDisruptionBudgetSpec,
+    V1PodSecurityContext,
     V1PodSpec,
     V1PodTemplateSpec,
     V1PolicyRule,
@@ -76,6 +79,7 @@ from kubernetes_asyncio.client import (
     V1SecretVolumeSource,
     V1SecurityContext,
     V1Service,
+    V1ServiceAccount,
     V1ServicePort,
     V1ServiceSpec,
     V1StatefulSet,
@@ -90,6 +94,7 @@ from kubernetes_asyncio.client import (
 from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
+    CRATE_CONTROL_PORT,
     DATA_PVC_NAME_PREFIX,
     DCUTIL_FILESERVER_URL,
     DECOMMISSION_TIMEOUT,
@@ -312,9 +317,104 @@ def get_statefulset_containers(
     crate_command: List[str],
     crate_env: List[V1EnvVar],
     crate_volume_mounts: List[V1VolumeMount],
+    name: str,
+    has_ssl: bool,
 ) -> List[V1Container]:
     sql_exporter_image = config.SQL_EXPORTER_IMAGE
-    return [
+    crate_control_image = config.CRATE_CONTROL_IMAGE
+
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT and not crate_control_image:
+        raise kopf.PermanentError(
+            "CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE must be set when "
+            "CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift"
+        )
+
+    crate_container = V1Container(
+        command=crate_command,
+        env=crate_env,
+        image=crate_image,
+        name="crate",
+        ports=[
+            V1ContainerPort(container_port=http_port, name="http"),
+            V1ContainerPort(container_port=jmx_port, name="jmx"),
+            V1ContainerPort(container_port=postgres_port, name="postgres"),
+            V1ContainerPort(container_port=prometheus_port, name="prometheus"),
+            V1ContainerPort(container_port=transport_port, name="transport"),
+        ],
+        readiness_probe=V1Probe(
+            http_get=V1HTTPGetAction(path="/ready", port=prometheus_port),
+            initial_delay_seconds=10 if config.TESTING else 30,
+            period_seconds=5 if config.TESTING else 10,
+        ),
+        resources=V1ResourceRequirements(
+            limits={
+                "cpu": str(
+                    get_cluster_resource_limits(
+                        node_spec, resource_type="cpu", fallback_key="cpus"
+                    )
+                ),
+                "memory": format_bitmath(
+                    bitmath.parse_string_unsafe(
+                        get_cluster_resource_limits(node_spec, resource_type="memory")
+                    )
+                ),
+            },
+            requests={
+                "cpu": str(
+                    get_cluster_resource_requests(
+                        node_spec, resource_type="cpu", fallback_key="cpus"
+                    )
+                ),
+                "memory": format_bitmath(
+                    bitmath.parse_string_unsafe(
+                        get_cluster_resource_requests(node_spec, resource_type="memory")
+                    )
+                ),
+            },
+        ),
+        volume_mounts=crate_volume_mounts,
+        security_context=V1SecurityContext(
+            capabilities=V1Capabilities(add=["SYS_CHROOT"])
+        ),
+    )
+
+    if config.CLOUD_PROVIDER != CloudProvider.OPENSHIFT:
+        crate_container.lifecycle = V1Lifecycle(
+            post_start=V1LifecycleHandler(
+                _exec=V1ExecAction(
+                    command=[
+                        "/bin/sh",
+                        "-c",
+                        (
+                            "ARCH=$(uname -m) &&\n"
+                            f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
+                            f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
+                            "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
+                            "chmod +x dc_util-linux-${ARCH} &&\n"
+                            "./dc_util-linux-${ARCH} --reset-routing || true"
+                        ),
+                    ]
+                )
+            ),
+            pre_stop=V1LifecycleHandler(
+                _exec=V1ExecAction(
+                    command=[
+                        "/bin/sh",
+                        "-c",
+                        (
+                            "ARCH=$(uname -m) &&\n"
+                            f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
+                            f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
+                            "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
+                            "chmod +x dc_util-linux-${ARCH} &&\n"
+                            f"./dc_util-linux-${{ARCH}} --min-availability PRIMARIES --timeout {DECOMMISSION_TIMEOUT} || true"  # noqa
+                        ),
+                    ]
+                )
+            ),
+        )
+
+    containers = [
         V1Container(
             command=[
                 "/bin/sql_exporter",
@@ -331,93 +431,53 @@ def get_statefulset_containers(
                 ),
             ],
         ),
-        V1Container(
-            command=crate_command,
-            env=crate_env,
-            image=crate_image,
-            name="crate",
-            ports=[
-                V1ContainerPort(container_port=http_port, name="http"),
-                V1ContainerPort(container_port=jmx_port, name="jmx"),
-                V1ContainerPort(container_port=postgres_port, name="postgres"),
-                V1ContainerPort(container_port=prometheus_port, name="prometheus"),
-                V1ContainerPort(container_port=transport_port, name="transport"),
-            ],
-            readiness_probe=V1Probe(
-                http_get=V1HTTPGetAction(path="/ready", port=prometheus_port),
-                initial_delay_seconds=10 if config.TESTING else 30,
-                period_seconds=5 if config.TESTING else 10,
-            ),
-            resources=V1ResourceRequirements(
-                limits={
-                    "cpu": str(
-                        get_cluster_resource_limits(
-                            node_spec, resource_type="cpu", fallback_key="cpus"
-                        )
-                    ),
-                    "memory": format_bitmath(
-                        bitmath.parse_string_unsafe(
-                            get_cluster_resource_limits(
-                                node_spec, resource_type="memory"
-                            )
-                        )
-                    ),
-                },
-                requests={
-                    "cpu": str(
-                        get_cluster_resource_requests(
-                            node_spec, resource_type="cpu", fallback_key="cpus"
-                        )
-                    ),
-                    "memory": format_bitmath(
-                        bitmath.parse_string_unsafe(
-                            get_cluster_resource_requests(
-                                node_spec, resource_type="memory"
-                            )
-                        )
-                    ),
-                },
-            ),
-            volume_mounts=crate_volume_mounts,
-            security_context=V1SecurityContext(
-                capabilities=V1Capabilities(add=["SYS_CHROOT"])
-            ),
-            lifecycle=V1Lifecycle(
-                post_start=V1LifecycleHandler(
-                    _exec=V1ExecAction(
-                        command=[
-                            "/bin/sh",
-                            "-c",
-                            (
-                                "ARCH=$(uname -m) &&\n"
-                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
-                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
-                                "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
-                                "chmod +x dc_util-linux-${ARCH} &&\n"
-                                "./dc_util-linux-${ARCH} --reset-routing || true"
-                            ),
-                        ]
-                    )
-                ),
-                pre_stop=V1LifecycleHandler(
-                    _exec=V1ExecAction(
-                        command=[
-                            "/bin/sh",
-                            "-c",
-                            (
-                                "ARCH=$(uname -m) &&\n"
-                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}} &&\n"  # noqa
-                                f"curl -sLO {DCUTIL_FILESERVER_URL}/dc_util-linux-${{ARCH}}.sha256 &&\n"  # noqa
-                                "sha256sum -c dc_util-linux-${ARCH}.sha256 &&\n"
-                                "chmod +x dc_util-linux-${ARCH} &&\n"
-                                f"./dc_util-linux-${{ARCH}} --min-availability PRIMARIES --timeout {DECOMMISSION_TIMEOUT} || true"  # noqa
-                            ),
-                        ]
-                    )
-                ),
-            ),
-        ),
+        crate_container,
     ]
+
+    # Only add crate-control sidecar for OpenShift
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        containers.append(
+            V1Container(
+                name="crate-control",
+                image=crate_control_image,
+                ports=[
+                    V1ContainerPort(container_port=CRATE_CONTROL_PORT, name="control"),
+                ],
+                env=[
+                    V1EnvVar(
+                        name="CRATE_HTTP_URL",
+                        value=f"{'https' if has_ssl else 'http'}://localhost:4200/_sql",
+                    ),
+                    V1EnvVar(
+                        name="BOOTSTRAP_TOKEN",
+                        value_from=V1EnvVarSource(
+                            secret_key_ref=V1SecretKeySelector(
+                                name=f"crate-control-{name}",
+                                key="token",
+                            )
+                        ),
+                    ),
+                ],
+                readiness_probe=V1Probe(
+                    http_get=V1HTTPGetAction(path="/health", port=CRATE_CONTROL_PORT),
+                    initial_delay_seconds=20,
+                    period_seconds=5,
+                    failure_threshold=6,
+                ),
+                resources=V1ResourceRequirements(
+                    limits={
+                        "cpu": "100m",
+                        "memory": "64Mi",
+                    },
+                    requests={
+                        "cpu": "50m",
+                        "memory": "32Mi",
+                    },
+                ),
+            )
+        )
+
+    return containers
 
 
 def get_statefulset_crate_command(
@@ -656,34 +716,31 @@ def get_statefulset_crate_volume_mounts(
 
 
 def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
-    heapdump_cmd = (
-        "mkdir -pv /resource/heapdump ; chown -R crate:crate /resource"  # noqa
-    )
-    # Ignore failures on AWS, where we are likely using EFS (which do not permit chown)
-    if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        heapdump_cmd = f"{heapdump_cmd} || true"
+    containers = []
 
-    return [
-        V1Container(
-            # We need to do this in an init container because of the required
-            # security context. We don't want to run CrateDB with that context,
-            # thus doing it before.
-            command=[
-                "sysctl",
-                "-w",
-                # CrateDB requirement due to the number of open file descriptors
-                "vm.max_map_count=2566080",
-                # Certain load balancers (i.e. AWS NLB) terminate idle connections.
-                # We set explicit TCP keepalives so that this does not happen.
-                "net.ipv4.tcp_keepalive_time=120",
-                "net.ipv4.tcp_keepalive_intvl=30",
-                "net.ipv4.tcp_keepalive_probes=6",
-            ],
-            image="busybox:1.35.0",
-            image_pull_policy="IfNotPresent",
-            name="init-sysctl",
-            security_context=V1SecurityContext(privileged=True),
-        ),
+    # Only add the privileged sysctl init container if NOT on OpenShift
+    if config.CLOUD_PROVIDER != CloudProvider.OPENSHIFT:
+        containers.append(
+            V1Container(
+                command=[
+                    "sysctl",
+                    "-w",
+                    # CrateDB requirement due to the number of open file descriptors
+                    "vm.max_map_count=2566080",
+                    # Certain load balancers (i.e. AWS NLB) terminate idle connections.
+                    # We set explicit TCP keepalives so that this does not happen.
+                    "net.ipv4.tcp_keepalive_time=120",
+                    "net.ipv4.tcp_keepalive_intvl=30",
+                    "net.ipv4.tcp_keepalive_probes=6",
+                ],
+                image="busybox:1.35.0",
+                image_pull_policy="IfNotPresent",
+                name="init-sysctl",
+                security_context=V1SecurityContext(privileged=True),
+            )
+        )
+
+    containers.append(
         V1Container(
             command=[
                 "wget",
@@ -696,6 +753,14 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             name="fetch-jmx-exporter",
             volume_mounts=[V1VolumeMount(name="jmxdir", mount_path="/jmxdir")],
         ),
+    )
+
+    heapdump_cmd = "mkdir -pv /resource/heapdump ; chown -R crate:crate /resource"
+    # Ignore failures on AWS EFS which doesn't permit chown
+    if config.CLOUD_PROVIDER == CloudProvider.AWS:
+        heapdump_cmd = f"{heapdump_cmd} || true"
+
+    containers.append(
         V1Container(
             command=[
                 "sh",
@@ -706,8 +771,10 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
             image_pull_policy="IfNotPresent",
             name="mkdir-heapdump",
             volume_mounts=[V1VolumeMount(name="debug", mount_path="/resource")],
-        ),
-    ]
+        )
+    )
+
+    return containers
 
 
 def get_statefulset_pvc(
@@ -840,7 +907,22 @@ def get_statefulset(
         ),
         get_statefulset_crate_env(node_spec, jmx_port, prometheus_port, ssl),
         get_statefulset_crate_volume_mounts(node_spec, ssl),
+        name,
+        has_ssl=bool(ssl),
     )
+
+    service_account_name = None
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        service_account_name = f"crate-{name}"
+
+    # On OpenShift, set security context to run as root (UID 0)
+    # This allows the entrypoint's chroot to work
+    pod_security_context = None
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        pod_security_context = V1PodSecurityContext(
+            run_as_user=0,
+            fs_group=0,
+        )
 
     return V1StatefulSet(
         metadata=V1ObjectMeta(
@@ -866,6 +948,8 @@ def get_statefulset(
                     labels=node_labels,
                 ),
                 spec=V1PodSpec(
+                    service_account_name=service_account_name,
+                    security_context=pod_security_context,
                     affinity=get_statefulset_affinity(name, logger, node_spec),
                     topology_spread_constraints=get_topology_spread(name, logger),
                     containers=containers,
@@ -880,6 +964,121 @@ def get_statefulset(
             volume_claim_templates=get_statefulset_pvc(owner_references, node_spec),
         ),
     )
+
+
+async def create_crate_scc(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+) -> None:
+    """
+    Create a SecurityContextConstraint for CrateDB on OpenShift.
+
+    This SCC allows running as any UID (including root) and the SYS_CHROOT capability.
+
+    Security Note: While this allows starting as root, the CrateDB entrypoint
+    immediately uses chroot to drop privileges to UID 1000 (crate user). This
+    maintains security while being compatible with OpenShift's restricted environment.
+    """
+    scc_name = f"crate-anyuid-{namespace}-{name}"
+
+    scc = {
+        "apiVersion": "security.openshift.io/v1",
+        "kind": "SecurityContextConstraints",
+        "metadata": {
+            "name": scc_name,
+        },
+        "allowPrivilegedContainer": False,
+        "allowedCapabilities": ["SYS_CHROOT"],
+        "defaultAddCapabilities": None,
+        "requiredDropCapabilities": ["KILL", "MKNOD"],
+        "runAsUser": {"type": "RunAsAny"},
+        "seLinuxContext": {"type": "MustRunAs"},
+        "fsGroup": {"type": "RunAsAny"},
+        "supplementalGroups": {"type": "RunAsAny"},
+        "volumes": [
+            "configMap",
+            "downwardAPI",
+            "emptyDir",
+            "persistentVolumeClaim",
+            "projected",
+            "secret",
+        ],
+        "users": [f"system:serviceaccount:{namespace}:crate-{name}"],
+        "groups": [],
+    }
+
+    async with GlobalApiClient() as api_client:
+        custom_api = CustomObjectsApi(api_client)
+        try:
+            await custom_api.create_cluster_custom_object(
+                group="security.openshift.io",
+                version="v1",
+                plural="securitycontextconstraints",
+                body=scc,
+            )
+            logger.info("Created SCC %s", scc_name)
+        except ApiException as e:
+            if e.status == 409:  # Already exists
+                logger.info("SCC %s already exists", scc_name)
+            else:
+                raise
+
+
+async def create_crate_service_account(
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
+    logger: logging.Logger,
+) -> None:
+    """Create a ServiceAccount for CrateDB pods."""
+    sa = V1ServiceAccount(
+        metadata=V1ObjectMeta(
+            name=f"crate-{name}",
+            namespace=namespace,
+            labels=labels,
+            owner_references=owner_references,
+        ),
+    )
+
+    async with GlobalApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        await call_kubeapi(
+            core.create_namespaced_service_account,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=sa,
+        )
+
+
+class CreateCrateSCCSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(
+        self,
+        namespace: str,
+        name: str,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        await create_crate_scc(namespace, name, logger)
+
+
+class CreateCrateServiceAccountSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        await create_crate_service_account(
+            owner_references, namespace, name, cratedb_labels, logger
+        )
 
 
 async def create_statefulset(
@@ -1117,6 +1316,44 @@ def get_discovery_service(
     )
 
 
+def get_crate_control_service(
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    namespace: str,
+    labels: Dict[str, str],
+    port: int = CRATE_CONTROL_PORT,
+) -> V1Service:
+    """
+    Create a headless service that exposes the crate-control sidecar of a
+    single CrateDB pod.
+    """
+    return V1Service(
+        metadata=V1ObjectMeta(
+            name=f"crate-control-{name}",
+            namespace=namespace,
+            labels=labels,
+            owner_references=owner_references,
+        ),
+        spec=V1ServiceSpec(
+            cluster_ip="None",
+            publish_not_ready_addresses=True,
+            ports=[
+                V1ServicePort(
+                    name="control",
+                    port=port,
+                    target_port="control",
+                    protocol="TCP",
+                )
+            ],
+            selector={
+                LABEL_COMPONENT: "cratedb",
+                LABEL_NAME: name,
+            },
+            type="ClusterIP",
+        ),
+    )
+
+
 async def create_services(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
@@ -1163,6 +1400,17 @@ async def create_services(
             ),
         )
 
+        if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+            await call_kubeapi(
+                core.create_namespaced_service,
+                logger,
+                continue_on_conflict=True,
+                namespace=namespace,
+                body=get_crate_control_service(
+                    owner_references, name, namespace, labels
+                ),
+            )
+
 
 async def recreate_services(
     namespace: str,
@@ -1178,16 +1426,7 @@ async def recreate_services(
 
     cratedb_labels = build_cratedb_labels(name, meta)
 
-    owner_references = [
-        V1OwnerReference(
-            api_version=f"{API_GROUP}/v1",
-            block_owner_deletion=True,
-            controller=True,
-            kind="CrateDB",
-            name=name,
-            uid=meta["uid"],
-        )
-    ]
+    owner_references = get_owner_references(name, meta)
     source_ranges = spec["cluster"].get("allowedCIDRs", None)
 
     additional_annotations = (
@@ -1238,6 +1477,24 @@ def get_gc_user_secret(
     )
 
 
+def get_crate_control_secret(
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    labels: LabelType,
+) -> V1Secret:
+    return V1Secret(
+        metadata=V1ObjectMeta(
+            name=f"crate-control-{name}",
+            labels=labels,
+            owner_references=owner_references,
+        ),
+        data={
+            "token": b64encode(gen_password(50)),
+        },
+        type="Opaque",
+    )
+
+
 async def create_system_user(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
@@ -1258,6 +1515,24 @@ async def create_system_user(
             continue_on_conflict=True,
             namespace=namespace,
             body=get_system_user_secret(owner_references, name, labels),
+        )
+
+
+async def create_crate_control_secret(
+    owner_references: Optional[List[V1OwnerReference]],
+    namespace: str,
+    name: str,
+    labels: LabelType,
+    logger: logging.Logger,
+) -> None:
+    async with GlobalApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        await call_kubeapi(
+            core.create_namespaced_secret,
+            logger,
+            continue_on_conflict=True,
+            namespace=namespace,
+            body=get_crate_control_secret(owner_references, name, labels),
         )
 
 
@@ -1293,10 +1568,16 @@ def get_cluster_resource_limits(
 
 
 def get_owner_references(name: str, meta: kopf.Meta) -> List[V1OwnerReference]:
+    """
+    Create owner references with blockOwnerDeletion set based on cloud provider.
+
+    OpenShift's StatefulSet controller doesn't have permission to set finalizers
+    on PVCs, so we disable blockOwnerDeletion in that environment.
+    """
     return [
         V1OwnerReference(
             api_version=f"{API_GROUP}/v1",
-            block_owner_deletion=True,
+            block_owner_deletion=(config.CLOUD_PROVIDER != CloudProvider.OPENSHIFT),
             controller=True,
             kind="CrateDB",
             name=name,
@@ -1360,6 +1641,22 @@ class CreateSystemUserSubHandler(StateBasedSubHandler):
         **kwargs: Any,
     ):
         await create_system_user(
+            owner_references, namespace, name, cratedb_labels, logger
+        )
+
+
+class CreateCrateControlSubHandler(StateBasedSubHandler):
+    @crate.on.error(error_handler=crate.send_create_failed_notification)
+    async def handle(  # type: ignore
+        self,
+        namespace: str,
+        name: str,
+        owner_references: Optional[List[V1OwnerReference]],
+        cratedb_labels: LabelType,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        await create_crate_control_secret(
             owner_references, namespace, name, cratedb_labels, logger
         )
 
