@@ -49,6 +49,16 @@ expected to use upper case letters and must be prefixed with
 
    - ``aws``
    - ``azure``
+   - ``gcp``
+   - ``openshift`` (Red Hat OpenShift Container Platform)
+
+   When set to ``openshift``, the operator will:
+
+   - Use a sidecar container (``crate-control``) for SQL execution instead of
+     ``pod_exec`` to comply with OpenShift's security policies
+   - Create OpenShift-specific SecurityContextConstraints and ServiceAccounts
+   - Skip privileged init containers
+   - Adjust pod security contexts to allow CrateDB to run with required capabilities
 
    Under the hood, the operator will pass a ``zone`` attribute to all CrateDB
    nodes. This attribute can also be defined explicitly or override the one set
@@ -64,6 +74,20 @@ expected to use upper case letters and must be prefixed with
 
    To set or override the attribute on a node type level, set it in
    ``.spec.nodes.master.settings`` or ``.spec.nodes.data.*.settings``.
+
+.. envvar:: CRATE_CONTROL_IMAGE
+
+   When running on OpenShift (``CLOUD_PROVIDER=openshift``), this variable
+   specifies the Docker image for the ``crate-control`` sidecar container.
+   The sidecar provides an HTTP endpoint for SQL execution, replacing the
+   ``pod_exec`` approach which is not allowed by OpenShift's security policies.
+
+   This variable is **required** when ``CLOUD_PROVIDER`` is set to ``openshift``.
+
+   Example value: ``your-registry.example.com/crate-control:latest``
+
+   The crate-control image can be built from the ``sidecars/cratecontrol/``
+   directory in the operator repository.
 
 .. envvar:: CLUSTER_BACKUP_IMAGE
 

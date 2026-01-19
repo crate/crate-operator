@@ -54,6 +54,7 @@ from crate.operator.restore_backup_repository_data import (
     AzureBackupRepositoryData,
     BackupRepositoryData,
 )
+from crate.operator.sql import SQLResult
 from crate.operator.utils.formatting import b64encode
 from crate.operator.webhooks import (
     WebhookAction,
@@ -959,9 +960,9 @@ async def test_create_backup_repository(
 
 @pytest.mark.asyncio
 @mock.patch("crate.operator.restore_backup.get_gc_user_password")
-@mock.patch("crate.operator.restore_backup.run_crash_command")
+@mock.patch("crate.operator.restore_backup.execute_sql")
 async def test_gc_admin_password_restore(
-    mock_run_crash, mock_get_gc_user_password, faker
+    mock_execute_sql, mock_get_gc_user_password, faker
 ):
     name = faker.domain_word()
     namespace = faker.uuid4()
@@ -988,18 +989,22 @@ async def test_gc_admin_password_restore(
     mock_get_gc_user_password.side_effect = None
     mock_get_gc_user_password.return_value = "gc-secret-password"
 
-    mock_run_crash.return_value = "ERROR something wrong"
+    mock_execute_sql.return_value = SQLResult(
+        error_message="some transient error", error_code=None, rowcount=0, rows=[]
+    )
 
     with pytest.raises(kopf.TemporaryError):
         await handler._restore_gc_admin_password(
             core, namespace, name, pod_name, scheme, logger
         )
 
-    mock_run_crash.assert_called()
+    mock_execute_sql.assert_called()
 
     # successful password reset
     mock_get_gc_user_password.return_value = "gc-secret-password"
-    mock_run_crash.return_value = "ALTER OK"
+    mock_execute_sql.return_value = SQLResult(
+        rowcount=1, rows=[(1,)], error_message=None, error_code=None
+    )
 
     await handler._restore_gc_admin_password(
         core, namespace, name, pod_name, scheme, logger

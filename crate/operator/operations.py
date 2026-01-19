@@ -27,11 +27,9 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
 import yaml
-from aiohttp.client_exceptions import WSServerHandshakeError
 from aiopg import Cursor
 from kopf import TemporaryError
 from kubernetes_asyncio.client import (
-    ApiException,
     AppsV1Api,
     BatchV1Api,
     CoreV1Api,
@@ -48,7 +46,6 @@ from kubernetes_asyncio.client import (
     V1StatefulSetList,
 )
 from kubernetes_asyncio.client.models.v1_delete_options import V1DeleteOptions
-from kubernetes_asyncio.stream import WsApiClient
 from psycopg2 import DatabaseError, OperationalError
 from psycopg2.extensions import quote_ident
 
@@ -73,6 +70,7 @@ from crate.operator.cratedb import (
 )
 from crate.operator.create import recreate_services
 from crate.operator.grand_central import read_grand_central_deployment
+from crate.operator.sql import execute_sql
 from crate.operator.utils import crate
 from crate.operator.utils.jwt import crate_version_supports_jwt
 from crate.operator.utils.k8s_api_client import GlobalApiClient
@@ -882,63 +880,6 @@ def get_crash_scheme(spec: dict) -> str:
     return "https" if "ssl" in spec["spec"]["cluster"] else "http"
 
 
-async def run_crash_command(
-    namespace: str,
-    pod_name: str,
-    scheme: str,
-    command: str,
-    logger,
-    delay: int = 30,
-):
-    """
-    This connects to a CrateDB pod and executes a crash command in the
-    ``crate`` container. It returns the result of the execution.
-
-    :param namespace: The Kubernetes namespace of the CrateDB cluster.
-    :param pod_name: The pod name where the command should be run.
-    :param scheme: The host scheme for running the command.
-    :param command: The SQL query that should be run.
-    :param logger: the logger on which we're logging
-    :param delay: Time in seconds between the retries when executing
-        the query.
-    """
-    async with WsApiClient() as ws_api_client:
-        core_ws = CoreV1Api(ws_api_client)
-        try:
-            exception_logger = logger.exception if config.TESTING else logger.error
-            crash_command = [
-                "crash",
-                "--verify-ssl=false",
-                f"--host={scheme}://localhost:4200",
-                "-c",
-                command,
-            ]
-            result = await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=pod_name,
-                command=crash_command,
-                container="crate",
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-            )
-        except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include sensitive
-            # data in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise kopf.TemporaryError(delay=delay)
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include sensitive
-            # data in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise kopf.TemporaryError(delay=delay)
-        else:
-            return result
-
-
 class RestartSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.ROLLING_RESTART_TIMEOUT))
@@ -1210,7 +1151,11 @@ async def set_cronjob_delay(patch):
 
 
 async def set_user_jwt(
-    cursor: Cursor, namespace: str, name: str, username: str, logger: logging.Logger
+    cursor: Cursor,
+    namespace: str,
+    name: str,
+    username: str,
+    logger: logging.Logger,
 ) -> None:
     """
     Set JWT auth properties for a given username
@@ -1230,6 +1175,7 @@ async def set_user_jwt(
 
     username_ident = quote_ident(username, cursor._impl)
     iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+    logger.info("Setting JWT auth properties for user '%s'", username)
     if user_exists and iss:
         query = (
             f"ALTER USER {username_ident} SET "
@@ -1238,13 +1184,26 @@ async def set_user_jwt(
         )
         pod_name = get_crash_pod_name(cratedb, name)
         scheme = get_crash_scheme(cratedb)
-        result = await run_crash_command(namespace, pod_name, scheme, query, logger)
-        if "ALTER OK" in result:
+        logger.info("... executing query: %s", query)
+        result = await execute_sql(
+            namespace=namespace,
+            name=name,
+            pod_name=pod_name,
+            scheme=scheme,
+            sql=query,
+            args=None,
+            logger=logger,
+        )
+        logger.info("... result: %s", result)
+        if (result.rowcount or 0) > 0:
             logger.info("... success")
         else:
             logger.info("... error. %s", result)
             # Continue if the same JWT properties are already set
-            if "RoleAlreadyExistsException" not in result:
+            if (
+                not result.error_message
+                or "RoleAlreadyExistsException" not in result.error_message
+            ):
                 raise kopf.TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
 

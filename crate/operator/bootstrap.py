@@ -34,8 +34,10 @@ from crate.operator.constants import (
     GC_USER_SECRET_NAME,
     GC_USERNAME,
     SYSTEM_USERNAME,
+    CloudProvider,
 )
 from crate.operator.cratedb import create_user, get_connection
+from crate.operator.sql import execute_sql_via_crate_control
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -78,8 +80,144 @@ async def bootstrap_system_user(
         when SSL/TLS is enabled, and encrypted connections aren't possible when
         no SSL/TLS is configured.
     """
-    scheme = "https" if has_ssl else "http"
     password = await get_system_user_password(core, namespace, name)
+
+    command_create_user: Dict[str, Any] = {
+        "stmt": f'CREATE USER "{SYSTEM_USERNAME}" WITH (password = ?)',
+        "args": [password],
+    }
+
+    command_alter_user: Dict[str, Any] = {
+        "stmt": f'ALTER USER "{SYSTEM_USERNAME}" SET (password = ?)',
+        "args": [password],
+    }
+
+    command_grant: Dict[str, Any] = {
+        "stmt": f'GRANT ALL PRIVILEGES TO "{SYSTEM_USERNAME}"',
+        "args": [],
+    }
+
+    exception_logger = logger.exception if config.TESTING else logger.error
+
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        logger.info("Using sidecar approach for OpenShift")
+        await _bootstrap_user_via_sidecar(
+            namespace,
+            name,
+            command_create_user,
+            command_alter_user,
+            command_grant,
+            logger,
+            exception_logger,
+        )
+    else:
+        logger.info("Using pod_exec approach")
+        scheme = "https" if has_ssl else "http"
+        await _bootstrap_user_via_pod_exec(
+            namespace,
+            master_node_pod,
+            scheme,
+            command_create_user,
+            command_alter_user,
+            command_grant,
+            logger,
+            exception_logger,
+        )
+
+
+async def _bootstrap_user_via_sidecar(
+    namespace: str,
+    name: str,
+    command_create_user: Dict[str, Any],
+    command_alter_user: Dict[str, Any],
+    command_grant: Dict[str, Any],
+    logger: logging.Logger,
+    exception_logger,
+) -> None:
+    """
+    Bootstrap system user using the crate-control sidecar.
+    """
+
+    needs_update = False
+    try:
+        logger.info("Trying to create system user via sidecar...")
+        result = await execute_sql_via_crate_control(
+            namespace=namespace,
+            name=name,
+            sql=command_create_user["stmt"],
+            args=command_create_user["args"],
+            logger=logger,
+        )
+    except Exception as e:
+        exception_logger("... failed. %s", str(e))
+        raise _temporary_error()
+    else:
+        logger.info("Create user result: %s", result)
+        if "rowcount" in result:
+            logger.info("... success")
+        elif (
+            "error" in result
+            and "RoleAlreadyExistsException" in result["error"]["message"]
+        ):
+            needs_update = True
+            logger.info("... success. Already present")
+        else:
+            logger.info("... error. %s", result)
+            raise _temporary_error()
+
+    if needs_update:
+        try:
+            logger.info("Trying to update system user password via sidecar...")
+            result = await execute_sql_via_crate_control(
+                namespace=namespace,
+                name=name,
+                sql=command_alter_user["stmt"],
+                args=command_alter_user["args"],
+                logger=logger,
+            )
+        except Exception as e:
+            exception_logger("... failed: %s", str(e))
+            raise _temporary_error()
+        else:
+            if "rowcount" in result:
+                logger.info("... success")
+            else:
+                logger.info("... error. %s", result)
+                raise _temporary_error()
+
+    try:
+        logger.info("Trying to grant system user all privileges via sidecar...")
+        result = await execute_sql_via_crate_control(
+            namespace=namespace,
+            name=name,
+            sql=command_grant["stmt"],
+            args=command_grant["args"],
+            logger=logger,
+        )
+    except Exception as e:
+        exception_logger("... failed. %s", str(e))
+        raise _temporary_error()
+    else:
+        if "rowcount" in result:
+            logger.info("... success")
+        else:
+            logger.info("... error. %s", result)
+            raise _temporary_error()
+
+
+async def _bootstrap_user_via_pod_exec(
+    namespace: str,
+    master_node_pod: str,
+    scheme: str,
+    command_create_user: Dict[str, Any],
+    command_alter_user: Dict[str, Any],
+    command_grant: Dict[str, Any],
+    logger: logging.Logger,
+    exception_logger,
+) -> None:
+    """
+    Bootstrap system user using pod_exec (legacy approach).
+    """
 
     def get_curl_command(payload: dict) -> List[str]:
         return [
@@ -97,95 +235,62 @@ async def bootstrap_system_user(
             "\\n",
         ]
 
-    command_create_user = get_curl_command(
+    command_create = get_curl_command(
         {
-            "stmt": 'CREATE USER "{}" WITH (password = $1)'.format(SYSTEM_USERNAME),
-            "args": [password],
+            "stmt": command_create_user["stmt"].replace("?", "$1"),
+            "args": command_create_user["args"],
         }
     )
-    command_alter_user = get_curl_command(
+    command_alter = get_curl_command(
         {
-            "stmt": 'ALTER USER "{}" SET (password = $1)'.format(SYSTEM_USERNAME),
-            "args": [password],
+            "stmt": command_alter_user["stmt"].replace("?", "$1"),
+            "args": command_alter_user["args"],
         }
     )
-    command_grant = get_curl_command(
-        {"stmt": 'GRANT ALL PRIVILEGES TO "{}" '.format(SYSTEM_USERNAME)}
+    command_grant_curl = get_curl_command(
+        {
+            "stmt": command_grant["stmt"],
+            "args": command_grant["args"],
+        }
     )
-    exception_logger = logger.exception if config.TESTING else logger.error
 
     async def pod_exec(cmd):
-        return await core_ws.connect_get_namespaced_pod_exec(
-            namespace=namespace,
-            name=master_node_pod,
-            command=cmd,
-            container="crate",
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False,
-        )
+        async with WsApiClient() as ws_api_client:
+            core_ws = CoreV1Api(ws_api_client)
+            return await core_ws.connect_get_namespaced_pod_exec(
+                namespace=namespace,
+                name=master_node_pod,
+                command=cmd,
+                container="crate",
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+            )
 
     needs_update = False
-    async with WsApiClient() as ws_api_client:
-        core_ws = CoreV1Api(ws_api_client)
-        try:
-            logger.info("Trying to create system user ...")
-            result = await pod_exec(command_create_user)
-        except ApiException as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
-            raise _temporary_error()
-        except WSServerHandshakeError as e:
-            # We don't use `logger.exception()` to not accidentally include the
-            # password in the log messages which might be part of the string
-            # representation of the exception.
-            exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
-            raise _temporary_error()
+    try:
+        logger.info("Trying to create system user via pod_exec...")
+        result = await pod_exec(command_create)
+    except (ApiException, WSServerHandshakeError) as e:
+        exception_logger("... failed. %s", str(e))
+        raise _temporary_error()
+    else:
+        if "rowcount" in result:
+            logger.info("... success")
+        elif "AlreadyExistsException" in result:
+            needs_update = True
+            logger.info("... success. Already present")
         else:
-            if "rowcount" in result:
-                logger.info("... success")
-            elif "AlreadyExistsException" in result:
-                needs_update = True
-                logger.info("... success. Already present")
-            else:
-                logger.info("... error. %s", result)
-                raise _temporary_error()
+            logger.info("... error. %s", result)
+            raise _temporary_error()
 
-        if needs_update:
-            try:
-                logger.info("Trying to update system user password ...")
-                result = await pod_exec(command_alter_user)
-            except ApiException as e:
-                # We don't use `logger.exception()` to not accidentally include the
-                # password in the log messages which might be part of the string
-                # representation of the exception.
-                exception_logger(
-                    "... failed. Status: %s Reason: %s", e.status, e.reason
-                )
-                raise _temporary_error()
-            except WSServerHandshakeError as e:
-                # We don't use `logger.exception()` to not accidentally include the
-                # password in the log messages which might be part of the string
-                # representation of the exception.
-                exception_logger(
-                    "... failed. Status: %s Message: %s", e.status, e.message
-                )
-                raise _temporary_error()
-            else:
-                if "rowcount" in result:
-                    logger.info("... success")
-                else:
-                    logger.info("... error. %s", result)
-                    raise _temporary_error()
-
+    if needs_update:
         try:
-            logger.info("Trying to grant system user all privileges ...")
-            result = await pod_exec(command_grant)
-        except (ApiException, WSServerHandshakeError):
-            logger.exception("... failed")
+            logger.info("Trying to update system user password via pod_exec...")
+            result = await pod_exec(command_alter)
+        except (ApiException, WSServerHandshakeError) as e:
+            exception_logger("... failed. %s", str(e))
             raise _temporary_error()
         else:
             if "rowcount" in result:
@@ -193,6 +298,19 @@ async def bootstrap_system_user(
             else:
                 logger.info("... error. %s", result)
                 raise _temporary_error()
+
+    try:
+        logger.info("Trying to grant system user all privileges via pod_exec...")
+        result = await pod_exec(command_grant_curl)
+    except (ApiException, WSServerHandshakeError):
+        logger.exception("... failed")
+        raise _temporary_error()
+    else:
+        if "rowcount" in result:
+            logger.info("... success")
+        else:
+            logger.info("... error. %s", result)
+            raise _temporary_error()
 
 
 async def bootstrap_gc_admin_user(core: CoreV1Api, namespace: str, name: str):
