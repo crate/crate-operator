@@ -87,6 +87,7 @@ async def test_expand_cluster_storage(
         name,
         feedback_data=mock.ANY,
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
 

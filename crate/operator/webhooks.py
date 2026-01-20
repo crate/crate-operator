@@ -30,11 +30,16 @@ import kopf
 from aiohttp import ClientError, ClientResponseError, TCPConnector
 
 from crate.operator import __version__
+from crate.operator.config import config
 from crate.operator.utils.crd import has_compute_changed
 
 RETRYABLE_STATUS_CODES = {502, 503, 504}
 RETRY_MAX_ATTEMPTS = 5
 RETRY_BASE_DELAY = 0.5
+
+
+def should_retry(retry: bool) -> bool:
+    return retry and not config.TESTING
 
 
 class WebhookEvent(str, enum.Enum):
@@ -305,6 +310,8 @@ class WebhookClient:
                 event,
             )
             return None
+
+        retry = should_retry(retry)
 
         payload = WebhookPayload(
             event=event,

@@ -185,6 +185,7 @@ async def test_upgrade_cluster(
         name,
         upgrade_data=mock.ANY,
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
     assert await was_notification_sent(
@@ -426,6 +427,7 @@ async def test_upgrade_rollback_on_failure(
             "action": WebhookAction.UPGRADE.value,
         },
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
     assert await was_notification_sent(

@@ -274,6 +274,7 @@ async def test_change_compute_from_request_to_limit(
         name,
         compute_changed_data=mock.ANY,
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
     assert await was_notification_sent(

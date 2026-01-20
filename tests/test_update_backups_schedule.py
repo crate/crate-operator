@@ -126,6 +126,7 @@ async def test_update_backups_schedule(
         name,
         backup_schedule_data=mock.ANY,
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
 

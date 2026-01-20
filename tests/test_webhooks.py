@@ -21,6 +21,7 @@
 
 import json
 import logging
+from unittest import mock
 
 import pytest
 from aiohttp import web
@@ -430,16 +431,20 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "secr3t password",
         )
 
-        response = await client.send_notification(
-            "my-namespace",
-            "my-cluster",
-            WebhookEvent.UPGRADE,
-            WebhookUpgradePayload(
-                old_registry="a", new_registry="b", old_version="c", new_version="d"
-            ),
-            WebhookStatus.SUCCESS,
-            logging.getLogger(__name__),
-        )
+        with (
+            mock.patch("crate.operator.config.config.TESTING", False),
+            mock.patch("crate.operator.webhooks.RETRY_BASE_DELAY", 0.001),
+        ):
+            response = await client.send_notification(
+                "my-namespace",
+                "my-cluster",
+                WebhookEvent.UPGRADE,
+                WebhookUpgradePayload(
+                    old_registry="a", new_registry="b", old_version="c", new_version="d"
+                ),
+                WebhookStatus.SUCCESS,
+                logging.getLogger(__name__),
+            )
 
         assert response.status == 200
         assert self.app["calls"] == 3
@@ -473,16 +478,20 @@ class TestWebhookClientSending(AioHTTPTestCase):
             "secr3t password",
         )
 
-        response = await client.send_notification(
-            "my-namespace",
-            "my-cluster",
-            WebhookEvent.UPGRADE,
-            WebhookUpgradePayload(
-                old_registry="a", new_registry="b", old_version="c", new_version="d"
-            ),
-            WebhookStatus.SUCCESS,
-            logging.getLogger(__name__),
-        )
+        with (
+            mock.patch("crate.operator.config.config.TESTING", False),
+            mock.patch("crate.operator.webhooks.RETRY_BASE_DELAY", 0.001),
+        ):
+            response = await client.send_notification(
+                "my-namespace",
+                "my-cluster",
+                WebhookEvent.UPGRADE,
+                WebhookUpgradePayload(
+                    old_registry="a", new_registry="b", old_version="c", new_version="d"
+                ),
+                WebhookStatus.SUCCESS,
+                logging.getLogger(__name__),
+            )
 
         assert response.status == 502
         assert self.app["calls"] == RETRY_MAX_ATTEMPTS

@@ -232,6 +232,7 @@ async def test_cratedb_health_ping(
             WebhookClusterHealthPayload(status="GREEN"),
             WebhookStatus.SUCCESS,
             mock.ANY,
+            retry=False,
         ),
         err_msg="Failed to ping cluster.",
         timeout=DEFAULT_TIMEOUT * 5,

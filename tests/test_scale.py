@@ -277,6 +277,7 @@ async def test_scale_cluster(
         name,
         scale_data=mock.ANY,
         unsafe=mock.ANY,
+        retry=mock.ANY,
         logger=mock.ANY,
     )
     assert await was_notification_sent(
