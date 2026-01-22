@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bumped ``setuptools`` to 80.10.1 to fix CVE-2026-23949.
+
 * Add retry logic with exponential backoff for webhooks on transient failures.
 
 2.56.0 (2026-01-12)
