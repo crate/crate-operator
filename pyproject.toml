@@ -3,7 +3,7 @@ target-version = ['py313']
 line-length = 88
 
 [build-system]
-requires = ["setuptools>=78.1.1", "wheel", "setuptools_scm>=6.2"]
+requires = ["setuptools>=80.10.1", "wheel", "setuptools_scm>=8.1.0"]
 
 [tool.setuptools_scm]
 

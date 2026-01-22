@@ -1,5 +1,9 @@
+ARG SETUPTOOLS_VERSION=80.10.1
+
 # Build container
 FROM python:3.12-slim AS build
+
+ARG SETUPTOOLS_VERSION
 
 RUN mkdir -pv /src
 
@@ -9,7 +13,7 @@ RUN apt-get update && \
     apt-get install git -y
 
 COPY . /src
-RUN python -m pip install -U setuptools==78.1.1 && \
+RUN python -m pip install -U setuptools==${SETUPTOOLS_VERSION} && \
     python setup.py clean bdist_wheel
 
 
@@ -21,6 +25,8 @@ LABEL license="Apache License 2.0" \
     name="CrateDB Kubernetes Operator" \
     repository="crate/crate-operator"
 
+ARG SETUPTOOLS_VERSION
+
 WORKDIR /etc/cloud
 RUN useradd -U -M crate-operator
 
@@ -31,7 +37,7 @@ RUN apt-get update && \
 
 COPY --from=build /src/dist /wheels
 
-RUN pip install --no-cache-dir -U pip wheel setuptools==78.1.1 && \
+RUN pip install --no-cache-dir -U pip wheel setuptools==${SETUPTOOLS_VERSION} && \
     pip install --no-cache-dir /wheels/*.whl && \
     rm -rf /wheels && \
     ln -s "$(python -c "import pkgutil; main = pkgutil.get_loader('crate.operator.main'); print(main.path)")"
