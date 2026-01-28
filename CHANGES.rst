@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+*  Bumped ``setuptools`` to 80.10.2 to fix CVE-2026-24049.
+
 2.57.0 (2026-01-28)
 -------------------
 
