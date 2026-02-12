@@ -7,6 +7,8 @@ Unreleased
 
 * Bumped JMX exporter to ``1.2.4``
 
+* Increase ``max_map_count=2566080`` to mitigate possible memory issues with large tables.
+
 2.57.1 (2026-01-28)
 -------------------
 

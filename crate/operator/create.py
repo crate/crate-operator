@@ -672,7 +672,7 @@ def get_statefulset_init_containers(crate_image: str) -> List[V1Container]:
                 "sysctl",
                 "-w",
                 # CrateDB requirement due to the number of open file descriptors
-                "vm.max_map_count=262144",
+                "vm.max_map_count=2566080",
                 # Certain load balancers (i.e. AWS NLB) terminate idle connections.
                 # We set explicit TCP keepalives so that this does not happen.
                 "net.ipv4.tcp_keepalive_time=120",
