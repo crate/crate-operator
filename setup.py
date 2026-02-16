@@ -55,7 +55,7 @@ setup(
         "kopf==1.37.1",
         "kubernetes-asyncio==31.1.0",
         "PyYAML<7.0",
-        "prometheus_client==0.23.1",
+        "prometheus_client==0.24.1",
         "aiohttp==3.13.3",
         "verlib2==0.3.1",
         "wrapt==2.1.0",
