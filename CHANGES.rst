@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.58.0 (2026-02-16)
+-------------------
+
 * Bumped JMX exporter to ``1.2.4``
 
 * Increase ``max_map_count=2566080`` to mitigate possible memory issues with large tables.
