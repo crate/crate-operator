@@ -38,6 +38,7 @@ from crate.operator.constants import (
 )
 from crate.operator.handlers.handle_create_cratedb import create_cratedb
 from crate.operator.handlers.handle_create_grand_central import create_grand_central
+from crate.operator.handlers.handle_delete_cratedb import delete_cratedb
 from crate.operator.handlers.handle_notify_external_ip_changed import (
     external_ip_changed,
 )
@@ -147,6 +148,22 @@ async def cluster_create(
     """
     await raise_on_namespace_terminating(namespace)
     await create_cratedb(namespace, meta, spec, patch, status, logger)
+
+
+@kopf.on.delete(API_GROUP, "v1", RESOURCE_CRATEDB, annotations=annotation_filter())
+async def cluster_delete(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Handles deletion of CrateDB Clusters.
+
+    Cleans up cluster-scoped resources that cannot be garbage-collected
+    via owner references (e.g. OpenShift SecurityContextConstraints).
+    """
+    await delete_cratedb(namespace, name, logger)
 
 
 @kopf.on.update(

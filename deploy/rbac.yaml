@@ -69,6 +69,7 @@ rules:
   - persistentvolumes
   - pods
   - secrets
+  - serviceaccounts
   - services
   - statefulsets
   - poddisruptionbudgets
@@ -95,6 +96,18 @@ rules:
   - customresourcedefinitions
   verbs:
   - list
+  - watch
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 
 ---

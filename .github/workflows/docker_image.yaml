@@ -20,7 +20,17 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: crate/crate-operator
-          tags: type=semver,pattern={{major}}.{{minor}}.{{patch}}
+          tags: |
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
+            type=raw,value={{tag}}
+      - name: Docker meta (sidecar)
+        id: meta_sidecar
+        uses: docker/metadata-action@v5
+        with:
+          images: crate/crate-control
+          tags: |
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
+            type=raw,value={{tag}}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
@@ -36,3 +46,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+      - name: Build and publish sidecar
+        uses: docker/build-push-action@v6
+        with:
+          context: ./sidecars/cratecontrol
+          file: ./sidecars/cratecontrol/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_sidecar.outputs.tags }}

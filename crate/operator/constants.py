@@ -61,6 +61,9 @@ GRAND_CENTRAL_PROMETHEUS_PORT = 8000
 TERMINATION_GRACE_PERIOD_SECONDS = 1200
 DECOMMISSION_TIMEOUT = "720s"
 
+# Port on which the crate-control sidecar listens.
+CRATE_CONTROL_PORT = 5050
+
 # dcutil fileserver URL for dynamic architecture detection
 DCUTIL_FILESERVER_URL = "http://dc-util-fileserver.dcutil.svc.cluster.local/latest"
 
@@ -83,6 +86,7 @@ class CloudProvider(str, enum.Enum):
     AWS = "aws"
     AZURE = "azure"
     GCP = "gcp"
+    OPENSHIFT = "openshift"
 
 
 class Port(enum.Enum):

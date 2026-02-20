@@ -29,6 +29,8 @@ from kubernetes_asyncio.client import ApiException, CoreV1Api
 from kubernetes_asyncio.stream import WsApiClient
 
 from crate.operator.config import config
+from crate.operator.constants import CloudProvider
+from crate.operator.sql import execute_sql_via_crate_control, normalize_crate_control
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.jwt import crate_version_supports_jwt
 from crate.operator.utils.kubeapi import get_cratedb_resource
@@ -36,7 +38,6 @@ from crate.operator.utils.notifications import send_operation_progress_notificat
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
 
-# update_user_password(host, username, old_password, new_password)
 async def update_user_password(
     namespace: str,
     cluster_id: str,
@@ -66,6 +67,132 @@ async def update_user_password(
     password = b64decode(new_password)
     cratedb = await get_cratedb_resource(namespace, cluster_id)
     crate_version = cratedb["spec"]["cluster"]["version"]
+    exception_logger = logger.exception if config.TESTING else logger.error
+
+    if config.CLOUD_PROVIDER == CloudProvider.OPENSHIFT:
+        await _update_user_password_via_sidecar(
+            namespace=namespace,
+            name=cluster_id,
+            cluster_id=cluster_id,
+            username=username,
+            password=password,
+            cratedb=cratedb,
+            crate_version=crate_version,
+            logger=logger,
+            exception_logger=exception_logger,
+        )
+    else:
+        await _update_user_password_via_pod_exec(
+            namespace=namespace,
+            pod_name=pod_name,
+            cluster_id=cluster_id,
+            username=username,
+            password=password,
+            cratedb=cratedb,
+            crate_version=crate_version,
+            scheme=scheme,
+            logger=logger,
+            exception_logger=exception_logger,
+        )
+
+    await send_operation_progress_notification(
+        namespace=namespace,
+        name=cluster_id,
+        message="Password updated successfully.",
+        logger=logger,
+        status=WebhookStatus.SUCCESS,
+        operation=WebhookOperation.UPDATE,
+        action=WebhookAction.PASSWORD_UPDATE,
+    )
+
+
+async def _update_user_password_via_sidecar(
+    namespace: str,
+    name: str,
+    cluster_id: str,
+    username: str,
+    password: str,
+    cratedb: dict,
+    crate_version: str,
+    logger: logging.Logger,
+    exception_logger,
+) -> None:
+    """
+    Update user password using the crate-control sidecar (OpenShift path).
+    """
+    iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+    if crate_version_supports_jwt(crate_version) and iss:
+        stmt_reset_jwt = f'ALTER USER "{username}" SET (jwt = NULL)'
+        try:
+            logger.info("Resetting JWT config for user %s ...", username)
+            result = normalize_crate_control(
+                await execute_sql_via_crate_control(
+                    namespace=namespace,
+                    name=name,
+                    sql=stmt_reset_jwt,
+                    args=[],
+                    logger=logger,
+                )
+            )
+        except Exception as e:
+            exception_logger("Failed to reset JWT for user %s: %s", username, str(e))
+            raise _temporary_error()
+        else:
+            if (result.rowcount or 0) > 0:
+                logger.info("... JWT reset success")
+            else:
+                logger.info("... JWT reset error: %s", result)
+                raise _temporary_error()
+
+        stmt_update = (
+            f'ALTER USER "{username}" SET '
+            f'(password = ?, jwt = {{"iss" = ?, "username" = ?, "aud" = ?}})'
+        )
+        args = [password, iss, username, cluster_id]
+    else:
+        stmt_update = f'ALTER USER "{username}" SET (password = ?)'
+        args = [password]
+
+    try:
+        logger.info("Updating password for user %s ...", username)
+        result = normalize_crate_control(
+            await execute_sql_via_crate_control(
+                namespace=namespace,
+                name=name,
+                sql=stmt_update,
+                args=args,
+                logger=logger,
+            )
+        )
+    except Exception as e:
+        exception_logger("Password update failed for user %s: %s", username, str(e))
+        raise _temporary_error()
+    else:
+        if (result.rowcount or 0) > 0:
+            logger.info("... password update success")
+        else:
+            logger.info("... password update error: %s", result)
+            raise _temporary_error()
+
+
+async def _update_user_password_via_pod_exec(
+    namespace: str,
+    pod_name: str,
+    cluster_id: str,
+    username: str,
+    password: str,
+    cratedb: dict,
+    crate_version: str,
+    scheme: str,
+    logger: logging.Logger,
+    exception_logger,
+) -> None:
+    """
+    Update user password using pod_exec with curl (legacy path).
+
+    Uses curl with a JSON body so that parameterised args are correctly
+    substituted by CrateDB's HTTP API, matching the original behaviour.
+    """
 
     def get_curl_command(payload: dict) -> List[str]:
         return [
@@ -83,16 +210,18 @@ async def update_user_password(
         ]
 
     async def pod_exec(cmd):
-        return await core_ws.connect_get_namespaced_pod_exec(
-            namespace=namespace,
-            name=pod_name,
-            command=cmd,
-            container="crate",
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False,
-        )
+        async with WsApiClient() as ws_api_client:
+            core_ws = CoreV1Api(ws_api_client)
+            return await core_ws.connect_get_namespaced_pod_exec(
+                namespace=namespace,
+                name=pod_name,
+                command=cmd,
+                container="crate",
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+            )
 
     command_alter_user = get_curl_command(
         {
@@ -100,61 +229,20 @@ async def update_user_password(
             "args": [password],
         }
     )
-    exception_logger = logger.exception if config.TESTING else logger.error
 
-    async with WsApiClient() as ws_api_client:
-        core_ws = CoreV1Api(ws_api_client)
-        iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
-        if crate_version_supports_jwt(crate_version) and iss:
-            # For users with `jwt` and `password` set, we need to reset
-            # `jwt` config first to be able to update the password.
-            command_reset_user_jwt = get_curl_command(
-                {
-                    "stmt": 'ALTER USER "{}" SET (jwt = NULL)'.format(username),
-                    "args": [],
-                }
-            )
-            try:
-                logger.info("Trying to reset user jwt config ...")
-                result = await pod_exec(command_reset_user_jwt)
-            except ApiException as e:
-                exception_logger(
-                    "... failed. Status: %s Reason: %s", e.status, e.reason
-                )
-                raise _temporary_error()
-            except TemporaryError:
-                raise
-            except WSServerHandshakeError as e:
-                exception_logger(
-                    "... failed. Status: %s Message: %s", e.status, e.message
-                )
-                raise _temporary_error()
-            except Exception as e:
-                exception_logger(
-                    "... failed. Unexpected exception. Class: %s. Message: %s",
-                    type(e).__name__,
-                    str(e),
-                )
-                raise _temporary_error()
-            else:
-                if "rowcount" in result:
-                    logger.info("... success")
-                    command_alter_user = get_curl_command(
-                        {
-                            "stmt": (
-                                'ALTER USER "{}" SET (password = $1, jwt = '
-                                '{{"iss" = $2, "username" = $3, "aud" = $4}})'
-                            ).format(username),
-                            "args": [password, iss, username, cluster_id],
-                        }
-                    )
-                else:
-                    logger.info("... error. %s", result)
-                    raise _temporary_error()
-
+    iss = cratedb["spec"].get("grandCentral", {}).get("jwkUrl")
+    if crate_version_supports_jwt(crate_version) and iss:
+        # For users with `jwt` and `password` set, we need to reset
+        # `jwt` config first to be able to update the password.
+        command_reset_user_jwt = get_curl_command(
+            {
+                "stmt": 'ALTER USER "{}" SET (jwt = NULL)'.format(username),
+                "args": [],
+            }
+        )
         try:
-            logger.info("Trying to update user password ...")
-            result = await pod_exec(command_alter_user)
+            logger.info("Trying to reset user jwt config ...")
+            result = await pod_exec(command_reset_user_jwt)
         except ApiException as e:
             exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
             raise _temporary_error()
@@ -165,7 +253,7 @@ async def update_user_password(
             raise _temporary_error()
         except Exception as e:
             exception_logger(
-                "... failed. Unexpected exception was raised. Class: %s. Message: %s",
+                "... failed. Unexpected exception. Class: %s. Message: %s",
                 type(e).__name__,
                 str(e),
             )
@@ -173,19 +261,43 @@ async def update_user_password(
         else:
             if "rowcount" in result:
                 logger.info("... success")
+                command_alter_user = get_curl_command(
+                    {
+                        "stmt": (
+                            'ALTER USER "{}" SET (password = $1, jwt = '
+                            '{{"iss" = $2, "username" = $3, "aud" = $4}})'
+                        ).format(username),
+                        "args": [password, iss, username, cluster_id],
+                    }
+                )
             else:
                 logger.info("... error. %s", result)
                 raise _temporary_error()
 
-        await send_operation_progress_notification(
-            namespace=namespace,
-            name=cluster_id,
-            message="Password updated successfully.",
-            logger=logger,
-            status=WebhookStatus.SUCCESS,
-            operation=WebhookOperation.UPDATE,
-            action=WebhookAction.PASSWORD_UPDATE,
+    try:
+        logger.info("Trying to update user password ...")
+        result = await pod_exec(command_alter_user)
+    except ApiException as e:
+        exception_logger("... failed. Status: %s Reason: %s", e.status, e.reason)
+        raise _temporary_error()
+    except TemporaryError:
+        raise
+    except WSServerHandshakeError as e:
+        exception_logger("... failed. Status: %s Message: %s", e.status, e.message)
+        raise _temporary_error()
+    except Exception as e:
+        exception_logger(
+            "... failed. Unexpected exception was raised. Class: %s. Message: %s",
+            type(e).__name__,
+            str(e),
         )
+        raise _temporary_error()
+    else:
+        if "rowcount" in result:
+            logger.info("... success")
+        else:
+            logger.info("... error. %s", result)
+            raise _temporary_error()
 
 
 def _temporary_error():

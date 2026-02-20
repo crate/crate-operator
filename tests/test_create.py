@@ -331,6 +331,7 @@ class TestTolerations:
 
 class TestStatefulSetContainers:
     def test(self, faker, random_string):
+        name = faker.domain_word()
         cpus = faker.pyfloat(min_value=0)
         memory = faker.numerify("%!!") + ".0" + faker.lexify("?i", "KMG")
         node_spec = {
@@ -350,6 +351,8 @@ class TestStatefulSetContainers:
             ["/path/to/some/exec.sh", "--with", "args"],
             [],
             [],
+            name,
+            False,
         )
         assert c_sql_exporter.name == "sql-exporter"
         assert len(c_sql_exporter.volume_mounts) == 1

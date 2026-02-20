@@ -103,6 +103,7 @@ def pytest_collection_modifyitems(config, items):
 def load_config(worker_id):
     env = {
         "CRATEDB_OPERATOR_CLUSTER_BACKUP_IMAGE": "crate/does-not-exist-backup",
+        "CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE": "crate/does-not-exist-control",
         "CRATEDB_OPERATOR_DEBUG_VOLUME_SIZE": "2GiB",
         "CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS": "default",
         "CRATEDB_OPERATOR_IMAGE_PULL_SECRETS": "",

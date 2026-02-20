@@ -22,7 +22,6 @@
 import abc
 import asyncio
 import logging
-import re
 from contextlib import asynccontextmanager
 from dataclasses import fields
 from typing import Any, Dict, List, Optional, Tuple
@@ -55,9 +54,9 @@ from crate.operator.cratedb import (
     set_cluster_setting,
 )
 from crate.operator.operations import (
+    execute_sql,
     get_crash_pod_name,
     get_crash_scheme,
-    run_crash_command,
     scale_backup_metrics_deployment,
     suspend_or_start_grand_central,
 )
@@ -150,19 +149,36 @@ async def ensure_no_restore_in_progress(
     """
 
     command = (
-        "SELECT * FROM sys.snapshot_restore WHERE "
-        f"name='{snapshot}' AND state NOT IN ('SUCCESS', 'FAILURE')"
+        "SELECT 1 FROM sys.snapshot_restore WHERE "
+        f"name='{snapshot}' AND state NOT IN ('SUCCESS', 'FAILURE') LIMIT 1;"
     )
-    result = await run_crash_command(namespace, pod_name, scheme, command, logger)
-    if snapshot in result:
+    result = await execute_sql(
+        namespace=namespace,
+        name=name,
+        pod_name=pod_name,
+        scheme=scheme,
+        sql=command,
+        args=[],
+        logger=logger,
+    )
+    if (result.rowcount or 0) > 0:
         progress_command = (
             "SELECT min(recovery['size']['percent']) FROM sys.shards "
             "where state='RECOVERING' and recovery['type']='SNAPSHOT';"
         )
-        result = await run_crash_command(
-            namespace, pod_name, scheme, progress_command, logger
+        progress = await execute_sql(
+            namespace=namespace,
+            name=name,
+            pod_name=pod_name,
+            scheme=scheme,
+            sql=progress_command,
+            args=[],
+            logger=logger,
         )
-        pct = int(re.findall(r"(\d+)", result)[0]) or 0
+        if not progress.rows or not progress.rows[0]:
+            pct = 0
+        else:
+            pct = int(progress.rows[0][0] or 0)
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
@@ -798,7 +814,7 @@ class RestoreInternalUsersPasswordSubHandler(StateBasedSubHandler):
 
             # Reset the system user with the password from the CRD
             await self._reset_user_password(
-                SYSTEM_USERNAME, password, namespace, pod_name, scheme, logger
+                SYSTEM_USERNAME, password, namespace, name, pod_name, scheme, logger
             )
 
             await self._restore_gc_admin_password(
@@ -817,7 +833,13 @@ class RestoreInternalUsersPasswordSubHandler(StateBasedSubHandler):
         try:
             gc_admin_password = await get_gc_user_password(core, namespace, name)
             await self._reset_user_password(
-                GC_USERNAME, gc_admin_password, namespace, pod_name, scheme, logger
+                GC_USERNAME,
+                gc_admin_password,
+                namespace,
+                name,
+                pod_name,
+                scheme,
+                logger,
             )
         except kopf.TemporaryError as e:
             logger.warning("GC admin password reset failed; will retry: %s", e)
@@ -832,14 +854,23 @@ class RestoreInternalUsersPasswordSubHandler(StateBasedSubHandler):
         username: str,
         password: str,
         namespace: str,
+        name: str,
         pod_name: str,
         scheme: str,
         logger: logging.Logger,
     ):
         password_quoted = QuotedString(password).getquoted().decode()
         command = f'ALTER USER "{username}" SET (password={password_quoted});'
-        result = await run_crash_command(namespace, pod_name, scheme, command, logger)
-        if "ALTER OK" in result:
+        result = await execute_sql(
+            namespace=namespace,
+            name=name,
+            pod_name=pod_name,
+            scheme=scheme,
+            sql=command,
+            args=[],
+            logger=logger,
+        )
+        if (result.rowcount or 0) > 0:
             logger.info("... %s password reset success", username)
         else:
             logger.info("... %s password reset error. %s", username, result)
