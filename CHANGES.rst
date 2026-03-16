@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bumped sql_exporter to ``0.20.0``
+
 * Added support for running CrateDB on Red Hat OpenShift Container Platform.
   When ``CLOUD_PROVIDER`` is set to ``openshift``, the operator will:
 
