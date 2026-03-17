@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.59.0 (2026-03-17)
+-------------------
+
 * Bumped sql_exporter to ``0.20.0``
 
 * Added support for running CrateDB on Red Hat OpenShift Container Platform.
