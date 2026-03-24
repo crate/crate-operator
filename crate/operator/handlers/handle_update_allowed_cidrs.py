@@ -64,11 +64,19 @@ async def update_service_allowed_cidrs(
         if not service:
             return
 
-        await core.patch_namespaced_service(
-            name=f"crate-{name}",
-            namespace=namespace,
-            body={"spec": {"loadBalancerSourceRanges": change.new}},
-        )
+        # Only patch loadBalancerSourceRanges if the service is of type LoadBalancer.
+        # For ClusterIP this field is forbidden and will cause a 422.
+        if service.spec.type == "LoadBalancer":
+            await core.patch_namespaced_service(
+                name=f"crate-{name}",
+                namespace=namespace,
+                body={"spec": {"loadBalancerSourceRanges": change.new}},
+            )
+        else:
+            logger.info(
+                f"Skipping loadBalancerSourceRanges patch: service 'crate-{name}' "
+                f"is of type '{service.spec.type}', not 'LoadBalancer'."
+            )
 
         ingress = await read_grand_central_ingress(namespace=namespace, name=name)
 
