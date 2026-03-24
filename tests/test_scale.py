@@ -60,6 +60,7 @@ from tests.utils import (
     is_cluster_healthy,
     is_cronjob_enabled,
     is_kopf_handler_finished,
+    require_connection,
     start_backup_metrics,
     start_cluster,
     was_notification_sent,
@@ -245,7 +246,7 @@ async def test_scale_cluster(
         repl_hot_from,
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await _scale_cluster(coapi, name, namespace, repl_hot_to)
@@ -253,7 +254,7 @@ async def test_scale_cluster(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         repl_hot_to,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -317,7 +318,7 @@ async def test_suspend_resume_cluster(
         },
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await start_backup_metrics(name, namespace, faker)
@@ -410,7 +411,7 @@ async def test_suspend_resume_cluster(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         1,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -471,7 +472,7 @@ async def test_scale_cluster_while_create_snapshot_running(
 
     host, password = await start_cluster(name, namespace, core, coapi, 1)
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
     await insert_test_snapshot_job(conn_factory)
 
@@ -504,7 +505,7 @@ async def test_scale_cluster_while_create_snapshot_running(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         2,
         err_msg="Cluster wasn't healthy after 2 minutes.",
         timeout=DEFAULT_TIMEOUT * 2,
@@ -543,7 +544,7 @@ async def test_scale_cluster_while_k8s_snapshot_job_running(
 
     host, password = await start_cluster(name, namespace, core, coapi, 1)
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
     await create_fake_snapshot_job(api_client, name, namespace.metadata.name)
 
@@ -567,7 +568,7 @@ async def test_scale_cluster_while_k8s_snapshot_job_running(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         2,
         err_msg="Cluster wasn't healthy after 3 minutes.",
         timeout=DEFAULT_TIMEOUT * 3,

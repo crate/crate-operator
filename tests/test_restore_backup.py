@@ -72,6 +72,7 @@ from tests.utils import (
     is_cronjob_enabled,
     is_kopf_handler_finished,
     mocked_coro_func_called_with,
+    require_connection,
     start_backup_metrics,
     start_cluster,
     was_notification_sent,
@@ -189,7 +190,7 @@ async def test_restore_backup_aws(
         grand_central_spec=(grand_central_spec if gc_enabled else None),
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await start_backup_metrics(name, namespace, faker)
@@ -197,7 +198,7 @@ async def test_restore_backup_aws(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         number_of_nodes,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -231,7 +232,7 @@ async def test_restore_backup_aws(
     await assert_wait_for(
         True,
         cluster_setting_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "indices.recovery.max_bytes_per_sec",
         RESTORE_MAX_BYTES_PER_SEC,
         err_msg="Cluster setting `max_bytes_per_sec` has not been updated.",
@@ -240,7 +241,7 @@ async def test_restore_backup_aws(
     await assert_wait_for(
         True,
         cluster_setting_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "cluster.routing.allocation.cluster_concurrent_rebalance",
         RESTORE_CLUSTER_CONCURRENT_REBALANCE,
         err_msg="Cluster setting `cluster_concurrent_rebalance` has not been updated.",
@@ -475,7 +476,7 @@ async def test_restore_backup_azure_blob(
         grand_central_spec=(grand_central_spec if gc_enabled else None),
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await start_backup_metrics(name, namespace, faker)
@@ -483,7 +484,7 @@ async def test_restore_backup_azure_blob(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         number_of_nodes,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -522,7 +523,7 @@ async def test_restore_backup_azure_blob(
     await assert_wait_for(
         True,
         cluster_setting_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "indices.recovery.max_bytes_per_sec",
         RESTORE_MAX_BYTES_PER_SEC,
         err_msg="Cluster setting `max_bytes_per_sec` has not been updated.",
@@ -531,7 +532,7 @@ async def test_restore_backup_azure_blob(
     await assert_wait_for(
         True,
         cluster_setting_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "cluster.routing.allocation.cluster_concurrent_rebalance",
         RESTORE_CLUSTER_CONCURRENT_REBALANCE,
         err_msg="Cluster setting `cluster_concurrent_rebalance` has not been updated.",
@@ -745,7 +746,7 @@ async def test_restore_backup_create_repo_fails(
         number_of_nodes,
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await start_backup_metrics(name, namespace, faker)
@@ -753,7 +754,7 @@ async def test_restore_backup_create_repo_fails(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         number_of_nodes,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,

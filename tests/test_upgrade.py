@@ -60,6 +60,7 @@ from .utils import (
     do_pods_exist,
     is_cluster_healthy,
     is_kopf_handler_finished,
+    require_connection,
     start_cluster,
     was_notification_sent,
 )
@@ -91,7 +92,7 @@ async def test_upgrade_cluster(
         },
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
 
     await assert_wait_for(
         True,
@@ -124,7 +125,7 @@ async def test_upgrade_cluster(
     await assert_wait_for(
         True,
         cluster_routing_allocation_enable_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "new_primaries",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -164,7 +165,7 @@ async def test_upgrade_cluster(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         3,
         err_msg="Cluster wasn't healthy",
         timeout=DEFAULT_TIMEOUT,
@@ -173,7 +174,7 @@ async def test_upgrade_cluster(
     await assert_wait_for(
         True,
         cluster_routing_allocation_enable_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "all",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -357,7 +358,7 @@ async def test_upgrade_rollback_on_failure(
         },
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
 
     await assert_wait_for(
         True,
@@ -388,7 +389,7 @@ async def test_upgrade_rollback_on_failure(
     await assert_wait_for(
         True,
         cluster_routing_allocation_enable_equals,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         "new_primaries",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
@@ -465,7 +466,7 @@ async def test_upgrade_blocked_if_rollback_annotation_set(
         },
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
 
     await assert_wait_for(
         True,

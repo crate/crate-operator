@@ -33,6 +33,7 @@ from crate.operator.change_compute import (
 from crate.operator.config import config
 from crate.operator.constants import CLUSTER_UPDATE_ID, OperationType
 from crate.operator.expand_volume import ExpandVolumeSubHandler
+from crate.operator.exposure import ChangeExposureSubHandler
 from crate.operator.operations import (
     DELAY_CRONJOB,
     AfterClusterUpdateSubHandler,
@@ -123,6 +124,7 @@ async def update_cratedb(
     do_restart = False
     do_scale = False
     do_expand_volume = False
+    exposure_changed = False
 
     operation = OperationType.UNKNOWN
 
@@ -137,6 +139,14 @@ async def update_cratedb(
         elif field_path == ("spec", "nodes", "master", "replicas"):
             do_scale = True
             operation = OperationType.SCALE
+        elif field_path == ("spec", "cluster", "exposure"):
+            old_val = old_spec if old_spec is not None else "loadbalancer"
+            new_val = new_spec if new_spec is not None else "loadbalancer"
+            if old_val != new_val:
+                exposure_changed = True
+                do_before_update = False
+                do_after_update = False
+                operation = OperationType.CHANGE_EXPOSURE
         elif field_path == ("spec", "nodes", "data"):
             for node_spec_idx in range(len(old_spec)):
                 old_spec = old_spec[node_spec_idx]
@@ -180,6 +190,7 @@ async def update_cratedb(
         and not do_scale
         and not do_expand_volume
         and not do_change_compute
+        and not exposure_changed
     ):
         return
 
@@ -240,6 +251,11 @@ async def update_cratedb(
 
     if do_expand_volume:
         register_storage_expansion_handlers(
+            namespace, name, change_hash, context, depends_on
+        )
+
+    if exposure_changed:
+        register_exposure_change_handlers(
             namespace, name, change_hash, context, depends_on
         )
 
@@ -507,6 +523,19 @@ def register_before_update_handlers(
         backoff=get_backoff(),
     )
     depends_on.append(f"{CLUSTER_UPDATE_ID}/before_cluster_update")
+
+
+def register_exposure_change_handlers(
+    namespace, name, change_hash, context, depends_on
+):
+    kopf.register(
+        fn=ChangeExposureSubHandler(
+            namespace, name, change_hash, context, depends_on=depends_on.copy()
+        )(),
+        id="change_exposure",
+        backoff=get_backoff(),
+    )
+    depends_on.append(f"{CLUSTER_UPDATE_ID}/change_exposure")
 
 
 def get_backoff() -> int:

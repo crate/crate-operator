@@ -52,6 +52,7 @@ async def test_get_external_ip(
     name = faker.domain_word()
 
     ip, _ = await start_cluster(name, namespace, core, coapi, 1, wait_for_healthy=False)
+    assert ip is not None, "ip is None"
 
     await assert_wait_for(
         True,

@@ -39,6 +39,7 @@ from crate.operator.create import (
     build_cratedb_labels,
     get_owner_references,
 )
+from crate.operator.exposure import CreateTraefikResourcesSubHandler
 from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
 from crate.operator.utils.secrets import get_image_pull_secrets
 
@@ -83,6 +84,8 @@ async def create_cratedb(
     cluster_name = spec["cluster"]["name"]
     source_ranges = spec["cluster"].get("allowedCIDRs", None)
     cloud_settings = spec.get("grandCentral", {})
+    exposure = spec["cluster"].get("exposure", "loadbalancer")
+    dns_record = spec.get("cluster", {}).get("externalDNS")
     kopf.register(
         fn=CreateSqlExporterConfigSubHandler(namespace, name, hash, context)(
             owner_references=owner_references, cratedb_labels=cratedb_labels
@@ -124,14 +127,27 @@ async def create_cratedb(
             http_port=http_port,
             postgres_port=postgres_port,
             transport_port=transport_port,
-            dns_record=spec.get("cluster", {}).get("externalDNS"),
+            dns_record=dns_record,
             source_ranges=source_ranges,
             additional_annotations=spec.get("cluster", {})
             .get("service", {})
             .get("annotations", {}),
+            exposure=exposure,
         ),
         id="services",
     )
+
+    if exposure == "traefik":
+        kopf.register(
+            fn=CreateTraefikResourcesSubHandler(namespace, name, hash, context)(
+                owner_references=owner_references,
+                dns_record=dns_record,
+                source_ranges=source_ranges,
+                http_port=http_port,
+                postgres_port=postgres_port,
+            ),
+            id="traefik_resources",
+        )
 
     if has_master_nodes:
         kopf.register(

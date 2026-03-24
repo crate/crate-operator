@@ -30,9 +30,11 @@ import yaml
 from aiopg import Cursor
 from kopf import TemporaryError
 from kubernetes_asyncio.client import (
+    ApiException,
     AppsV1Api,
     BatchV1Api,
     CoreV1Api,
+    CustomObjectsApi,
     V1ConfigMap,
     V1CronJobList,
     V1JobList,
@@ -59,6 +61,7 @@ from crate.operator.constants import (
     LABEL_NAME,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
+    Port,
 )
 from crate.operator.cratedb import (
     are_snapshots_in_progress,
@@ -68,7 +71,12 @@ from crate.operator.cratedb import (
     reset_cluster_setting,
     set_cluster_setting,
 )
-from crate.operator.create import recreate_services
+from crate.operator.create import get_owner_references, recreate_services
+from crate.operator.exposure import (
+    create_traefik_resources,
+    delete_service as delete_clusterip_service,
+    delete_traefik_resources,
+)
 from crate.operator.grand_central import read_grand_central_deployment
 from crate.operator.sql import execute_sql
 from crate.operator.utils import crate
@@ -593,6 +601,86 @@ async def restart_cluster(
         )
 
 
+async def is_service_present(core: CoreV1Api, namespace: str, name: str) -> bool:
+    """
+    Check if the main data service (crate-<name>) exists.
+
+    :param core: Kubernetes CoreV1Api client.
+    :param namespace: Namespace to check.
+    :param name: Name of the CrateDB cluster.
+    """
+    svc_name = f"crate-{name}"
+    selector = f"metadata.name={svc_name}"
+    svc_list: V1ServiceList = await core.list_namespaced_service(
+        namespace=namespace, field_selector=selector
+    )
+    return len(svc_list.items) >= 1
+
+
+async def are_traefik_resources_present(namespace: str, name: str) -> bool:
+    """
+    Check if both IngressRouteTCP resources exist for this cluster.
+
+    :param namespace: Namespace to check.
+    :param name: Name of the CrateDB cluster.
+    """
+    async with GlobalApiClient() as api_client:
+        custom_api = CustomObjectsApi(api_client)
+        for suffix in ["pg", "http"]:
+            try:
+                await custom_api.get_namespaced_custom_object(
+                    group="traefik.io",
+                    version="v1alpha1",
+                    namespace=namespace,
+                    plural="ingressroutetcps",
+                    name=f"crate-{suffix}-{name}",
+                )
+            except ApiException as e:
+                if e.status == 404:
+                    return False
+                raise
+        return True
+
+
+async def _recreate_traefik_resources(
+    namespace: str, name: str, logger: logging.Logger
+):
+    """
+    Recreate Traefik resources after a resume operation.
+
+    This is called when scaling a cluster back up from 0 replicas and the
+    exposure is 'traefik'. It reads the current spec and recreates the
+    MiddlewareTCP and IngressRouteTCP resources.
+
+    :param namespace: Kubernetes namespace.
+    :param name: Name of the CrateDB cluster.
+    :param logger: Logger for operation tracking.
+    """
+    cratedb = await get_cratedb_resource(namespace, name)
+    spec = cratedb["spec"]
+    dns_record = spec.get("cluster", {}).get("externalDNS")
+    if not dns_record:
+        logger.warning("Cannot recreate Traefik resources: externalDNS missing")
+        return
+
+    ports_spec = spec.get("ports", {})
+    http_port = ports_spec.get("http", Port.HTTP.value)
+    postgres_port = ports_spec.get("postgres", Port.POSTGRES.value)
+    source_ranges = spec["cluster"].get("allowedCIDRs", None)
+    owner_references = get_owner_references(name, cratedb["metadata"])
+
+    await create_traefik_resources(
+        owner_references,
+        namespace,
+        name,
+        dns_record,
+        source_ranges,
+        http_port,
+        postgres_port,
+        logger,
+    )
+
+
 async def suspend_or_start_cluster(
     apps: AppsV1Api,
     core: CoreV1Api,
@@ -604,7 +692,7 @@ async def suspend_or_start_cluster(
     logger: logging.Logger,
 ):
     """
-    Suspend or scale a cluster ``name``  back up, according to the given
+    Suspend or scale a cluster ``name`` back up, according to the given
     ``data_diff_items``.
 
     :param apps: An instance of the Kubernetes Apps V1 API.
@@ -618,7 +706,11 @@ async def suspend_or_start_cluster(
         should be suspended/started as well. This is usually not the case
         for volume expansion operations.
     """
-    spec = old["spec"]
+    cratedb = await get_cratedb_resource(namespace, name)
+    exposure = (
+        cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
+    )
+    use_traefik = exposure == "traefik"
 
     if data_diff_items:
         for _, field_path, old_replicas, new_replicas in data_diff_items:
@@ -626,17 +718,23 @@ async def suspend_or_start_cluster(
                 # scale the cluster back up
 
                 # Check if service is present, re-create it if not
-                if not await is_lb_service_present(core, namespace, name):
-                    cratedb = await get_cratedb_resource(namespace, name)
+                if not await is_service_present(core, namespace, name):
                     await recreate_services(
                         namespace, name, cratedb["spec"], cratedb["metadata"], logger
                     )
-                if not await is_lb_service_ready(core, namespace, name):
+                if not use_traefik and not await is_lb_service_ready(
+                    core, namespace, name
+                ):
                     raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
+
+                if use_traefik and not await are_traefik_resources_present(
+                    namespace, name
+                ):
+                    await _recreate_traefik_resources(namespace, name, logger)
 
                 index_path, *_ = field_path
                 index = int(index_path)
-                node_spec = spec["nodes"]["data"][index]
+                node_spec = old["spec"]["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
                 statefulset = await apps.read_namespaced_stateful_set(
@@ -696,7 +794,7 @@ async def suspend_or_start_cluster(
                 await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
-                node_spec = spec["nodes"]["data"][index]
+                node_spec = old["spec"]["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
                 statefulset = await apps.read_namespaced_stateful_set(
@@ -740,8 +838,15 @@ async def suspend_or_start_cluster(
                     )
                 await check_all_data_nodes_gone(core, namespace, name, old)
 
-                # Try to delete the load balancing service if present
-                await delete_lb_service(core, namespace, name)
+                # Delete the service and Traefik resources (if any) when suspending
+                if use_traefik:
+                    # Delete Traefik resources (IngressRouteTCPs and MiddlewareTCP)
+                    await delete_traefik_resources(namespace, name)
+                    # Also delete the ClusterIP service
+                    await delete_clusterip_service(core, namespace, name)
+                else:
+                    # Delete the LoadBalancer service
+                    await delete_lb_service(core, namespace, name)
 
 
 async def suspend_or_start_grand_central(

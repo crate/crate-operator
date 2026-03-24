@@ -560,6 +560,10 @@ spec:
                   version:
                     description: CrateDB version
                     type: string
+                  exposure:
+                    description: Service exposure type
+                    type: string
+                    enum: ["loadbalancer", "traefik"]
                 required:
                 - imageRegistry
                 - name

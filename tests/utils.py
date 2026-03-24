@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import json
 import logging
 import os
 from functools import reduce
@@ -107,13 +108,14 @@ async def start_cluster(
     hot_nodes: int = 0,
     crate_version: str = CRATE_VERSION,
     wait_for_healthy: bool = True,
+    wait_for_lb: bool = True,
     additional_cluster_spec: Optional[Mapping[str, Any]] = None,
     users: Optional[List[Mapping[str, Any]]] = None,
     resource_requests: Optional[Mapping[str, Any]] = None,
     backups_spec: Optional[Mapping[str, Any]] = None,
     grand_central_spec: Optional[Mapping[str, Any]] = None,
-) -> Tuple[str, str]:
-    additional_cluster_spec = additional_cluster_spec if additional_cluster_spec else {}
+) -> Tuple[Optional[str], Optional[str]]:
+    additional_cluster_spec = additional_cluster_spec or {}
     body: dict = {
         "apiVersion": "cloud.crate.io/v1",
         "kind": "CrateDB",
@@ -189,26 +191,32 @@ async def start_cluster(
         body=body,
     )
 
-    await assert_wait_for(
-        True,
-        is_lb_service_ready,
-        core,
-        namespace.metadata.name,
-        f"crate-{name}",
-        err_msg="Lb service was not ready.",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
+    if wait_for_healthy and not wait_for_lb:
+        raise ValueError("wait_for_healthy=True requires wait_for_lb=True")
 
-    host = await asyncio.wait_for(
-        get_service_public_hostname(core, namespace.metadata.name, name),
-        # It takes a while to retrieve an external IP on AKS.
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-    password = await get_system_user_password(core, namespace.metadata.name, name)
+    if wait_for_lb:
+        await assert_wait_for(
+            True,
+            is_lb_service_ready,
+            core,
+            namespace.metadata.name,
+            f"crate-{name}",
+            err_msg="Lb service was not ready.",
+            timeout=DEFAULT_TIMEOUT * 5,
+        )
+
+        host = await asyncio.wait_for(
+            get_service_public_hostname(core, namespace.metadata.name, name),
+            timeout=DEFAULT_TIMEOUT * 5,
+        )
+        password = await get_system_user_password(core, namespace.metadata.name, name)
+    else:
+        host, password = None, None
 
     if wait_for_healthy:
         # The timeouts are pretty high here since in Azure it's sometimes
         # non-deterministic how long provisioning a pod will actually take.
+        assert host is not None and password is not None
         await assert_wait_for(
             True,
             is_kopf_handler_finished,
@@ -313,6 +321,72 @@ async def is_kopf_handler_finished(
 
     handler_status = cratedb["metadata"].get("annotations", {}).get(handler_name, None)
     return handler_status is None
+
+
+async def _check_kopf_handler_status(
+    coapi: CustomObjectsApi, name, namespace: str, handler_name: str
+):
+    """
+    Returns True if handler succeeded, False if still running, None if not yet seen.
+    Raises AssertionError if handler failed permanently.
+    """
+    cratedb = await coapi.get_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace,
+        name=name,
+    )
+    annotations = cratedb["metadata"].get("annotations", {})
+    raw = annotations.get(handler_name)
+
+    if raw is None:
+        return None
+
+    try:
+        status = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(
+            "Handler '%s' annotation is not valid JSON: %s", handler_name, raw
+        )
+        return None
+
+    if status.get("failure"):
+        raise AssertionError(
+            f"Handler '{handler_name}' failed: {status.get('message')}"
+        )
+
+    result = status.get("success", False) is True
+    return result
+
+
+async def wait_for_kopf_handler(
+    coapi: CustomObjectsApi,
+    name: str,
+    namespace: str,
+    handler_name: str,
+    timeout: float = DEFAULT_TIMEOUT,
+    delay: float = 2,
+):
+    """
+    Wait for a kopf handler to complete, handling kopf's annotation cleanup lifecycle.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    seen = False
+
+    while asyncio.get_running_loop().time() < deadline:
+        result = await _check_kopf_handler_status(coapi, name, namespace, handler_name)
+        if result is True:
+            logger.info("Handler '%s' finished (success=True)", handler_name)
+            return
+        if result is None and seen:
+            logger.info("Handler '%s' finished (annotation cleaned up)", handler_name)
+            return
+        if result is not None:
+            seen = True
+        await asyncio.sleep(delay)
+
+    raise AssertionError(f"Handler '{handler_name}' did not finish within {timeout}s")
 
 
 async def create_test_sys_jobs_table(conn_factory):
@@ -539,3 +613,9 @@ async def is_lb_service_ready(core: CoreV1Api, namespace: str, expected: str) ->
         return True
     else:
         return False
+
+
+def require_connection(host: Optional[str], password: Optional[str]) -> tuple[str, str]:
+    assert host is not None, "host is None"
+    assert password is not None, "password is None"
+    return host, password
