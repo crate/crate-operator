@@ -125,4 +125,5 @@ class OperationType(str, enum.Enum):
     SUSPEND = "suspend"
     RESUME = "resume"
     CHANGE_COMPUTE = "change_compute"
+    CHANGE_EXPOSURE = "change_exposure"
     UNKNOWN = "unknown"

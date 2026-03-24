@@ -26,8 +26,10 @@ from kopf import DiffItem
 from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
 
 from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
+from crate.operator.exposure import update_traefik_ip_restriction
 from crate.operator.grand_central import read_grand_central_ingress
 from crate.operator.utils.k8s_api_client import GlobalApiClient
+from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import WebhookAction, WebhookOperation, WebhookStatus
 
@@ -39,7 +41,8 @@ async def update_service_allowed_cidrs(
     logger: logging.Logger,
 ):
     change: DiffItem = diff[0]
-    logger.info(f"Updating load balancer source ranges to {change.new}")
+    new_cidrs = change.new or []
+    logger.info(f"Updating source ranges to {change.new}")
 
     await send_operation_progress_notification(
         namespace=namespace,
@@ -54,21 +57,36 @@ async def update_service_allowed_cidrs(
     async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
         networking = NetworkingV1Api(api_client)
+        cratedb = await get_cratedb_resource(namespace, name)
+        exposure = (
+            cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
+        )
+
         # This also runs on creation events, so we want to double check that the service
         # exists before attempting to do anything.
+        # Update the main data service if it's a LoadBalancer
         services = await core.list_namespaced_service(namespace=namespace)
         service = next(
             (svc for svc in services.items if svc.metadata.name == f"crate-{name}"),
             None,
         )
-        if not service:
-            return
 
-        await core.patch_namespaced_service(
-            name=f"crate-{name}",
-            namespace=namespace,
-            body={"spec": {"loadBalancerSourceRanges": change.new}},
-        )
+        # Only patch loadBalancerSourceRanges if the service is of type LoadBalancer.
+        # For ClusterIP this field is forbidden and will cause a 422.
+        if service and service.spec.type == "LoadBalancer":
+            await core.patch_namespaced_service(
+                name=f"crate-{name}",
+                namespace=namespace,
+                body={"spec": {"loadBalancerSourceRanges": new_cidrs}},
+            )
+        else:
+            logger.info(
+                f"Skipping loadBalancerSourceRanges patch: service 'crate-{name}' "
+                f"is of type '{service.spec.type if service else 'missing'}'."
+            )
+
+        if exposure == "traefik":
+            await update_traefik_ip_restriction(namespace, name, new_cidrs, logger)
 
         ingress = await read_grand_central_ingress(namespace=namespace, name=name)
 
@@ -80,7 +98,7 @@ async def update_service_allowed_cidrs(
                     "metadata": {
                         "annotations": {
                             "nginx.ingress.kubernetes.io/whitelist-source-range": ",".join(  # noqa
-                                change.new
+                                new_cidrs
                             )
                         }
                     }

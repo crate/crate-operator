@@ -46,6 +46,7 @@ from .utils import (
     create_test_sys_jobs_table,
     is_cluster_healthy,
     is_kopf_handler_finished,
+    require_connection,
     start_cluster,
     was_notification_sent,
 )
@@ -106,13 +107,13 @@ async def test_expand_cluster_storage(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         number_of_nodes,
         err_msg="Cluster wasn't healthy after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
     await create_test_sys_jobs_table(conn_factory)
 
     await _expand_volume(coapi, name, namespace, "32Gi")
@@ -150,7 +151,7 @@ async def test_expand_cluster_storage(
     await assert_wait_for(
         True,
         is_cluster_healthy,
-        connection_factory(host, password),
+        connection_factory(*require_connection(host, password)),
         number_of_nodes,
         err_msg="Cluster wasn't back up again after 5 minutes.",
         timeout=DEFAULT_TIMEOUT * 5,

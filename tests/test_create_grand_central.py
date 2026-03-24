@@ -46,6 +46,7 @@ from .utils import (
     do_pods_exist,
     is_cluster_healthy,
     is_kopf_handler_finished,
+    require_connection,
     start_cluster,
 )
 
@@ -80,7 +81,7 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
         },
     )
 
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
 
     await assert_wait_for(
         True,

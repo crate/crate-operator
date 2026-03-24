@@ -197,9 +197,17 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
     :param name: The name of the CrateDB cluster.
     """
     if config.TESTING:
-        # During testing we need to connect to the cluster via its public IP
-        # address, because the operator isn't running inside the Kubernetes
-        # cluster.
+        cratedb = await get_cratedb_resource(namespace, name)
+        exposure = (
+            cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
+        )
+
+        if exposure == "traefik":
+            dns = cratedb.get("spec", {}).get("cluster", {}).get("externalDNS")
+            if dns:
+                return dns
+            raise kopf.TemporaryError("Waiting for externalDNS...", delay=5)
+
         return await get_service_public_hostname(core, namespace, name)
 
     return f"crate-discovery-{name}.{namespace}"

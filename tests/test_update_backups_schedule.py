@@ -13,6 +13,7 @@ from .utils import (
     assert_wait_for,
     is_cluster_healthy,
     is_cronjob_schedule_matching,
+    require_connection,
     start_cluster,
     was_notification_sent,
 )
@@ -75,7 +76,7 @@ async def test_update_backups_schedule(
     host, password = await start_cluster(
         name, namespace, core, coapi, 1, backups_spec=backups_spec
     )
-    conn_factory = connection_factory(host, password)
+    conn_factory = connection_factory(*require_connection(host, password))
 
     await assert_wait_for(
         True,
