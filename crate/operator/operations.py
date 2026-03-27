@@ -80,6 +80,7 @@ from crate.operator.utils.kubeapi import (
     get_cratedb_resource,
     get_host,
     get_system_user_password,
+    has_ingress_route_tcp,
 )
 from crate.operator.utils.notifications import send_operation_progress_notification
 from crate.operator.webhooks import (
@@ -631,7 +632,11 @@ async def suspend_or_start_cluster(
                     await recreate_services(
                         namespace, name, cratedb["spec"], cratedb["metadata"], logger
                     )
-                if not await is_lb_service_ready(core, namespace, name):
+                use_traefik = await has_ingress_route_tcp(namespace)
+                logger.info(f"Traefik detected: {use_traefik}")
+                if not use_traefik and not await is_lb_service_ready(
+                    core, namespace, name
+                ):
                     raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
 
                 index_path, *_ = field_path

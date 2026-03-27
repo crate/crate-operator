@@ -256,3 +256,25 @@ async def get_gc_user_password(core: CoreV1Api, namespace: str, name: str) -> st
         namespace,
         {"key": "password", "name": GC_USER_SECRET_NAME.format(name=name)},
     )
+
+
+async def has_ingress_route_tcp(namespace: str) -> bool:
+    """
+    Returns True if any IngressRouteTCP resource exists in the given namespace,
+    indicating the cluster uses Traefik instead of a cloud LoadBalancer.
+    """
+    async with GlobalApiClient() as api_client:
+        coapi = CustomObjectsApi(api_client)
+        try:
+            result = await coapi.list_namespaced_custom_object(
+                group="traefik.io",
+                version="v1alpha1",
+                namespace=namespace,
+                plural="ingressroutetcps",
+            )
+            return len(result.get("items", [])) > 0
+        except ApiException as e:
+            if e.status == 404:
+                # CRD doesn't exist on this cluster
+                return False
+            raise
