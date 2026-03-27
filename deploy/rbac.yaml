@@ -109,6 +109,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - traefik.io
+  resources:
+  - ingressroutetcps
+  verbs:
+  - list
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
