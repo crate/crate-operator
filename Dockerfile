@@ -13,8 +13,9 @@ RUN apt-get update && \
     apt-get install git -y
 
 COPY . /src
-RUN python -m pip install -U setuptools==${SETUPTOOLS_VERSION} && \
-    python setup.py clean bdist_wheel
+RUN python -m pip install -U setuptools==${SETUPTOOLS_VERSION} \
+    && pip install setuptools_scm vcs_versioning \
+    && python setup.py clean bdist_wheel
 
 
 # Run container
