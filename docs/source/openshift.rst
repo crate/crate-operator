@@ -102,7 +102,8 @@ Prerequisites
    :ref:`operator-rbac-requirements` below)
 3. Kernel parameters configured via MachineConfig or TuneD (see
    :ref:`kernel-tuning` below)
-4. ``crate-control`` sidecar image built and available in your registry
+4. ``crate-control`` sidecar image available (either from Docker Hub or
+   your own registry)
 5. CrateDB container image available in your registry
 
 
@@ -174,6 +175,28 @@ After the rollout completes, verify on a node:
 
    $ oc debug node/<node-name> -- chroot /host sysctl vm.max_map_count
 
+Using Prebuilt Images
+---------------------
+
+Prebuilt ``crate-control`` images are published automatically to Docker Hub
+for each tagged release via the project's CI pipeline.
+
+You can use the official image directly without building it yourself:
+
+.. code-block:: console
+
+   crate/crate-control:<version>
+
+This is the recommended approach for most users.
+
+.. note::
+
+   Ensure that the ``crate-control`` image version matches the
+   ``crate-operator`` version you are deploying.
+
+If your environment requires custom builds or does not allow pulling
+images from Docker Hub, follow the steps below to build and publish
+the image manually.
 
 Building the Sidecar Image
 --------------------------
@@ -261,7 +284,7 @@ Step 2: Install the Operator
 
    $ helm install crate-operator crate-operator/crate-operator \
        --set env.CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift \
-       --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=<registry>/crate-control:<tag> \
+       --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=crate/crate-control:<tag> \
        --namespace crate-operator \
        --create-namespace
 
