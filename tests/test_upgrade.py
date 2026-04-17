@@ -36,6 +36,7 @@ from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.upgrade import (
     check_reindexing_tables,
+    check_unsafe_upgrade_paths,
     recreate_internal_tables,
     upgrade_command_data_nodes,
     upgrade_command_global_jwt_config,
@@ -717,3 +718,75 @@ async def test_recreate_internal_tables_skips_missing_tables(
         assert f'INSERT INTO "{schema}"."{tmp_table}"' not in executed_sql
         assert f'ALTER CLUSTER SWAP TABLE "{schema}"."{tmp_table}"' not in executed_sql
         assert f'DROP TABLE IF EXISTS "{schema}"."{tmp_table}"' not in executed_sql
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_check_unsafe_upgrade_paths_blocks_on_old_tables(
+    mock_get_pwd,
+    mock_get_host,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_pwd.return_value = "pwd"
+
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+
+    # First query (lucene) -> returns > 0
+    # Second query (version_created) -> returns 0
+    mock_cursor.fetchone.side_effect = [
+        (1,),  # q1_count
+        (0,),  # q2_count
+    ]
+
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": "5.10.16"}}}
+    body.spec = {"cluster": {"version": "6.0.5"}}
+
+    with pytest.raises(
+        kopf.PermanentError,
+        match="Upgrade blocked: Cluster contains tables created before CrateDB 5.5",
+    ):
+        await check_unsafe_upgrade_paths(
+            core=mock.MagicMock(),
+            namespace="ns",
+            name="my-cluster",
+            body=body,
+            old=old,
+            logger=mock.MagicMock(),
+        )
+
+    # Ensure both queries were executed
+    assert mock_cursor.execute.call_count == 2
+
+
+@pytest.mark.asyncio
+@mock.patch("crate.operator.upgrade.get_host", new_callable=mock.AsyncMock)
+@mock.patch(
+    "crate.operator.upgrade.get_system_user_password", new_callable=mock.AsyncMock
+)
+async def test_check_unsafe_upgrade_paths_allows_safe_versions(
+    mock_get_pwd,
+    mock_get_host,
+    mock_cratedb_connection,
+):
+    mock_get_host.return_value = "localhost"
+    mock_get_pwd.return_value = "pwd"
+
+    body = mock.MagicMock()
+    old = {"spec": {"cluster": {"version": "5.10.16"}}}
+    body.spec = {"cluster": {"version": "6.0.6"}}  # safe version
+
+    await check_unsafe_upgrade_paths(
+        core=mock.MagicMock(),
+        namespace="ns",
+        name="my-cluster",
+        body=body,
+        old=old,
+        logger=mock.MagicMock(),
+    )
+
+    mock_cratedb_connection["mock_cursor"].execute.assert_not_called()
