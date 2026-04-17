@@ -339,6 +339,78 @@ async def check_reindexing_tables(
                     )
 
 
+async def check_unsafe_upgrade_paths(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+    body: kopf.Body,
+    old: kopf.Body,
+    logger: logging.Logger,
+):
+    """
+    Block upgrades to CrateDB 6.0.0–6.0.5 if the cluster contains tables
+    created before CrateDB 5.5, which are affected by a data-loss bug.
+
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The name for the ``CrateDB`` custom resource.
+    :param body: The full body of the ``CrateDB`` custom resource per
+        :class:`kopf.Body`.
+    :param old: The old resource body. Required to get the old version.
+    """
+    target_version = CrateVersion(body.spec["cluster"]["version"])
+
+    if not (CrateVersion("6.0.0") <= target_version < CrateVersion("6.0.6")):
+        return
+
+    logger.info(
+        "Checking for unsafe upgrade path to %s (CrateDB 6.0.0–6.0.5)",
+        target_version,
+    )
+
+    host = await get_host(core, namespace, name)
+    password = await get_system_user_password(core, namespace, name)
+    conn_factory = connection_factory(host, password)
+
+    async with conn_factory() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM sys.shards
+                WHERE
+                lpad(split_part(min_lucene_version, '.', 1), 2, '0') || '.' ||
+                lpad(split_part(min_lucene_version, '.', 2), 2, '0') || '.' ||
+                lpad(split_part(min_lucene_version, '.', 3), 2, '0') <= '09.06.00'
+            """
+            )
+            q1_count = (await cursor.fetchone())[0]
+
+            await cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE
+                split_part(version['created'], '.', 1) = '5'
+                AND lpad(split_part(version['created'], '.', 2), 2, '0') < '05'
+            """
+            )
+            q2_count = (await cursor.fetchone())[0]
+
+    logger.info(
+        "Unsafe upgrade detection: lucene_check=%s, version_check=%s",
+        q1_count,
+        q2_count,
+    )
+
+    if q1_count > 0 or q2_count > 0:
+        raise kopf.PermanentError(
+            "Upgrade blocked: Cluster contains tables created before CrateDB 5.5. "
+            "Upgrading to CrateDB 6.0.0–6.0.5 may cause data loss. "
+            "Please upgrade to >= 6.0.6 instead."
+        )
+
+
 async def recreate_internal_tables(
     core: CoreV1Api,
     namespace: str,
@@ -489,6 +561,7 @@ class BeforeUpgradeSubHandler(StateBasedSubHandler):
         async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             await check_reindexing_tables(core, namespace, name, body, old, logger)
+            await check_unsafe_upgrade_paths(core, namespace, name, body, old, logger)
 
 
 class AfterUpgradeSubHandler(StateBasedSubHandler):
