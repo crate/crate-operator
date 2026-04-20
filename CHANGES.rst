@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.59.1 (2026-04-20)
+-------------------
+
 * Bumped sql_exporter to ``0.22.2`` - ``GHSA-xmrv-pmrh-hhx2`` and ``CVE-2026-34986``
 
 2.59.0 (2026-03-17)
