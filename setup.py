@@ -59,7 +59,7 @@ setup(
         "aiohttp==3.13.3",
         "verlib2==0.3.2",
         "wrapt==2.1.2",
-        "python-json-logger==4.0.0",
+        "python-json-logger==4.1.0",
         "httpx==0.28.1",
     ],
     extras_require={
