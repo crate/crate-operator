@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.60.0 (2026-04-22)
+-------------------
+
 * Prevent upgrades to CrateDB 6.0.0–6.0.5 if the cluster contains tables created
   before 5.5, avoiding potential data loss.
 
