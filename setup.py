@@ -50,7 +50,7 @@ setup(
     setup_requires=["setuptools>=80.10.2", "setuptools_scm>=8.1.0"],
     install_requires=[
         "aiopg==1.4.0",
-        "bitmath==1.3.3.1",
+        "bitmath==2.0.1",
         "importlib-metadata; python_version<'3.8'",
         "kopf==1.37.1",
         "kubernetes-asyncio==31.1.0",
