@@ -36,6 +36,12 @@ from crate.operator.create import (
     _lb_annotations_to_remove,
     get_owner_references,
 )
+from crate.operator.grand_central import (
+    create_grand_central_exposure,
+    delete_grand_central_ingress,
+    delete_grand_central_traefik_resources,
+    read_grand_central_deployment,
+)
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
@@ -614,3 +620,20 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
                 postgres_port,
                 logger,
             )
+
+        # grand-central: only if GC is deployed in this cluster
+        gc_deployment = await read_grand_central_deployment(namespace, name)
+        if gc_deployment:
+            await create_grand_central_exposure(
+                namespace=namespace,
+                name=name,
+                spec=spec,
+                meta=body["metadata"],
+                logger=logger,
+                use_traefik=(new_exposure == "traefik"),
+            )
+
+            if old_exposure == "traefik":
+                await delete_grand_central_traefik_resources(namespace, name, logger)
+            else:
+                await delete_grand_central_ingress(namespace, name, logger)

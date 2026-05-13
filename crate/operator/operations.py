@@ -77,7 +77,14 @@ from crate.operator.exposure import (
     delete_service as delete_clusterip_service,
     delete_traefik_resources,
 )
-from crate.operator.grand_central import read_grand_central_deployment
+from crate.operator.grand_central import (
+    create_grand_central_exposure,
+    delete_grand_central_ingress,
+    delete_grand_central_traefik_resources,
+    read_grand_central_deployment,
+    read_grand_central_httproute,
+    read_grand_central_ingress,
+)
 from crate.operator.sql import execute_sql
 from crate.operator.utils import crate
 from crate.operator.utils.jwt import crate_version_supports_jwt
@@ -642,6 +649,26 @@ async def are_traefik_resources_present(namespace: str, name: str) -> bool:
         return True
 
 
+async def is_grand_central_exposed(
+    namespace: str, name: str, use_traefik: bool
+) -> bool:
+    """
+    Return ``True`` if the active grand-central routing resource already exists.
+
+    Checks for an HTTPRoute when ``use_traefik`` is ``True``, or for an nginx
+    Ingress otherwise.
+
+    :param namespace: The Kubernetes namespace to check.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param use_traefik: When ``True``, check for an HTTPRoute. When ``False``,
+        check for an nginx Ingress.
+    """
+    if use_traefik:
+        return await read_grand_central_httproute(namespace, name) is not None
+    else:
+        return await read_grand_central_ingress(namespace, name) is not None
+
+
 async def _recreate_traefik_resources(
     namespace: str, name: str, logger: logging.Logger
 ):
@@ -760,7 +787,7 @@ async def suspend_or_start_cluster(
                         )
                     # scale grand central deployment back up if it exists
                     await suspend_or_start_grand_central(
-                        apps, namespace, name, suspend=False
+                        apps, namespace, name, suspend=False, logger=logger
                     )
                 await send_operation_progress_notification(
                     namespace=namespace,
@@ -815,7 +842,7 @@ async def suspend_or_start_cluster(
                         )
                     # scale grand central deployment down if it exists
                     await suspend_or_start_grand_central(
-                        apps, namespace, name, suspend=True
+                        apps, namespace, name, suspend=True, logger=logger
                     )
                 await send_operation_progress_notification(
                     namespace=namespace,
@@ -850,16 +877,69 @@ async def suspend_or_start_cluster(
 
 
 async def suspend_or_start_grand_central(
-    apps: AppsV1Api, namespace: str, name: str, suspend: bool
+    apps: AppsV1Api,
+    namespace: str,
+    name: str,
+    suspend: bool,
+    logger: logging.Logger,
 ):
-    deployment = await read_grand_central_deployment(namespace=namespace, name=name)
+    """
+    Scale the grand-central Deployment to 0 (suspend) or 1 (start) and
+    manage its routing resources accordingly.
 
-    if deployment:
+    On suspend, the Deployment is scaled to 0 and the active routing resource
+    (HTTPRoute + Middlewares or nginx Ingress) is deleted so it no longer
+    routes traffic. On start, the routing resource is recreated if absent
+    before the Deployment is scaled back up.
+
+    Does nothing if no grand-central Deployment exists for this cluster.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param suspend: When ``True``, scale down and delete routing resources.
+        When ``False``, recreate routing resources and scale back up.
+    :param logger: Logger for operation tracking.
+    """
+    deployment = await read_grand_central_deployment(namespace=namespace, name=name)
+    if not deployment:
+        return
+
+    # Determine which exposure mode is active
+    cratedb = await get_cratedb_resource(namespace, name)
+    spec = cratedb["spec"]
+    meta = cratedb["metadata"]
+    exposure = spec.get("cluster", {}).get("exposure", "loadbalancer")
+    use_traefik = exposure == "traefik"
+
+    if suspend:
+        # Scale the deployment to 0 first, then remove the routing resource
         await update_deployment_replicas(
             apps,
             namespace,
             f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
-            0 if suspend else 1,
+            0,
+        )
+        if use_traefik:
+            await delete_grand_central_traefik_resources(namespace, name, logger)
+        else:
+            await delete_grand_central_ingress(namespace, name, logger)
+    else:
+        # Recreate the routing resource, then scale back up
+        if not await is_grand_central_exposed(namespace, name, use_traefik):
+            await create_grand_central_exposure(
+                namespace=namespace,
+                name=name,
+                spec=spec,
+                meta=meta,
+                logger=logger,
+                use_traefik=use_traefik,
+            )
+        await update_deployment_replicas(
+            apps,
+            namespace,
+            f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+            1,
         )
 
 

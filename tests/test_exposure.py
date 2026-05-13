@@ -557,7 +557,8 @@ async def test_change_exposure_loadbalancer_to_traefik(
         coapi,
         name,
         namespace.metadata.name,
-        f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_create.bootstrap",
+        timeout=DEFAULT_TIMEOUT * 3,
     )
 
     # Initially service is LoadBalancer, no Traefik resources

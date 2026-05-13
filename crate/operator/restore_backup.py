@@ -1162,7 +1162,9 @@ class AfterRestoreBackupSubHandler(StateBasedSubHandler):
     ):
         async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
-            await suspend_or_start_grand_central(apps, namespace, name, suspend=False)
+            await suspend_or_start_grand_central(
+                apps, namespace, name, suspend=False, logger=logger
+            )
 
 
 class SendSuccessNotificationSubHandler(StateBasedSubHandler):
@@ -1291,7 +1293,9 @@ async def restore_internal_tables_context(
     await internal_tables.set_gc_tables(restore_type, tables)
     if internal_tables.has_tables_to_process():
         logger.info("Suspending GC operations before restoring internal tables")
-        await suspend_or_start_grand_central(apps, namespace, name, suspend=True)
+        await suspend_or_start_grand_central(
+            apps, namespace, name, suspend=True, logger=logger
+        )
     yield internal_tables
 
 
