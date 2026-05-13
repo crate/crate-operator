@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
+  ``spec.cluster.exposure`` is set to ``traefik``.
+
 2.61.0 (2026-06-02)
 -------------------
 

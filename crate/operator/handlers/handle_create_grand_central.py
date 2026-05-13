@@ -45,6 +45,8 @@ async def create_grand_central(
         new is not None and new.get("backendEnabled")
     ):
         cratedb = await get_cratedb_resource(namespace, name)
+        exposure = cratedb["spec"]["cluster"].get("exposure", "loadbalancer")
+        use_traefik = exposure == "traefik"
         kopf.register(
             fn=subhandler_partial(
                 create_grand_central_backend,
@@ -53,6 +55,7 @@ async def create_grand_central(
                 cratedb["spec"],
                 cratedb["metadata"],
                 logger,
+                use_traefik=use_traefik,
             ),
             id="create_grand_central",
             backoff=config.BOOTSTRAP_RETRY_DELAY,

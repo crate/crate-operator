@@ -302,7 +302,9 @@ async def test_restore_backup_aws(
             True,
             mocked_coro_func_called_with,
             mock_suspend_gc,
-            mock.call(mock.ANY, namespace.metadata.name, name, suspend=True),
+            mock.call(
+                mock.ANY, namespace.metadata.name, name, suspend=True, logger=mock.ANY
+            ),
             err_msg="Did not call pause grand central.",
             timeout=DEFAULT_TIMEOUT,
         )
@@ -335,7 +337,9 @@ async def test_restore_backup_aws(
             True,
             mocked_coro_func_called_with,
             mock_suspend_gc,
-            mock.call(mock.ANY, namespace.metadata.name, name, suspend=False),
+            mock.call(
+                mock.ANY, namespace.metadata.name, name, suspend=False, logger=mock.ANY
+            ),
             err_msg="Did not call resume grand central.",
             timeout=DEFAULT_TIMEOUT,
         )
@@ -590,7 +594,9 @@ async def test_restore_backup_azure_blob(
             True,
             mocked_coro_func_called_with,
             mock_suspend_gc,
-            mock.call(mock.ANY, namespace.metadata.name, name, suspend=True),
+            mock.call(
+                mock.ANY, namespace.metadata.name, name, suspend=True, logger=mock.ANY
+            ),
             err_msg="Did not call pause grand central.",
             timeout=DEFAULT_TIMEOUT,
         )
@@ -623,7 +629,9 @@ async def test_restore_backup_azure_blob(
             True,
             mocked_coro_func_called_with,
             mock_suspend_gc,
-            mock.call(mock.ANY, namespace.metadata.name, name, suspend=False),
+            mock.call(
+                mock.ANY, namespace.metadata.name, name, suspend=False, logger=mock.ANY
+            ),
             err_msg="Did not call resume grand central.",
             timeout=DEFAULT_TIMEOUT,
         )

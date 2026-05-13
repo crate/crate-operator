@@ -27,7 +27,11 @@ from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
 
 from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
 from crate.operator.exposure import update_traefik_ip_restriction
-from crate.operator.grand_central import read_grand_central_ingress
+from crate.operator.grand_central import (
+    read_grand_central_httproute,
+    read_grand_central_ingress,
+    update_grand_central_ip_allowlist,
+)
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.utils.notifications import send_operation_progress_notification
@@ -88,22 +92,33 @@ async def update_service_allowed_cidrs(
         if exposure == "traefik":
             await update_traefik_ip_restriction(namespace, name, new_cidrs, logger)
 
-        ingress = await read_grand_central_ingress(namespace=namespace, name=name)
-
-        if ingress:
-            await networking.patch_namespaced_ingress(
-                name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
-                namespace=namespace,
-                body={
-                    "metadata": {
-                        "annotations": {
-                            "nginx.ingress.kubernetes.io/whitelist-source-range": ",".join(  # noqa
-                                new_cidrs
-                            )
-                        }
-                    }
-                },
+            httproute = await read_grand_central_httproute(
+                namespace=namespace, name=name
             )
+            if httproute:
+                await update_grand_central_ip_allowlist(
+                    namespace=namespace,
+                    name=name,
+                    cidrs=new_cidrs,
+                    logger=logger,
+                )
+        else:
+            ingress = await read_grand_central_ingress(namespace=namespace, name=name)
+
+            if ingress:
+                await networking.patch_namespaced_ingress(
+                    name=f"{GRAND_CENTRAL_RESOURCE_PREFIX}-{name}",
+                    namespace=namespace,
+                    body={
+                        "metadata": {
+                            "annotations": {
+                                "nginx.ingress.kubernetes.io/whitelist-source-range": ",".join(  # noqa
+                                    new_cidrs
+                                )
+                            }
+                        }
+                    },
+                )
 
     await send_operation_progress_notification(
         namespace=namespace,

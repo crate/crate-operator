@@ -114,6 +114,18 @@ rules:
   resources:
   - middlewaretcps
   - ingressroutetcps
+  - middlewares
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - patch
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
   verbs:
   - create
   - get
