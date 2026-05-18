@@ -10,6 +10,8 @@ Unreleased
   ``traefik``, the operator creates a ClusterIP service with Traefik
   IngressRouteTCP and MiddlewareTCP resources instead of a cloud LoadBalancer.
 
+* Bumped sql_exporter to ``0.24.0`` for CVE fixes.
+
 2.60.0 (2026-04-22)
 -------------------
 
