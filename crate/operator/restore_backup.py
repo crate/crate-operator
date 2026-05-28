@@ -103,6 +103,22 @@ def is_valid_snapshot(new: kopf.Body, **kwargs) -> bool:
         return False
 
 
+def _crash_value_to_int(value) -> int:
+    """
+    Converts a value returned by crash to an integer.
+    crash serializes SQL NULL as the string 'NULL' rather than Python None,
+    so both cases are treated as 0.
+
+    :param value: The raw value from a crash query result.
+    """
+    if value is None or value == "NULL":
+        return 0
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
 async def drop_repository(cursor: Cursor, repository: str, logger: logging.Logger):
     """
     Drops a backup repository if it exists.
@@ -161,7 +177,7 @@ async def ensure_no_restore_in_progress(
         args=[],
         logger=logger,
     )
-    if (result.rowcount or 0) > 0:
+    if result.rows:
         progress_command = (
             "SELECT min(recovery['size']['percent']) FROM sys.shards "
             "where state='RECOVERING' and recovery['type']='SNAPSHOT';"
@@ -178,7 +194,8 @@ async def ensure_no_restore_in_progress(
         if not progress.rows or not progress.rows[0]:
             pct = 0
         else:
-            pct = int(progress.rows[0][0] or 0)
+            pct = _crash_value_to_int(progress.rows[0][0])
+
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
@@ -283,7 +300,7 @@ async def shards_recovery_in_progress(
     if not tables or (len(tables) == 1 and tables[0].lower() == "all"):
         tables = await get_snapshot_tables(conn_factory, snapshot, logger)
     for t in tables:
-        (schema, table_name) = t.rsplit(".", 1)
+        schema, table_name = t.rsplit(".", 1)
         try:
             # If there is at least one shard, the table is not empty.
             # We need to check that to ensure the operation does not fail while
