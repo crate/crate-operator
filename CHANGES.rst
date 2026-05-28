@@ -12,6 +12,10 @@ Unreleased
 
 * Bumped sql_exporter to ``0.24.0`` for CVE fixes.
 
+* Fixed a crash during snapshot restore progress reporting caused by
+  ``crash`` serializing SQL NULL as the string 'NULL' instead of Python
+  ``None``
+
 2.60.0 (2026-04-22)
 -------------------
 
