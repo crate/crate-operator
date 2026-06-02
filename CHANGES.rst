@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.61.0 (2026-06-02)
+-------------------
+
 * Added optional ``spec.cluster.exposure`` field to the CrateDB CRD, supporting
   ``loadbalancer`` (default, existing behavior) and ``traefik``. When set to
   ``traefik``, the operator creates a ClusterIP service with Traefik
