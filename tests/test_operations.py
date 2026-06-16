@@ -19,7 +19,32 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
-from crate.operator.operations import iter_node_groups
+from unittest import mock
+
+import kopf
+import pytest
+
+from crate.operator.handlers.handle_update_cratedb import _data_nodes_cross_zero
+from crate.operator.operations import (
+    check_all_master_nodes_gone,
+    check_all_master_nodes_present,
+    iter_node_groups,
+    scale_master_statefulset,
+)
+
+
+def _data_diff(old_replicas, new_replicas):
+    """A ``spec.nodes.data`` diff for a single group changing replica count."""
+    return kopf.Diff(
+        [
+            kopf.DiffItem(
+                kopf.DiffOperation.CHANGE,
+                ("spec", "nodes", "data"),
+                [{"name": "hot", "replicas": old_replicas}],
+                [{"name": "hot", "replicas": new_replicas}],
+            )
+        ]
+    )
 
 
 class TestIterNodeGroups:
@@ -68,3 +93,122 @@ class TestIterNodeGroups:
 
         assert groups[0].spec is master_spec
         assert "name" not in groups[0].spec
+
+
+class TestDataNodesCrossZero:
+    def test_suspend_is_detected(self):
+        assert _data_nodes_cross_zero(_data_diff(3, 0)) is True
+
+    def test_resume_is_detected(self):
+        assert _data_nodes_cross_zero(_data_diff(0, 3)) is True
+
+    def test_plain_scale_is_not_suspend_or_resume(self):
+        assert _data_nodes_cross_zero(_data_diff(3, 2)) is False
+
+    def test_master_only_diff_is_not_detected(self):
+        # A standalone master.replicas change with no data transition: this is
+        # exactly the case the dispatch guardrail must reject.
+        diff = kopf.Diff(
+            [
+                kopf.DiffItem(
+                    kopf.DiffOperation.CHANGE,
+                    ("spec", "nodes", "master", "replicas"),
+                    3,
+                    0,
+                )
+            ]
+        )
+        assert _data_nodes_cross_zero(diff) is False
+
+
+def _statefulset(spec_replicas=None, ready_replicas=None):
+    sts = mock.Mock()
+    sts.spec.replicas = spec_replicas
+    sts.status.ready_replicas = ready_replicas
+    return sts
+
+
+class TestCheckAllMasterNodesPresent:
+    @pytest.mark.asyncio
+    async def test_waits_until_all_masters_ready(self):
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(ready_replicas=1)
+        )
+
+        with pytest.raises(kopf.TemporaryError):
+            await check_all_master_nodes_present(apps, "ns", "c", 3, mock.Mock())
+
+    @pytest.mark.asyncio
+    async def test_passes_when_all_masters_ready(self):
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(ready_replicas=3)
+        )
+
+        await check_all_master_nodes_present(apps, "ns", "c", 3, mock.Mock())
+
+    @pytest.mark.asyncio
+    async def test_treats_missing_ready_count_as_zero(self):
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(ready_replicas=None)
+        )
+
+        with pytest.raises(kopf.TemporaryError):
+            await check_all_master_nodes_present(apps, "ns", "c", 1, mock.Mock())
+
+
+class TestCheckAllMasterNodesGone:
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.operations.get_pods_in_statefulset",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_raises_while_master_pods_present(self, mock_get_pods):
+        mock_get_pods.return_value = [{"uid": "x", "name": "crate-master-c-0"}]
+
+        with pytest.raises(kopf.TemporaryError):
+            await check_all_master_nodes_gone(mock.Mock(), "ns", "c")
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.operations.get_pods_in_statefulset",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_passes_when_no_master_pods(self, mock_get_pods):
+        mock_get_pods.return_value = []
+
+        await check_all_master_nodes_gone(mock.Mock(), "ns", "c")
+
+
+class TestScaleMasterStatefulset:
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.operations.update_statefulset_replicas",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_scales_when_replica_count_differs(self, mock_update):
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=0)
+        )
+
+        await scale_master_statefulset(apps, "ns", "c", 3, mock.Mock())
+
+        mock_update.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.operations.update_statefulset_replicas",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_noop_when_already_at_target(self, mock_update):
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=3)
+        )
+
+        await scale_master_statefulset(apps, "ns", "c", 3, mock.Mock())
+
+        mock_update.assert_not_awaited()

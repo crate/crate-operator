@@ -407,6 +407,84 @@ async def check_all_data_nodes_present(
         raise kopf.TemporaryError("Waiting for database connection.", delay=15)
 
 
+async def scale_master_statefulset(
+    apps: AppsV1Api,
+    namespace: str,
+    name: str,
+    target_replicas: int,
+    logger: logging.Logger,
+):
+    """
+    Scale the dedicated master StatefulSet to ``target_replicas`` (no-op if it
+    is already there). Used by suspend/resume to bring masters down/up.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param target_replicas: The desired number of master replicas.
+    """
+    sts_name = f"crate-master-{name}"
+    statefulset = await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=sts_name
+    )
+    if statefulset.spec.replicas != target_replicas:
+        logger.info("Scaling master nodes to %s replicas", target_replicas)
+        await update_statefulset_replicas(
+            apps, namespace, sts_name, statefulset, target_replicas
+        )
+
+
+async def check_all_master_nodes_present(
+    apps: AppsV1Api,
+    namespace: str,
+    name: str,
+    expected_replicas: int,
+    logger: logging.Logger,
+):
+    """
+    Wait until all dedicated master pods report ready via their Kubernetes
+    readiness probe. This enforces the masters-before-data ordering on resume:
+    a master must be available before data nodes start, or cluster
+    formation/discovery fails.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param expected_replicas: The number of master pods expected to be ready.
+    :raises: A :class:`kopf.TemporaryError` while masters are not yet ready.
+    """
+    sts_name = f"crate-master-{name}"
+    statefulset = await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=sts_name
+    )
+    ready_replicas = statefulset.status.ready_replicas or 0
+    if ready_replicas < expected_replicas:
+        raise kopf.TemporaryError(
+            f"Waiting for {expected_replicas} master node(s) to be ready "
+            f"(currently {ready_replicas}).",
+            delay=15,
+        )
+    logger.info("All %s master node(s) are ready.", expected_replicas)
+
+
+async def check_all_master_nodes_gone(
+    core: CoreV1Api,
+    namespace: str,
+    name: str,
+):
+    """
+    :param core: An instance of the Kubernetes Core V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :raises: A :class:`kopf.TemporaryError` when master pods are still present.
+    """
+    pending_pods = await get_pods_in_statefulset(core, namespace, name, "master")
+    if pending_pods:
+        raise kopf.TemporaryError(
+            f"Waiting for master pods to be gone {pending_pods}", delay=5
+        )
+
+
 async def check_backup_metrics_pod_gone(
     core: CoreV1Api,
     namespace: str,
@@ -793,6 +871,23 @@ async def suspend_or_start_cluster(
     )
     use_traefik = exposure == "traefik"
 
+    # Dedicated master nodes are suspended/resumed in lockstep with the data
+    # nodes, but with strict ordering: on resume the masters must come up
+    # *before* the data nodes (so the cluster can form), and on suspend they go
+    # down *after* the data nodes. The CRD's master replica count is the resume
+    # target; suspend always scales masters to 0. Legacy clusters without
+    # dedicated masters are unaffected.
+    has_dedicated_masters = "master" in cratedb["spec"]["nodes"]
+    is_resume = any(old < new for _, _, old, new in (data_diff_items or []))
+    is_suspend = any(old > new for _, _, old, new in (data_diff_items or []))
+
+    if has_dedicated_masters and is_resume:
+        master_replicas = cratedb["spec"]["nodes"]["master"]["replicas"]
+        await scale_master_statefulset(apps, namespace, name, master_replicas, logger)
+        await check_all_master_nodes_present(
+            apps, namespace, name, master_replicas, logger
+        )
+
     if data_diff_items:
         for _, field_path, old_replicas, new_replicas in data_diff_items:
             if old_replicas < new_replicas:
@@ -869,10 +964,6 @@ async def suspend_or_start_cluster(
                 )
             elif old_replicas > new_replicas:
                 # suspend the cluster -> scale down to 0 replicas
-                # First check if the cluster is healthy at all,
-                # and prevent scaling down if not.
-                conn_factory = await _get_connection_factory(core, namespace, name)
-                await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
                 index_path, *_ = field_path
                 index = int(index_path)
                 node_spec = old["spec"]["nodes"]["data"][index]
@@ -883,6 +974,18 @@ async def suspend_or_start_cluster(
                 )
                 current_replicas = statefulset.spec.replicas
                 if current_replicas != new_replicas:
+                    # Check the cluster is healthy before removing a data node,
+                    # but only while data nodes still need scaling down. Once the
+                    # data nodes are gone, a dedicated-master remainder reports
+                    # unhealthy (tables have no data nodes to live on), and
+                    # gating on that here would deadlock the rest of the suspend
+                    # (scaling the masters down).
+                    conn_factory = await _get_connection_factory(
+                        core, namespace, name
+                    )
+                    await check_cluster_healthy(
+                        name, namespace, apps, conn_factory, logger
+                    )
                     await update_statefulset_replicas(
                         apps, namespace, sts_name, statefulset, new_replicas
                     )
@@ -928,6 +1031,12 @@ async def suspend_or_start_cluster(
                 else:
                     # Delete the LoadBalancer service
                     await delete_lb_service(core, namespace, name)
+
+    # On suspend, scale the masters to 0 only after every data node is gone, so
+    # we never remove the masters out from under running data nodes.
+    if has_dedicated_masters and is_suspend:
+        await scale_master_statefulset(apps, namespace, name, 0, logger)
+        await check_all_master_nodes_gone(core, namespace, name)
 
 
 async def suspend_or_start_grand_central(

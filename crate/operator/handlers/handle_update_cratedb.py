@@ -56,6 +56,21 @@ from crate.operator.utils.notifications import FlushNotificationsSubHandler
 from crate.operator.webhooks import WebhookAction
 
 
+def _data_nodes_cross_zero(diff: kopf.Diff) -> bool:
+    """
+    Return whether any data node group is scaling to or from zero replicas in
+    this diff, i.e. whether the cluster is being suspended or resumed. Used to
+    distinguish a legitimate (data-driven) suspend/resume from an unsafe
+    standalone master scale.
+    """
+    for _, field_path, old_value, new_value in diff:
+        if field_path == ("spec", "nodes", "data"):
+            for old_spec, new_spec in zip(old_value, new_value):
+                if old_spec.get("replicas") == 0 or new_spec.get("replicas") == 0:
+                    return True
+    return False
+
+
 async def update_cratedb(
     namespace: str,
     name: str,
@@ -128,6 +143,12 @@ async def update_cratedb(
 
     operation = OperationType.UNKNOWN
 
+    # A master replica change that crosses zero (0<->N) is only valid as part of
+    # a whole-cluster suspend/resume, which is driven by the data nodes. We
+    # precompute that here so the master branch below can tell a legitimate
+    # suspend/resume apart from an unsafe standalone master scale.
+    data_nodes_cross_zero = _data_nodes_cross_zero(diff)
+
     for _, field_path, old_spec, new_spec in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
@@ -137,8 +158,27 @@ async def update_cratedb(
             do_restart = True
             operation = OperationType.UPGRADE
         elif field_path == ("spec", "nodes", "master", "replicas"):
-            do_scale = True
-            operation = OperationType.SCALE
+            old_master = old_spec or 0
+            new_master = new_spec or 0
+            if old_master == 0 or new_master == 0:
+                # Scaling masters across zero is only safe as part of a full
+                # cluster suspend/resume, where the operator scales the masters
+                # itself (after data on suspend, before data on resume; see
+                # suspend_or_start_cluster). When the data nodes are crossing
+                # zero too we let that data-driven path handle it and do not
+                # register a separate master scale. Otherwise shutting masters
+                # down while data nodes stay up would break cluster formation,
+                # so we reject it outright.
+                if not data_nodes_cross_zero:
+                    raise kopf.PermanentError(
+                        "Scaling master nodes to or from zero is only "
+                        "supported as part of a full cluster suspend/resume "
+                        "(driven by the data nodes), not as a standalone "
+                        "master.replicas change."
+                    )
+            else:
+                do_scale = True
+                operation = OperationType.SCALE
         elif field_path == ("spec", "cluster", "exposure"):
             old_val = old_spec if old_spec is not None else "loadbalancer"
             new_val = new_spec if new_spec is not None else "loadbalancer"
