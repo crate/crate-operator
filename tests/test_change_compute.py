@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import copy
 import logging
 from unittest import mock
 
@@ -31,7 +32,11 @@ from kubernetes_asyncio.client import (
     V1PodAntiAffinity,
 )
 
-from crate.operator.change_compute import generate_body_patch
+from crate.operator.change_compute import (
+    change_cluster_compute,
+    compute_payload_for_specs,
+    generate_body_patch,
+)
 from crate.operator.constants import API_GROUP, RESOURCE_CRATEDB
 from crate.operator.cratedb import connection_factory
 from crate.operator.webhooks import (
@@ -385,3 +390,179 @@ async def test_generate_body_patch(
             "toleration_seconds": None,
             "value": "any",
         }
+
+
+def _group_spec(cpu, memory, *, replicas=3, nodepool="dedicated", heap_ratio=0.25):
+    return {
+        "replicas": replicas,
+        "nodepool": nodepool,
+        "resources": {
+            "limits": {"cpu": cpu, "memory": memory},
+            "requests": {"cpu": cpu, "memory": memory},
+            "heapRatio": heap_ratio,
+        },
+    }
+
+
+class TestComputePayloadForSpecs:
+    def test_reads_resources_from_the_given_spec(self):
+        # Master resources are read independently from the master spec, so a
+        # master payload reflects the master's (possibly smaller) compute.
+        old_spec = _group_spec(16, "60000000000")
+        new_spec = _group_spec(8, "30000000000")
+
+        payload = compute_payload_for_specs(old_spec, new_spec)
+
+        assert payload["old_cpu_limit"] == 16
+        assert payload["new_cpu_limit"] == 8
+        assert payload["new_memory_limit"] == "30000000000"
+        assert payload["new_heap_ratio"] == 0.25
+        assert payload["new_nodepool"] == "dedicated"
+
+
+def _cluster_body(master_cpu, hot_cpu):
+    return {
+        "spec": {
+            "nodes": {
+                "master": _group_spec(master_cpu, "60000000000"),
+                "data": [{"name": "hot", **_group_spec(hot_cpu, "30000000000")}],
+            }
+        }
+    }
+
+
+class TestChangeClusterCompute:
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.change_compute.generate_body_patch",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_patches_only_the_master_when_only_master_changed(self, mock_patch):
+        mock_patch.return_value = {"spec": {}}
+        apps = mock.Mock()
+        apps.patch_namespaced_stateful_set = mock.AsyncMock()
+        old = _cluster_body(master_cpu=16, hot_cpu=32)
+        new = copy.deepcopy(old)
+        new["spec"]["nodes"]["master"]["resources"]["limits"]["cpu"] = 8
+
+        await change_cluster_compute(apps, "ns", "c", old, new, mock.Mock())
+
+        patched = [
+            call.kwargs["name"]
+            for call in apps.patch_namespaced_stateful_set.await_args_list
+        ]
+        assert patched == ["crate-master-c"]
+        # The master StatefulSet name is passed through explicitly.
+        assert mock_patch.await_args.kwargs["sts_name"] == "crate-master-c"
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.change_compute.generate_body_patch",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_patches_only_the_data_group_when_only_data_changed(self, mock_patch):
+        mock_patch.return_value = {"spec": {}}
+        apps = mock.Mock()
+        apps.patch_namespaced_stateful_set = mock.AsyncMock()
+        old = _cluster_body(master_cpu=16, hot_cpu=32)
+        new = copy.deepcopy(old)
+        new["spec"]["nodes"]["data"][0]["resources"]["limits"]["cpu"] = 30
+
+        await change_cluster_compute(apps, "ns", "c", old, new, mock.Mock())
+
+        patched = [
+            call.kwargs["name"]
+            for call in apps.patch_namespaced_stateful_set.await_args_list
+        ]
+        assert patched == ["crate-data-hot-c"]
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.change_compute.generate_body_patch",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_no_patch_when_nothing_changed(self, mock_patch):
+        apps = mock.Mock()
+        apps.patch_namespaced_stateful_set = mock.AsyncMock()
+        body = _cluster_body(master_cpu=16, hot_cpu=32)
+
+        await change_cluster_compute(apps, "ns", "c", body, body, mock.Mock())
+
+        apps.patch_namespaced_stateful_set.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "crate.operator.change_compute.generate_body_patch",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_legacy_cluster_without_masters(self, mock_patch):
+        mock_patch.return_value = {"spec": {}}
+        apps = mock.Mock()
+        apps.patch_namespaced_stateful_set = mock.AsyncMock()
+        old = {"spec": {"nodes": {"data": [{"name": "hot", **_group_spec(32, "30")}]}}}
+        new = copy.deepcopy(old)
+        new["spec"]["nodes"]["data"][0]["resources"]["limits"]["cpu"] = 30
+
+        await change_cluster_compute(apps, "ns", "c", old, new, mock.Mock())
+
+        patched = [
+            call.kwargs["name"]
+            for call in apps.patch_namespaced_stateful_set.await_args_list
+        ]
+        assert patched == ["crate-data-hot-c"]
+
+
+class TestUpdateCprocessorCrateSettings:
+    @pytest.mark.asyncio
+    async def test_updates_cprocessors_for_the_given_statefulset(self):
+        # A cpu change must rewrite -Cprocessors in the crate container command
+        # of whichever StatefulSet is passed (here the master STS), leaving the
+        # rest of the command untouched.
+        from crate.operator.change_compute import update_cprocessor_crate_settings
+
+        container = mock.Mock()
+        container.name = "crate"
+        container.command = [
+            "/docker-entrypoint.sh",
+            "crate",
+            "-Cprocessors=16",
+            "-Cnode.master=true",
+        ]
+        other = mock.Mock()
+        other.name = "sql-exporter"
+        other.command = ["-Cprocessors=999"]  # must not be touched
+        sts = mock.Mock()
+        sts.spec.template.spec.containers = [container, other]
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(return_value=sts)
+
+        updated = await update_cprocessor_crate_settings(
+            apps=apps, namespace="ns", sts_name="crate-master-c", processors=8
+        )
+
+        assert "-Cprocessors=8" in updated
+        assert "-Cprocessors=16" not in updated
+        assert "-Cnode.master=true" in updated
+        assert apps.read_namespaced_stateful_set.await_args.kwargs["name"] == (
+            "crate-master-c"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rounds_cpu_up_to_match_create(self):
+        # A fractional CPU limit must be rounded up, the same way create.py
+        # bakes -Cprocessors, so the running and configured values agree.
+        from crate.operator.change_compute import update_cprocessor_crate_settings
+
+        container = mock.Mock()
+        container.name = "crate"
+        container.command = ["crate", "-Cprocessors=4"]
+        sts = mock.Mock()
+        sts.spec.template.spec.containers = [container]
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(return_value=sts)
+
+        updated = await update_cprocessor_crate_settings(
+            apps=apps, namespace="ns", sts_name="crate-master-c", processors=1.5
+        )
+
+        assert "-Cprocessors=2" in updated

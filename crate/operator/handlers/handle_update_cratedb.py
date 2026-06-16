@@ -157,28 +157,45 @@ async def update_cratedb(
             do_upgrade = True
             do_restart = True
             operation = OperationType.UPGRADE
-        elif field_path == ("spec", "nodes", "master", "replicas"):
-            old_master = old_spec or 0
-            new_master = new_spec or 0
-            if old_master == 0 or new_master == 0:
-                # Scaling masters across zero is only safe as part of a full
-                # cluster suspend/resume, where the operator scales the masters
-                # itself (after data on suspend, before data on resume; see
-                # suspend_or_start_cluster). When the data nodes are crossing
-                # zero too we let that data-driven path handle it and do not
-                # register a separate master scale. Otherwise shutting masters
-                # down while data nodes stay up would break cluster formation,
-                # so we reject it outright.
-                if not data_nodes_cross_zero:
-                    raise kopf.PermanentError(
-                        "Scaling master nodes to or from zero is only "
-                        "supported as part of a full cluster suspend/resume "
-                        "(driven by the data nodes), not as a standalone "
-                        "master.replicas change."
-                    )
-            else:
-                do_scale = True
-                operation = OperationType.SCALE
+        elif field_path[:3] == ("spec", "nodes", "master"):
+            # Dedicated masters are a single dict in the CRD, so kopf reports
+            # their changes at leaf level (unlike the data list). Classify the
+            # leaf to route it to the right operation.
+            master_subpath = field_path[3:]
+            if master_subpath == ("replicas",):
+                old_master = old_spec or 0
+                new_master = new_spec or 0
+                if old_master == 0 or new_master == 0:
+                    # Scaling masters across zero is only safe as part of a
+                    # full cluster suspend/resume, where the operator scales
+                    # the masters itself (after data on suspend, before data on
+                    # resume; see suspend_or_start_cluster). When the data nodes
+                    # are crossing zero too we let that data-driven path handle
+                    # it and do not register a separate master scale. Otherwise
+                    # shutting masters down while data nodes stay up would break
+                    # cluster formation, so we reject it outright.
+                    if not data_nodes_cross_zero:
+                        raise kopf.PermanentError(
+                            "Scaling master nodes to or from zero is only "
+                            "supported as part of a full cluster "
+                            "suspend/resume (driven by the data nodes), not as "
+                            "a standalone master.replicas change."
+                        )
+                else:
+                    do_scale = True
+                    operation = OperationType.SCALE
+            elif master_subpath[:2] == ("resources", "disk"):
+                # Master disk changes are storage expansion, handled in T3.
+                pass
+            elif master_subpath[:1] == ("resources",) or master_subpath == (
+                "nodepool",
+            ):
+                # A master cpu/memory/heapRatio/nodepool change is a compute
+                # change. restart already covers the master StatefulSet, so the
+                # patched resources take effect.
+                do_change_compute = True
+                operation = OperationType.CHANGE_COMPUTE
+                do_restart = True
         elif field_path == ("spec", "cluster", "exposure"):
             old_val = old_spec if old_spec is not None else "loadbalancer"
             new_val = new_spec if new_spec is not None else "loadbalancer"
