@@ -8,6 +8,16 @@ Unreleased
 * Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
   ``spec.cluster.exposure`` is set to ``traefik``.
 
+* Made dedicated master nodes (``spec.nodes.master``) behave consistently
+  across all cluster operations. Master nodes are now started before data nodes
+  on resume and stopped after them on suspend, and compute changes and volume
+  expansion are applied to the master node group as well as the data nodes.
+
+* Webhook notifications now reflect dedicated master nodes: the scale webhook
+  reports the effective master replica count (``0`` while suspended), the
+  change-compute webhook includes master compute, and the storage-expansion
+  feedback reports the new disk size per node group.
+
 2.61.0 (2026-06-02)
 -------------------
 
