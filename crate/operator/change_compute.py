@@ -228,7 +228,6 @@ async def generate_body_patch(
         apps=apps,
         namespace=namespace,
         sts_name=sts_name,
-        # sts_name=f"crate-data-hot-{name}",
         processors=compute_change_data["new_cpu_limit"],
     )
 
