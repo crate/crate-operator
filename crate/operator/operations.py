@@ -23,6 +23,7 @@ import asyncio
 import datetime
 import logging
 import pkgutil
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
@@ -147,6 +148,59 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
         node = nodes["data"][0]
         node_name = node["name"]
         return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
+
+
+@dataclass(frozen=True)
+class NodeGroup:
+    """
+    A single CrateDB node group: the dedicated masters, or one data group.
+
+    Lets callers treat masters and data groups uniformly while keeping the CRD
+    asymmetry explicit: ``spec.nodes.master`` is a single object *without* a
+    ``name``, whereas ``spec.nodes.data`` is a list of named groups.
+    """
+
+    #: Logical group name -- ``"master"`` for the dedicated masters, otherwise
+    #: the data group's own name (e.g. ``"hot"``).
+    name: str
+    #: The node group's spec dict (``replicas``, ``resources``, ...).
+    spec: Dict[str, Any]
+    #: Whether this is the dedicated master group.
+    is_master: bool
+
+    @property
+    def node_name_prefix(self) -> str:
+        """
+        Prefix of the node names CrateDB reports in ``sys.nodes`` (and the
+        infix of the StatefulSet name): ``"master"`` (``master-0``, ...) or
+        ``"data-<group>"`` (``data-hot-0``, ...).
+        """
+        return "master" if self.is_master else f"data-{self.name}"
+
+    def statefulset_name(self, cluster_name: str) -> str:
+        """
+        The StatefulSet name for this group: ``crate-master-<cluster_name>``
+        or ``crate-data-<group>-<cluster_name>``.
+        """
+        return f"crate-{self.node_name_prefix}-{cluster_name}"
+
+
+def iter_node_groups(nodes: Dict[str, Any]) -> List[NodeGroup]:
+    """
+    Enumerate a cluster's node groups, dedicated masters **first**.
+
+    Masters are yielded first so callers that must order operations
+    master-before-data (cluster formation, resume) can just iterate. Legacy
+    clusters without ``spec.nodes.master`` yield only their data groups.
+
+    :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
+    """
+    groups: List[NodeGroup] = []
+    if "master" in nodes:
+        groups.append(NodeGroup(name="master", spec=nodes["master"], is_master=True))
+    for node in nodes["data"]:
+        groups.append(NodeGroup(name=node["name"], spec=node, is_master=False))
+    return groups
 
 
 async def get_pods_in_cluster(
