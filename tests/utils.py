@@ -307,6 +307,8 @@ async def start_cluster(
     resource_requests: Optional[Mapping[str, Any]] = None,
     backups_spec: Optional[Mapping[str, Any]] = None,
     grand_central_spec: Optional[Mapping[str, Any]] = None,
+    master_nodes: int = 0,
+    master_resources: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     additional_cluster_spec = additional_cluster_spec or {}
     body: dict = {
@@ -376,6 +378,26 @@ async def start_cluster(
     if grand_central_spec:
         body["spec"]["grandCentral"] = grand_central_spec
 
+    if master_nodes:
+        # Dedicated master nodes are a single object (no ``name``), unlike the
+        # data list. Defaults are deliberately small so a master cluster fits a
+        # local minikube; callers may override via ``master_resources``.
+        body["spec"]["nodes"]["master"] = master_resources or {
+            "replicas": master_nodes,
+            "resources": {
+                # cpu must be a number; small requests so several masters fit a
+                # local minikube while limits allow a usable heap.
+                "limits": {"cpu": 1, "memory": "2Gi"},
+                "requests": {"cpu": 0.5, "memory": "512Mi"},
+                "heapRatio": 0.25,
+                "disk": {
+                    "storageClass": config.DEBUG_VOLUME_STORAGE_CLASS,
+                    "size": "16GiB",
+                    "count": 1,
+                },
+            },
+        }
+
     await coapi.create_namespaced_custom_object(
         group=API_GROUP,
         version="v1",
@@ -425,7 +447,9 @@ async def start_cluster(
             True,
             is_cluster_healthy,
             connection_factory(host, password),
-            hot_nodes,
+            # Dedicated masters are full cluster members, so they count towards
+            # the expected node total alongside the data nodes.
+            hot_nodes + master_nodes,
             err_msg="Cluster wasn't healthy after 10 minutes.",
             timeout=CLUSTER_CREATE_TIMEOUT,
         )
