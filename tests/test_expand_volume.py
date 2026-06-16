@@ -21,6 +21,7 @@
 from unittest import mock
 
 import bitmath
+import kopf
 import pytest
 from kubernetes_asyncio.client import (
     CoreV1Api,
@@ -199,3 +200,95 @@ async def _expand_volume(
         name=name,
         body=patch_body,
     )
+
+
+def _fake_pvc(*, requests_storage, capacity_storage, resize_pending=False):
+    pvc = mock.Mock()
+    pvc.spec.resources.requests = {"storage": requests_storage}
+    pvc.status.capacity = {"storage": capacity_storage}
+    condition = mock.Mock()
+    condition.type = "FileSystemResizePending"
+    pvc.status.conditions = [condition] if resize_pending else []
+    return pvc
+
+
+class TestExpandVolumePerGroup:
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_expands_master_pvcs_by_label(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        # Already physically resized, so no retry is raised.
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472", capacity_storage="274877906944"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(
+            core, "ns", "c", [("master", "274877906944")], mock.Mock()
+        )
+
+        # PVCs were looked up by the master node label.
+        assert mock_get_pvcs.await_args.args[3] == "master"
+        # The PVC was patched to the new size.
+        patch_body = core.patch_namespaced_persistent_volume_claim.await_args.kwargs[
+            "body"
+        ]
+        assert (
+            patch_body["spec"]["resources"]["requests"]["storage"] == "274877906944"
+        )
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_retries_while_resize_in_progress(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472", capacity_storage="137438953472"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        with pytest.raises(kopf.TemporaryError):
+            await expand_volume(
+                core, "ns", "c", [("master", "274877906944")], mock.Mock()
+            )
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_noop_when_already_at_target_size(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="274877906944", capacity_storage="274877906944"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(
+            core, "ns", "c", [("master", "274877906944")], mock.Mock()
+        )
+
+        core.patch_namespaced_persistent_volume_claim.assert_not_awaited()

@@ -184,8 +184,16 @@ async def update_cratedb(
                 else:
                     do_scale = True
                     operation = OperationType.SCALE
+            elif master_subpath == ("resources", "disk", "size"):
+                # A master disk-size increase is a storage expansion, the same
+                # as for data groups.
+                do_expand_volume = True
+                if config.NO_DOWNTIME_STORAGE_EXPANSION:
+                    do_before_update = False
+                    do_after_update = False
             elif master_subpath[:2] == ("resources", "disk"):
-                # Master disk changes are storage expansion, handled in T3.
+                # Other disk fields (count/storageClass) are not actioned,
+                # mirroring the data groups.
                 pass
             elif master_subpath[:1] == ("resources",) or master_subpath == (
                 "nodepool",
