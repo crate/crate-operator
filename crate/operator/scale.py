@@ -644,6 +644,36 @@ async def scale_cluster(
             )
 
 
+def effective_master_replicas(
+    old_nodes: dict,
+    new_nodes: dict,
+    *,
+    data_suspending: bool,
+    data_resuming: bool,
+):
+    """
+    Return the ``(old, new)`` *effective* master replica counts for the SCALE
+    webhook -- what the operator actually runs, not the CRD spec value.
+
+    Under operator-inferred suspend/resume the CRD master count is left
+    unchanged, but the operator scales masters to 0 on suspend and back on
+    resume. Billing must see 0 while suspended, else it keeps charging for
+    masters that aren't running. Legacy clusters (no ``master``) yield
+    ``(None, None)``.
+
+    :param old_nodes: ``old.spec.nodes``.
+    :param new_nodes: ``spec.nodes`` (the new/current spec).
+    """
+    old_master = old_nodes.get("master", {}).get("replicas")
+    new_master = new_nodes.get("master", {}).get("replicas")
+    if "master" in new_nodes:
+        if data_suspending:
+            new_master = 0
+        elif data_resuming:
+            old_master = 0
+    return old_master, new_master
+
+
 class ScaleSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
@@ -688,21 +718,19 @@ class ScaleSubHandler(StateBasedSubHandler):
             else:
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
+        # If a data group's old value is zero we are resuming the cluster (it
+        # was suspended); if the new value is zero we are suspending it.
+        have_data_diff = bool(scale_data_diff_items) and (
+            len(scale_data_diff_items[0]) >= 4
+        )
+        data_resuming = have_data_diff and scale_data_diff_items[0][2] == 0
+        data_suspending = have_data_diff and scale_data_diff_items[0][3] == 0
+
         async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
             core = CoreV1Api(api_client)
 
-            # If old value is zero, resume the cluster (it was suspended)
-            # If new value is zero, suspend the cluster
-            if (
-                # Ensure the diff data exists to keep mypy happy
-                scale_data_diff_items
-                and len(scale_data_diff_items[0]) >= 4
-                # Check for suspend or resume
-                and (
-                    scale_data_diff_items[0][2] == 0 or scale_data_diff_items[0][3] == 0
-                )
-            ):
+            if data_resuming or data_suspending:
                 await suspend_or_start_cluster(
                     apps,
                     core,
@@ -730,6 +758,13 @@ class ScaleSubHandler(StateBasedSubHandler):
                     logger,
                 )
 
+        old_master_replicas, new_master_replicas = effective_master_replicas(
+            old["spec"]["nodes"],
+            spec["nodes"],
+            data_suspending=data_suspending,
+            data_resuming=data_resuming,
+        )
+
         self.schedule_notification(
             WebhookEvent.SCALE,
             WebhookScalePayload(
@@ -745,10 +780,8 @@ class ScaleSubHandler(StateBasedSubHandler):
                     )
                     for item in spec["nodes"]["data"]
                 ],
-                old_master_replicas=old["spec"]["nodes"]
-                .get("master", {})
-                .get("replicas"),
-                new_master_replicas=spec["nodes"].get("master", {}).get("replicas"),
+                old_master_replicas=old_master_replicas,
+                new_master_replicas=new_master_replicas,
             ),
             WebhookStatus.SUCCESS,
         )

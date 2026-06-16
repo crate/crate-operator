@@ -650,3 +650,58 @@ async def do_crate_pods_exist(
 ) -> bool:
     crate_pods = await get_pods_in_statefulset(core, namespace, name, node_name)
     return len(crate_pods) > 0
+
+
+class TestEffectiveMasterReplicas:
+    """The SCALE webhook must report the master count the operator actually
+    runs, so suspend bills as zero masters."""
+
+    def test_suspend_reports_new_masters_as_zero(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 0}]},
+            data_suspending=True,
+            data_resuming=False,
+        )
+
+        # Masters were running (3) and are now effectively scaled to 0.
+        assert (old, new) == (3, 0)
+
+    def test_resume_reports_old_masters_as_zero(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 0}]},
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            data_suspending=False,
+            data_resuming=True,
+        )
+
+        # Masters were suspended (0) and are restored to 3.
+        assert (old, new) == (0, 3)
+
+    def test_ordinary_scale_uses_spec_values(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            {"master": {"replicas": 5}, "data": [{"name": "hot", "replicas": 3}]},
+            data_suspending=False,
+            data_resuming=False,
+        )
+
+        assert (old, new) == (3, 5)
+
+    def test_legacy_cluster_without_masters(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"data": [{"name": "hot", "replicas": 3}]},
+            {"data": [{"name": "hot", "replicas": 0}]},
+            data_suspending=True,
+            data_resuming=False,
+        )
+
+        assert (old, new) == (None, None)
