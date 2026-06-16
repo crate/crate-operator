@@ -39,7 +39,33 @@ from crate.operator.webhooks import (
     WebhookFeedbackPayload,
     WebhookOperation,
     WebhookStatus,
+    WebhookStorageGroupPayload,
 )
+
+
+def collect_disk_expansions(
+    diff: kopf.Diff, logger: logging.Logger
+) -> List[Tuple[str, Any]]:
+    """
+    Build one ``(node_label, new_size)`` pair per node group whose disk size
+    changed. Data groups are a list (diffed as a whole); the dedicated masters
+    are a single dict, so kopf reports their disk size at the leaf.
+
+    :param diff: The kopf diff for the update.
+    """
+    expansions: List[Tuple[str, Any]] = []
+    for operation, field_path, old_value, new_value in diff:
+        if field_path == ("spec", "nodes", "data"):
+            for old_spec, new_spec in zip(old_value, new_value):
+                old_size = old_spec["resources"]["disk"]["size"]
+                new_size = new_spec["resources"]["disk"]["size"]
+                if old_size != new_size:
+                    expansions.append((new_spec["name"], new_size))
+        elif field_path == ("spec", "nodes", "master", "resources", "disk", "size"):
+            expansions.append(("master", new_value))
+        else:
+            logger.info("Ignoring operation %s on field %s", operation, field_path)
+    return expansions
 
 
 async def expand_volume(
@@ -139,22 +165,7 @@ class ExpandVolumeSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        # Collect one (node_label, new_size) per node group whose disk size
-        # changed. Data groups are a list (diffed as a whole); the dedicated
-        # masters are a single dict, so kopf reports their disk size at the leaf.
-        expansions: List[Tuple[str, Any]] = []
-
-        for operation, field_path, old_value, new_value in diff:
-            if field_path == ("spec", "nodes", "data"):
-                for old_spec, new_spec in zip(old_value, new_value):
-                    old_size = old_spec["resources"]["disk"]["size"]
-                    new_size = new_spec["resources"]["disk"]["size"]
-                    if old_size != new_size:
-                        expansions.append((new_spec["name"], new_size))
-            elif field_path == ("spec", "nodes", "master", "resources", "disk", "size"):
-                expansions.append(("master", new_value))
-            else:
-                logger.info("Ignoring operation %s on field %s", operation, field_path)
+        expansions = collect_disk_expansions(diff, logger)
 
         if expansions:
             async with GlobalApiClient() as api_client:
@@ -163,13 +174,20 @@ class ExpandVolumeSubHandler(StateBasedSubHandler):
                 await expand_volume(core, namespace, name, expansions, logger)
 
         # schedule success notification and send it after the cluster
-        # has been restarted successfully.
+        # has been restarted successfully. The per-group new sizes let billing
+        # attribute storage per node group (master, hot, ...).
         self.schedule_notification(
             WebhookEvent.FEEDBACK,
             WebhookFeedbackPayload(
                 message="The cluster storage has been resized successfully.",
                 operation=WebhookOperation.UPDATE,
                 action=WebhookAction.EXPAND_STORAGE,
+                disk_sizes=[
+                    WebhookStorageGroupPayload(
+                        name=node_label, new_disk_size=str(new_size)
+                    )
+                    for node_label, new_size in expansions
+                ],
             ),
             WebhookStatus.SUCCESS,
         )

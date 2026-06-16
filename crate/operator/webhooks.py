@@ -23,7 +23,7 @@ import asyncio
 import enum
 import logging
 import random
-from typing import List, NotRequired, Optional, TypedDict
+from typing import List, Optional, TypedDict
 
 import aiohttp
 import kopf
@@ -152,7 +152,28 @@ class WebhookUpgradePayload(WebhookSubPayload):
     new_version: str
 
 
-class WebhookChangeComputePayload(WebhookSubPayload):
+class WebhookChangeComputeMasterFields(TypedDict, total=False):
+    # Dedicated-master compute. Optional (absent for clusters without dedicated
+    # masters) so the payload stays backward-compatible. Kept in a total=False
+    # base instead of typing.NotRequired for Python 3.10 compatibility.
+    old_master_cpu_limit: Optional[int]
+    old_master_memory_limit: Optional[str]
+    old_master_cpu_request: Optional[int]
+    old_master_memory_request: Optional[str]
+
+    new_master_cpu_limit: Optional[int]
+    new_master_memory_limit: Optional[str]
+    new_master_cpu_request: Optional[int]
+    new_master_memory_request: Optional[str]
+
+    old_master_heap_ratio: Optional[float]
+    new_master_heap_ratio: Optional[float]
+
+    old_master_nodepool: Optional[str]
+    new_master_nodepool: Optional[str]
+
+
+class WebhookChangeComputePayload(WebhookSubPayload, WebhookChangeComputeMasterFields):
     old_cpu_limit: int
     old_memory_limit: str
     old_cpu_request: int
@@ -169,24 +190,6 @@ class WebhookChangeComputePayload(WebhookSubPayload):
     old_nodepool: str
     new_nodepool: str
 
-    # Dedicated-master compute. Additive and optional (absent for clusters
-    # without dedicated masters) so the payload stays backward-compatible.
-    old_master_cpu_limit: NotRequired[Optional[int]]
-    old_master_memory_limit: NotRequired[Optional[str]]
-    old_master_cpu_request: NotRequired[Optional[int]]
-    old_master_memory_request: NotRequired[Optional[str]]
-
-    new_master_cpu_limit: NotRequired[Optional[int]]
-    new_master_memory_limit: NotRequired[Optional[str]]
-    new_master_cpu_request: NotRequired[Optional[int]]
-    new_master_memory_request: NotRequired[Optional[str]]
-
-    old_master_heap_ratio: NotRequired[Optional[float]]
-    new_master_heap_ratio: NotRequired[Optional[float]]
-
-    old_master_nodepool: NotRequired[Optional[str]]
-    new_master_nodepool: NotRequired[Optional[str]]
-
 
 class WebhookInfoChangedPayload(WebhookSubPayload):
     external_ip: str
@@ -196,7 +199,19 @@ class WebhookClusterHealthPayload(WebhookSubPayload):
     status: str
 
 
-class WebhookFeedbackPayload(WebhookSubPayload):
+class WebhookStorageGroupPayload(TypedDict):
+    name: str
+    new_disk_size: str
+
+
+class WebhookFeedbackOptionalFields(TypedDict, total=False):
+    # Per-node-group disk sizes for EXPAND_STORAGE feedback (additive/optional,
+    # so billing can attribute storage per group: master, hot, warm, ...).
+    # total=False (not typing.NotRequired) for Python 3.10 compatibility.
+    disk_sizes: Optional[List[WebhookStorageGroupPayload]]
+
+
+class WebhookFeedbackPayload(WebhookSubPayload, WebhookFeedbackOptionalFields):
     message: str
     operation: WebhookOperation
     action: WebhookAction

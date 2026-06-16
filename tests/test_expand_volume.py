@@ -18,6 +18,7 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+import logging
 from unittest import mock
 
 import bitmath
@@ -292,3 +293,51 @@ class TestExpandVolumePerGroup:
         )
 
         core.patch_namespaced_persistent_volume_claim.assert_not_awaited()
+
+
+def _disk_diff_data(old_size, new_size):
+    return kopf.DiffItem(
+        kopf.DiffOperation.CHANGE,
+        ("spec", "nodes", "data"),
+        [{"name": "hot", "resources": {"disk": {"size": old_size}}}],
+        [{"name": "hot", "resources": {"disk": {"size": new_size}}}],
+    )
+
+
+def _disk_diff_master(old_size, new_size):
+    return kopf.DiffItem(
+        kopf.DiffOperation.CHANGE,
+        ("spec", "nodes", "master", "resources", "disk", "size"),
+        old_size,
+        new_size,
+    )
+
+
+class TestCollectDiskExpansions:
+    def test_collects_master_and_data_groups(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff(
+            [_disk_diff_data("100", "200"), _disk_diff_master("50", "120")]
+        )
+
+        expansions = collect_disk_expansions(diff, logging.getLogger(__name__))
+
+        assert ("hot", "200") in expansions
+        assert ("master", "120") in expansions
+
+    def test_skips_data_groups_with_unchanged_size(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff([_disk_diff_data("200", "200")])
+
+        assert collect_disk_expansions(diff, logging.getLogger(__name__)) == []
+
+    def test_master_only_disk_change(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff([_disk_diff_master("50", "120")])
+
+        assert collect_disk_expansions(diff, logging.getLogger(__name__)) == [
+            ("master", "120")
+        ]
