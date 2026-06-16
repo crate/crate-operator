@@ -23,7 +23,7 @@ import asyncio
 import enum
 import logging
 import random
-from typing import List, Optional, TypedDict
+from typing import List, NotRequired, Optional, TypedDict
 
 import aiohttp
 import kopf
@@ -168,6 +168,24 @@ class WebhookChangeComputePayload(WebhookSubPayload):
 
     old_nodepool: str
     new_nodepool: str
+
+    # Dedicated-master compute. Additive and optional (absent for clusters
+    # without dedicated masters) so the payload stays backward-compatible.
+    old_master_cpu_limit: NotRequired[Optional[int]]
+    old_master_memory_limit: NotRequired[Optional[str]]
+    old_master_cpu_request: NotRequired[Optional[int]]
+    old_master_memory_request: NotRequired[Optional[str]]
+
+    new_master_cpu_limit: NotRequired[Optional[int]]
+    new_master_memory_limit: NotRequired[Optional[str]]
+    new_master_cpu_request: NotRequired[Optional[int]]
+    new_master_memory_request: NotRequired[Optional[str]]
+
+    old_master_heap_ratio: NotRequired[Optional[float]]
+    new_master_heap_ratio: NotRequired[Optional[float]]
+
+    old_master_nodepool: NotRequired[Optional[str]]
+    new_master_nodepool: NotRequired[Optional[str]]
 
 
 class WebhookInfoChangedPayload(WebhookSubPayload):

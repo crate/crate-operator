@@ -566,3 +566,38 @@ class TestUpdateCprocessorCrateSettings:
         )
 
         assert "-Cprocessors=2" in updated
+
+
+class TestGenerateChangeComputePayloadMaster:
+    def test_includes_master_compute_when_masters_present(self):
+        from crate.operator.change_compute import generate_change_compute_payload
+
+        old = {"spec": {"nodes": {
+            "master": _group_spec(16, "60000000000"),
+            "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
+        }}}
+        new = copy.deepcopy(old)
+        new["spec"]["nodes"]["master"]["resources"]["limits"]["cpu"] = 8
+
+        payload = generate_change_compute_payload(old, new)
+
+        # Data fields stay as before; master compute is added additively.
+        assert payload["new_cpu_limit"] == 32
+        assert payload["old_master_cpu_limit"] == 16
+        assert payload["new_master_cpu_limit"] == 8
+        assert payload["new_master_memory_limit"] == "60000000000"
+
+    def test_omits_master_fields_for_legacy_cluster(self):
+        from crate.operator.change_compute import generate_change_compute_payload
+
+        old = {"spec": {"nodes": {
+            "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
+        }}}
+        new = copy.deepcopy(old)
+        new["spec"]["nodes"]["data"][0]["resources"]["limits"]["cpu"] = 30
+
+        payload = generate_change_compute_payload(old, new)
+
+        assert payload["new_cpu_limit"] == 30
+        assert "old_master_cpu_limit" not in payload
+        assert "new_master_cpu_limit" not in payload

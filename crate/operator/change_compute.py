@@ -117,12 +117,43 @@ def compute_payload_for_specs(old_spec, new_spec) -> WebhookChangeComputePayload
     )
 
 
+def _master_compute_fields(old_master, new_master) -> dict:
+    """
+    The dedicated-master compute fields for the CHANGE_COMPUTE webhook, keyed
+    with the ``*_master_*`` names. Empty for clusters without dedicated masters.
+    """
+    if old_master is None or new_master is None:
+        return {}
+    p = compute_payload_for_specs(old_master, new_master)
+    return {
+        "old_master_cpu_limit": p["old_cpu_limit"],
+        "old_master_memory_limit": p["old_memory_limit"],
+        "old_master_cpu_request": p["old_cpu_request"],
+        "old_master_memory_request": p["old_memory_request"],
+        "old_master_heap_ratio": p["old_heap_ratio"],
+        "old_master_nodepool": p["old_nodepool"],
+        "new_master_cpu_limit": p["new_cpu_limit"],
+        "new_master_memory_limit": p["new_memory_limit"],
+        "new_master_cpu_request": p["new_cpu_request"],
+        "new_master_memory_request": p["new_memory_request"],
+        "new_master_heap_ratio": p["new_heap_ratio"],
+        "new_master_nodepool": p["new_nodepool"],
+    }
+
+
 def generate_change_compute_payload(old, body):
-    # The webhook payload still reports the first data group's compute; emitting
-    # master compute is a separate (billing) concern, handled in TB/B2.
-    return compute_payload_for_specs(
+    # Reports the first data group's compute plus, additively, the dedicated
+    # masters' compute (so billing sees master compute changes too).
+    payload = compute_payload_for_specs(
         old["spec"]["nodes"]["data"][0], body["spec"]["nodes"]["data"][0]
     )
+    payload.update(
+        _master_compute_fields(
+            old["spec"]["nodes"].get("master"),
+            body["spec"]["nodes"].get("master"),
+        )
+    )
+    return payload
 
 
 async def update_cprocessor_crate_settings(
