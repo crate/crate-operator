@@ -203,6 +203,47 @@ async def _bootstrap_user_via_sidecar(
             raise _temporary_error()
 
 
+async def _log_pod_exec_failure(namespace, master_node_pod, e, logger):
+    """
+    Log diagnostics for a failed bootstrap pod-exec so transient/persistent
+    websocket failures (e.g. ``400 Invalid response status``) are debuggable
+    from the run: the exception detail plus the target pod's phase and per
+    container readiness (was the ``crate`` container actually ready to exec?).
+    """
+    logger.warning(
+        "bootstrap pod_exec into %s failed: type=%s status=%s detail=%s",
+        master_node_pod,
+        type(e).__name__,
+        getattr(e, "status", None),
+        getattr(e, "message", None) or str(e),
+    )
+    try:
+        async with GlobalApiClient() as api_client:
+            pod = await CoreV1Api(api_client).read_namespaced_pod(
+                name=master_node_pod, namespace=namespace
+            )
+        containers = {
+            c.name: {
+                "ready": c.ready,
+                "restartCount": c.restart_count,
+                "state": str(c.state),
+            }
+            for c in (pod.status.container_statuses or [])
+        }
+        logger.warning(
+            "bootstrap target pod %s phase=%s containers=%s",
+            master_node_pod,
+            pod.status.phase,
+            containers,
+        )
+    except Exception as diag_e:  # diagnostics must never mask the real failure
+        logger.warning(
+            "could not read pod %s for bootstrap diagnostics: %s",
+            master_node_pod,
+            diag_e,
+        )
+
+
 async def _bootstrap_user_via_pod_exec(
     namespace: str,
     master_node_pod: str,
@@ -272,6 +313,7 @@ async def _bootstrap_user_via_pod_exec(
         result = await pod_exec(command_create)
     except (ApiException, WSServerHandshakeError) as e:
         exception_logger("... failed. %s", str(e))
+        await _log_pod_exec_failure(namespace, master_node_pod, e, logger)
         raise _temporary_error()
     else:
         if "rowcount" in result:
@@ -289,6 +331,7 @@ async def _bootstrap_user_via_pod_exec(
             result = await pod_exec(command_alter)
         except (ApiException, WSServerHandshakeError) as e:
             exception_logger("... failed. %s", str(e))
+            await _log_pod_exec_failure(namespace, master_node_pod, e, logger)
             raise _temporary_error()
         else:
             if "rowcount" in result:
