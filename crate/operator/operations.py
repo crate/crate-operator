@@ -204,6 +204,26 @@ def iter_node_groups(nodes: Dict[str, Any]) -> List[NodeGroup]:
     return groups
 
 
+def iter_changed_compute_groups(
+    old: kopf.Body, body: kopf.Body
+) -> List[Tuple[NodeGroup, NodeGroup]]:
+    """
+    The ``(old, new)`` node-group pairs whose compute (cpu/memory/nodepool)
+    changed between ``old`` and ``body``, masters first.
+
+    The single source of truth for "which groups changed compute", shared by
+    the change-compute patching (which needs both specs to build the payload)
+    and the restart scoping (which restarts exactly those groups).
+    """
+    old_groups = {g.name: g for g in iter_node_groups(old["spec"]["nodes"])}
+    return [
+        (old_group, group)
+        for group in iter_node_groups(body["spec"]["nodes"])
+        if (old_group := old_groups.get(group.name)) is not None
+        and has_compute_changed(old_group.spec, group.spec)
+    ]
+
+
 async def get_pods_in_cluster(
     core: CoreV1Api, namespace: str, name: str
 ) -> Tuple[Tuple[str], Tuple[str]]:
@@ -609,24 +629,17 @@ def _node_groups_to_restart(
     """
     The node groups whose pods must be restarted for ``action``, masters first.
 
-    An upgrade restarts every node (they all get the new image). A compute
-    change restarts *only* the groups whose resources actually changed, so e.g.
-    a master-only CPU/memory change does not roll the data nodes. When several
-    groups change at once (e.g. ``master`` + ``data-hot`` + ``data-cold``) all
-    of them are returned -- masters first, since ``iter_node_groups`` yields the
-    masters before the data groups -- and the caller restarts them one node at a
-    time, serialised across groups.
+    An upgrade changes the cluster-wide version, so every node is restarted. A
+    compute change touches only per-group resources, so only the groups whose
+    compute actually changed are restarted -- e.g. a master-only CPU/memory
+    change does not roll the data nodes. ``iter_node_groups`` yields masters
+    first and the caller restarts one node at a time, so a multi-group change
+    (e.g. ``master`` + ``data-hot`` + ``data-cold``) is serialised
+    masters-before-data.
     """
-    groups = iter_node_groups(body["spec"]["nodes"])
     if action != WebhookAction.CHANGE_COMPUTE:
-        return groups
-    old_groups = {g.name: g for g in iter_node_groups(old["spec"]["nodes"])}
-    changed: List[NodeGroup] = []
-    for group in groups:
-        old_group = old_groups.get(group.name)
-        if old_group is not None and has_compute_changed(old_group.spec, group.spec):
-            changed.append(group)
-    return changed
+        return iter_node_groups(body["spec"]["nodes"])
+    return [new for _old, new in iter_changed_compute_groups(old, body)]
 
 
 async def restart_cluster(

@@ -31,9 +31,8 @@ from crate.operator.create import (
     get_statefulset_env_crate_heap,
     get_tolerations,
 )
-from crate.operator.operations import iter_node_groups
+from crate.operator.operations import iter_changed_compute_groups
 from crate.operator.utils import crate
-from crate.operator.utils.crd import has_compute_changed
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_cratedb_resource
@@ -209,13 +208,7 @@ async def change_cluster_compute(
     dedicated masters and/or any data group -- each with its own resources.
     Pods pick up the new cpu/memory on the subsequent restart.
     """
-    old_groups = {g.name: g for g in iter_node_groups(old["spec"]["nodes"])}
-
-    for group in iter_node_groups(body["spec"]["nodes"]):
-        old_group = old_groups.get(group.name)
-        if old_group is None or not has_compute_changed(old_group.spec, group.spec):
-            continue
-
+    for old_group, group in iter_changed_compute_groups(old, body):
         sts_name = group.statefulset_name(name)
         compute_change_data = compute_payload_for_specs(old_group.spec, group.spec)
         patch = await generate_body_patch(
