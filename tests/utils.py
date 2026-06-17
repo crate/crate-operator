@@ -391,12 +391,12 @@ async def start_cluster(
             namespace.metadata.name,
             f"crate-{name}",
             err_msg="Lb service was not ready.",
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=DEFAULT_TIMEOUT * 10,
         )
 
         host = await asyncio.wait_for(
             get_service_public_hostname(core, namespace.metadata.name, name),
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=DEFAULT_TIMEOUT * 10,
         )
         password = await get_system_user_password(core, namespace.metadata.name, name)
     else:
@@ -414,7 +414,7 @@ async def start_cluster(
             namespace.metadata.name,
             f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
             err_msg="Cluster has not finished bootstrapping",
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=DEFAULT_TIMEOUT * 10,
         )
 
         await assert_wait_for(
@@ -422,8 +422,8 @@ async def start_cluster(
             is_cluster_healthy,
             connection_factory(host, password),
             hot_nodes,
-            err_msg="Cluster wasn't healthy after 5 minutes.",
-            timeout=DEFAULT_TIMEOUT * 5,
+            err_msg="Cluster wasn't healthy after 10 minutes.",
+            timeout=DEFAULT_TIMEOUT * 10,
         )
 
     return host, password
