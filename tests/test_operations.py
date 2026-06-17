@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import contextlib
 from unittest import mock
 
 import kopf
@@ -30,6 +31,8 @@ from crate.operator.operations import (
     check_all_master_nodes_present,
     iter_node_groups,
     scale_master_statefulset,
+    suspend_or_start_cluster,
+    validate_node_spec,
 )
 
 
@@ -212,3 +215,208 @@ class TestScaleMasterStatefulset:
         await scale_master_statefulset(apps, "ns", "c", 3, mock.Mock())
 
         mock_update.assert_not_awaited()
+
+
+class TestValidateNodeSpec:
+    def test_accepts_data_only_cluster(self):
+        validate_node_spec({"data": [{"name": "hot", "replicas": 3}]}, mock.Mock())
+
+    def test_accepts_dedicated_masters_odd_ge_three(self):
+        for replicas in (3, 5, 7):
+            validate_node_spec(
+                {
+                    "master": {"replicas": replicas},
+                    "data": [{"name": "hot", "replicas": 1}],
+                },
+                mock.Mock(),
+            )
+
+    def test_rejects_missing_data_group(self):
+        with pytest.raises(kopf.PermanentError, match="at least one data node group"):
+            validate_node_spec({"master": {"replicas": 3}}, mock.Mock())
+
+    def test_rejects_empty_data_group(self):
+        with pytest.raises(kopf.PermanentError, match="at least one data node group"):
+            validate_node_spec({"data": []}, mock.Mock())
+
+    def test_rejects_even_master_replicas(self):
+        with pytest.raises(kopf.PermanentError, match="odd number >= 3"):
+            validate_node_spec(
+                {
+                    "master": {"replicas": 4},
+                    "data": [{"name": "hot", "replicas": 1}],
+                },
+                mock.Mock(),
+            )
+
+    def test_rejects_fewer_than_three_masters(self):
+        with pytest.raises(kopf.PermanentError, match="odd number >= 3"):
+            validate_node_spec(
+                {
+                    "master": {"replicas": 1},
+                    "data": [{"name": "hot", "replicas": 1}],
+                },
+                mock.Mock(),
+            )
+
+
+def _suspend_resume_patches(order, master_replicas=3, data_groups=None):
+    """
+    Patch every collaborator ``suspend_or_start_cluster`` calls so the function
+    runs end to end against mocks, recording the ordering-relevant calls into
+    ``order``. Returns an ``ExitStack`` of the active patches.
+    """
+    if data_groups is None:
+        data_groups = [{"name": "hot", "replicas": 0}]
+    cratedb = {
+        "spec": {
+            "nodes": {"master": {"replicas": master_replicas}, "data": data_groups}
+        },
+        "metadata": {},
+    }
+
+    async def _record(label, *args, **kwargs):
+        order.append(label)
+
+    async def _scale_master(apps, namespace, name, target, logger):
+        order.append(f"master_scale:{target}")
+
+    async def _scale_data(apps, namespace, sts_name, sts, new_replicas):
+        order.append(f"data_scale:{new_replicas}")
+
+    p = mock.patch
+    M = "crate.operator.operations."
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        p(M + "get_cratedb_resource", new=mock.AsyncMock(return_value=cratedb))
+    )
+    stack.enter_context(
+        p(M + "scale_master_statefulset", new=mock.AsyncMock(side_effect=_scale_master))
+    )
+    stack.enter_context(
+        p(
+            M + "check_all_master_nodes_present",
+            new=mock.AsyncMock(
+                side_effect=lambda *a, **k: order.append("masters_present")
+            ),
+        )
+    )
+    stack.enter_context(
+        p(
+            M + "check_all_master_nodes_gone",
+            new=mock.AsyncMock(
+                side_effect=lambda *a, **k: order.append("masters_gone")
+            ),
+        )
+    )
+    stack.enter_context(
+        p(
+            M + "check_all_data_nodes_gone",
+            new=mock.AsyncMock(side_effect=lambda *a, **k: order.append("data_gone")),
+        )
+    )
+    stack.enter_context(
+        p(
+            M + "check_cluster_healthy",
+            new=mock.AsyncMock(
+                side_effect=lambda *a, **k: order.append("health_check")
+            ),
+        )
+    )
+    stack.enter_context(
+        p(
+            M + "update_statefulset_replicas",
+            new=mock.AsyncMock(side_effect=_scale_data),
+        )
+    )
+    stack.enter_context(
+        p(M + "is_service_present", new=mock.AsyncMock(return_value=True))
+    )
+    stack.enter_context(
+        p(M + "is_lb_service_ready", new=mock.AsyncMock(return_value=True))
+    )
+    for fn in (
+        "recreate_services",
+        "send_operation_progress_notification",
+        "suspend_or_start_grand_central",
+        "delete_lb_service",
+        "update_deployment_replicas",
+        "_get_connection_factory",
+        "check_all_data_nodes_present",
+    ):
+        stack.enter_context(p(M + fn, new=mock.AsyncMock()))
+    return stack
+
+
+def _data_scaling_diff(old_replicas, new_replicas):
+    return kopf.Diff(
+        [
+            kopf.DiffItem(
+                kopf.DiffOperation.CHANGE,
+                ("0", "replicas"),
+                old_replicas,
+                new_replicas,
+            )
+        ]
+    )
+
+
+class TestSuspendResumeOrdering:
+    @pytest.mark.asyncio
+    async def test_resume_brings_masters_up_before_data(self):
+        # On resume the masters must form a quorum *before* the data nodes are
+        # scaled back up, otherwise the cluster can't recover.
+        order: list = []
+        old = {"spec": {"nodes": {"data": [{"name": "hot", "replicas": 0}]}}}
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=0)
+        )
+
+        with _suspend_resume_patches(order):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                old,
+                _data_scaling_diff(0, 3),
+                False,
+                mock.Mock(),
+            )
+
+        assert "master_scale:3" in order
+        assert "data_scale:3" in order
+        assert order.index("master_scale:3") < order.index("data_scale:3")
+        assert order.index("masters_present") < order.index("data_scale:3")
+
+    @pytest.mark.asyncio
+    async def test_suspend_scales_masters_down_after_data_is_gone(self):
+        # On suspend the masters go to zero only *after* every data node is gone
+        # -- never out from under running data nodes (the deadlock-fix order).
+        order: list = []
+        old = {"spec": {"nodes": {"data": [{"name": "hot", "replicas": 3}]}}}
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=3)
+        )
+
+        with _suspend_resume_patches(
+            order, data_groups=[{"name": "hot", "replicas": 0}]
+        ):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                old,
+                _data_scaling_diff(3, 0),
+                False,
+                mock.Mock(),
+            )
+
+        assert "data_gone" in order
+        assert "master_scale:0" in order
+        assert order.index("data_scale:0") < order.index("master_scale:0")
+        assert order.index("data_gone") < order.index("master_scale:0")
+        assert order.index("master_scale:0") < order.index("masters_gone")

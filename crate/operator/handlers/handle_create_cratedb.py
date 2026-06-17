@@ -40,7 +40,11 @@ from crate.operator.create import (
     get_owner_references,
 )
 from crate.operator.exposure import CreateTraefikResourcesSubHandler
-from crate.operator.operations import get_master_nodes_names, get_total_nodes_count
+from crate.operator.operations import (
+    get_master_nodes_names,
+    get_total_nodes_count,
+    validate_node_spec,
+)
 from crate.operator.utils.secrets import get_image_pull_secrets
 
 
@@ -68,6 +72,7 @@ async def create_cratedb(
     prometheus_port = ports_spec.get("prometheus", Port.PROMETHEUS.value)
     transport_port = ports_spec.get("transport", Port.TRANSPORT.value)
 
+    validate_node_spec(spec["nodes"], logger)
     master_nodes = get_master_nodes_names(spec["nodes"])
     total_nodes_count = get_total_nodes_count(spec["nodes"], "all")
     data_nodes_count = get_total_nodes_count(spec["nodes"], "data")

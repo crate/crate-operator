@@ -151,6 +151,42 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
         return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
 
 
+def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
+    """
+    Validate the ``spec.nodes`` of a CrateDB resource, raising a
+    :class:`kopf.PermanentError` (which stops the operator from retrying) for
+    structurally invalid configurations.
+
+    A cluster must define at least one data node group -- the data nodes hold
+    the tables, and several code paths (bootstrap, compute changes, the webhook
+    payloads) read ``nodes["data"][0]`` directly. When dedicated master nodes
+    are configured their replica count must be odd and at least three, so the
+    masters can always form a quorum.
+
+    :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
+    :param logger: Logger used to record why the spec was rejected.
+    """
+    if not nodes.get("data"):
+        logger.error("CrateDB spec rejected: no data node group defined.")
+        raise kopf.PermanentError(
+            "A CrateDB cluster must define at least one data node group "
+            "(spec.nodes.data)."
+        )
+
+    if "master" in nodes:
+        replicas = nodes["master"]["replicas"]
+        if replicas < 3 or replicas % 2 == 0:
+            logger.error(
+                "CrateDB spec rejected: dedicated master replicas=%s "
+                "(must be odd and >= 3).",
+                replicas,
+            )
+            raise kopf.PermanentError(
+                "Dedicated master nodes (spec.nodes.master.replicas) must be an "
+                f"odd number >= 3 to form a quorum, got {replicas}."
+            )
+
+
 @dataclass(frozen=True)
 class NodeGroup:
     """

@@ -23,7 +23,7 @@ import asyncio
 import logging
 import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import kopf
 from aiopg import Cursor
@@ -674,6 +674,36 @@ def effective_master_replicas(
     return old_master, new_master
 
 
+def classify_data_scaling(
+    scale_data_diff_items: Optional[List[kopf.DiffItem]],
+    old_data: List[Dict[str, Any]],
+    new_data: List[Dict[str, Any]],
+) -> Tuple[bool, bool]:
+    """
+    Decide whether a data-replica change is a cluster suspend/resume or an
+    ordinary scale, returning ``(data_resuming, data_suspending)``.
+
+    Suspend and resume are *cluster-wide*: a suspend takes **all** data node
+    groups to zero, and a resume brings them all back up from zero. Scaling a
+    single group to zero while other groups keep running is an ordinary scale,
+    not a suspend -- so the decision looks at every group's target/source
+    replica count, not just the first one that changed (which, for a
+    multi-group cluster, could misclassify a partial scale-down as a suspend).
+
+    :param scale_data_diff_items: The data groups whose replicas changed; empty
+        or ``None`` means no data scaling happened.
+    :param old_data: ``old["spec"]["nodes"]["data"]`` -- every data group's
+        previous spec.
+    :param new_data: ``spec["nodes"]["data"]`` -- every data group's new spec.
+    """
+    if not scale_data_diff_items:
+        return False, False
+
+    data_resuming = all(group.get("replicas", 0) == 0 for group in old_data)
+    data_suspending = all(group.get("replicas", 0) == 0 for group in new_data)
+    return data_resuming, data_suspending
+
+
 class ScaleSubHandler(StateBasedSubHandler):
     @crate.on.error(error_handler=crate.send_update_failed_notification)
     @crate.timeout(timeout=float(config.SCALING_TIMEOUT))
@@ -718,14 +748,11 @@ class ScaleSubHandler(StateBasedSubHandler):
             else:
                 logger.info("Ignoring operation %s on field %s", operation, field_path)
 
-        # If a data group's old value is zero we are resuming the cluster (it
-        # was suspended); if the new value is zero we are suspending it.
-        data_resuming = False
-        data_suspending = False
-        if scale_data_diff_items and len(scale_data_diff_items[0]) >= 4:
-            first = scale_data_diff_items[0]
-            data_resuming = first[2] == 0
-            data_suspending = first[3] == 0
+        data_resuming, data_suspending = classify_data_scaling(
+            scale_data_diff_items,
+            old["spec"]["nodes"]["data"],
+            spec["nodes"]["data"],
+        )
 
         async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)

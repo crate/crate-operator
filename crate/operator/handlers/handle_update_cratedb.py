@@ -181,6 +181,13 @@ async def update_cratedb(
                             "suspend/resume (driven by the data nodes), not as "
                             "a standalone master.replicas change."
                         )
+                elif new_master < 3 or new_master % 2 == 0:
+                    # Masters must stay an odd quorum of at least three.
+                    raise kopf.PermanentError(
+                        "Dedicated master nodes (spec.nodes.master.replicas) "
+                        "must be an odd number >= 3 to form a quorum, got "
+                        f"{new_master}."
+                    )
                 else:
                     do_scale = True
                     operation = OperationType.SCALE
