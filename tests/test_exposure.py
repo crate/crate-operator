@@ -162,6 +162,10 @@ async def test_create_traefik_with_cidrs(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Service should be ClusterIP
@@ -247,6 +251,10 @@ async def test_create_traefik_without_cidrs(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Service ClusterIP
@@ -334,6 +342,10 @@ async def test_update_cidrs_traefik_empty_to_nonempty(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Service should be ClusterIP
@@ -458,6 +470,10 @@ async def test_update_cidrs_traefik_nonempty_to_empty(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Initially middleware exists
@@ -558,7 +574,10 @@ async def test_change_exposure_loadbalancer_to_traefik(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create.bootstrap",
-        timeout=DEFAULT_TIMEOUT * 3,
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Initially service is LoadBalancer, no Traefik resources
@@ -674,6 +693,10 @@ async def test_change_exposure_traefik_to_loadbalancer(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        # Bootstrap execs into the pod over a websocket that can transiently
+        # 400 until the container is ready; the operator retries, so allow
+        # enough time to absorb those retries (matches start_cluster's *5).
+        timeout=DEFAULT_TIMEOUT * 5,
     )
 
     # Initially Traefik resources exist
