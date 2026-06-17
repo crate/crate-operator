@@ -88,6 +88,7 @@ from crate.operator.grand_central import (
 )
 from crate.operator.sql import execute_sql
 from crate.operator.utils import crate
+from crate.operator.utils.crd import has_compute_changed
 from crate.operator.utils.jwt import crate_version_supports_jwt
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler, subhandler_partial
@@ -602,11 +603,38 @@ async def scale_backup_metrics_deployment(
         await update_deployment_replicas(apps, namespace, backup_metrics_name, replicas)
 
 
+def _node_groups_to_restart(
+    old: kopf.Body, body: kopf.Body, action: WebhookAction
+) -> List[NodeGroup]:
+    """
+    The node groups whose pods must be restarted for ``action``, masters first.
+
+    An upgrade restarts every node (they all get the new image). A compute
+    change restarts *only* the groups whose resources actually changed, so e.g.
+    a master-only CPU/memory change does not roll the data nodes. When several
+    groups change at once (e.g. ``master`` + ``data-hot`` + ``data-cold``) all
+    of them are returned -- masters first, since ``iter_node_groups`` yields the
+    masters before the data groups -- and the caller restarts them one node at a
+    time, serialised across groups.
+    """
+    groups = iter_node_groups(body["spec"]["nodes"])
+    if action != WebhookAction.CHANGE_COMPUTE:
+        return groups
+    old_groups = {g.name: g for g in iter_node_groups(old["spec"]["nodes"])}
+    changed: List[NodeGroup] = []
+    for group in groups:
+        old_group = old_groups.get(group.name)
+        if old_group is not None and has_compute_changed(old_group.spec, group.spec):
+            changed.append(group)
+    return changed
+
+
 async def restart_cluster(
     core: CoreV1Api,
     namespace: str,
     name: str,
     old: kopf.Body,
+    body: kopf.Body,
     logger: logging.Logger,
     patch: kopf.Patch,
     status: kopf.Status,
@@ -621,20 +649,24 @@ async def restart_cluster(
     wait for the cluster to have the desired number of nodes again and for the
     cluster to be in a ``GREEN`` state, before terminating the next pod.
 
+    For a compute change only the node groups whose resources changed are
+    restarted (see ``_node_groups_to_restart``); an upgrade restarts all.
+
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace where to look up CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param old: The old resource body.
+    :param body: The new resource body, used to determine which node groups
+        changed (and therefore need restarting) for a compute change.
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
     if not pending_pods:
-        if "master" in old["spec"]["nodes"]:
+        # Restart only the node groups that need it (masters first); a compute
+        # change to one group must not roll the others, while an upgrade rolls
+        # all. The one-at-a-time loop below serialises whatever is collected.
+        for group in _node_groups_to_restart(old, body, action):
             pending_pods.extend(
-                await get_pods_in_statefulset(core, namespace, name, "master")
-            )
-        for node_spec in old["spec"]["nodes"]["data"]:
-            pending_pods.extend(
-                await get_pods_in_statefulset(core, namespace, name, node_spec["name"])
+                await get_pods_in_statefulset(core, namespace, name, group.name)
             )
         patch.status["pendingPods"] = pending_pods
 
@@ -1233,6 +1265,7 @@ class RestartSubHandler(StateBasedSubHandler):
         self,
         namespace: str,
         name: str,
+        body: kopf.Body,
         old: kopf.Body,
         logger: logging.Logger,
         patch: kopf.Patch,
@@ -1243,7 +1276,7 @@ class RestartSubHandler(StateBasedSubHandler):
         async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
             await restart_cluster(
-                core, namespace, name, old, logger, patch, status, action
+                core, namespace, name, old, body, logger, patch, status, action
             )
 
 

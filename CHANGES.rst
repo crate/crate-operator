@@ -18,6 +18,12 @@ Unreleased
   change-compute webhook includes master compute, and the storage-expansion
   feedback reports the new disk size per node group.
 
+* A compute change now performs a rolling restart of only the node groups whose
+  resources actually changed, instead of the whole cluster. Changing just the
+  master group no longer restarts the data nodes; when several groups change at
+  once they are restarted one node at a time, masters first. Upgrades continue
+  to restart every node.
+
 2.61.0 (2026-06-02)
 -------------------
 
