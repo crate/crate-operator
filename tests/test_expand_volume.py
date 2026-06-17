@@ -233,19 +233,17 @@ class TestExpandVolumePerGroup:
         )
         core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
 
-        await expand_volume(
-            core, "ns", "c", [("master", "274877906944")], mock.Mock()
-        )
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
 
         # PVCs were looked up by the master node label.
-        assert mock_get_pvcs.await_args.args[3] == "master"
+        get_pvcs_call = mock_get_pvcs.await_args
+        assert get_pvcs_call is not None
+        assert get_pvcs_call.args[3] == "master"
         # The PVC was patched to the new size.
-        patch_body = core.patch_namespaced_persistent_volume_claim.await_args.kwargs[
-            "body"
-        ]
-        assert (
-            patch_body["spec"]["resources"]["requests"]["storage"] == "274877906944"
-        )
+        patch_call = core.patch_namespaced_persistent_volume_claim.await_args
+        assert patch_call is not None
+        patch_body = patch_call.kwargs["body"]
+        assert patch_body["spec"]["resources"]["requests"]["storage"] == "274877906944"
 
     @pytest.mark.asyncio
     @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
@@ -288,9 +286,7 @@ class TestExpandVolumePerGroup:
         )
         core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
 
-        await expand_volume(
-            core, "ns", "c", [("master", "274877906944")], mock.Mock()
-        )
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
 
         core.patch_namespaced_persistent_volume_claim.assert_not_awaited()
 

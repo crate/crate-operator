@@ -45,7 +45,6 @@ from kubernetes_asyncio.client import (
     CoreV1Api,
     CustomObjectsApi,
     StorageV1Api,
-    V1Namespace,
 )
 
 from crate.operator.config import config

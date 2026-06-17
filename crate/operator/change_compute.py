@@ -38,6 +38,7 @@ from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.webhooks import (
+    WebhookChangeComputeMasterFields,
     WebhookChangeComputePayload,
     WebhookEvent,
     WebhookStatus,
@@ -117,28 +118,28 @@ def compute_payload_for_specs(old_spec, new_spec) -> WebhookChangeComputePayload
     )
 
 
-def _master_compute_fields(old_master, new_master) -> dict:
+def _master_compute_fields(old_master, new_master) -> WebhookChangeComputeMasterFields:
     """
     The dedicated-master compute fields for the CHANGE_COMPUTE webhook, keyed
     with the ``*_master_*`` names. Empty for clusters without dedicated masters.
     """
     if old_master is None or new_master is None:
-        return {}
+        return WebhookChangeComputeMasterFields()
     p = compute_payload_for_specs(old_master, new_master)
-    return {
-        "old_master_cpu_limit": p["old_cpu_limit"],
-        "old_master_memory_limit": p["old_memory_limit"],
-        "old_master_cpu_request": p["old_cpu_request"],
-        "old_master_memory_request": p["old_memory_request"],
-        "old_master_heap_ratio": p["old_heap_ratio"],
-        "old_master_nodepool": p["old_nodepool"],
-        "new_master_cpu_limit": p["new_cpu_limit"],
-        "new_master_memory_limit": p["new_memory_limit"],
-        "new_master_cpu_request": p["new_cpu_request"],
-        "new_master_memory_request": p["new_memory_request"],
-        "new_master_heap_ratio": p["new_heap_ratio"],
-        "new_master_nodepool": p["new_nodepool"],
-    }
+    return WebhookChangeComputeMasterFields(
+        old_master_cpu_limit=p["old_cpu_limit"],
+        old_master_memory_limit=p["old_memory_limit"],
+        old_master_cpu_request=p["old_cpu_request"],
+        old_master_memory_request=p["old_memory_request"],
+        old_master_heap_ratio=p["old_heap_ratio"],
+        old_master_nodepool=p["old_nodepool"],
+        new_master_cpu_limit=p["new_cpu_limit"],
+        new_master_memory_limit=p["new_memory_limit"],
+        new_master_cpu_request=p["new_cpu_request"],
+        new_master_memory_request=p["new_memory_request"],
+        new_master_heap_ratio=p["new_heap_ratio"],
+        new_master_nodepool=p["new_nodepool"],
+    )
 
 
 def generate_change_compute_payload(old, body):
@@ -160,7 +161,7 @@ async def update_cprocessor_crate_settings(
     apps: AppsV1Api,
     namespace: str,
     sts_name: str,
-    processors: int,
+    processors: float,
 ) -> List[str]:
     """
     Call the Kubernetes API, update the -Cprocessors value in the crate
@@ -169,7 +170,8 @@ async def update_cprocessor_crate_settings(
     :param apps: An instance of the Kubernetes Apps V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param sts_name: The name of the Kubernetes StatefulSet to update.
-    :param processors: The new number of processors.
+    :param processors: The new number of processors; fractional values are
+        rounded up (``ceil``) to match how create bakes ``-Cprocessors``.
     :return: The updated command list.
     """
     stateful_set = await apps.read_namespaced_stateful_set(

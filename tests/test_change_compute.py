@@ -543,9 +543,9 @@ class TestUpdateCprocessorCrateSettings:
         assert "-Cprocessors=8" in updated
         assert "-Cprocessors=16" not in updated
         assert "-Cnode.master=true" in updated
-        assert apps.read_namespaced_stateful_set.await_args.kwargs["name"] == (
-            "crate-master-c"
-        )
+        call = apps.read_namespaced_stateful_set.await_args
+        assert call is not None
+        assert call.kwargs["name"] == "crate-master-c"
 
     @pytest.mark.asyncio
     async def test_rounds_cpu_up_to_match_create(self):
@@ -572,10 +572,14 @@ class TestGenerateChangeComputePayloadMaster:
     def test_includes_master_compute_when_masters_present(self):
         from crate.operator.change_compute import generate_change_compute_payload
 
-        old = {"spec": {"nodes": {
-            "master": _group_spec(16, "60000000000"),
-            "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
-        }}}
+        old = {
+            "spec": {
+                "nodes": {
+                    "master": _group_spec(16, "60000000000"),
+                    "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
+                }
+            }
+        }
         new = copy.deepcopy(old)
         new["spec"]["nodes"]["master"]["resources"]["limits"]["cpu"] = 8
 
@@ -590,9 +594,13 @@ class TestGenerateChangeComputePayloadMaster:
     def test_omits_master_fields_for_legacy_cluster(self):
         from crate.operator.change_compute import generate_change_compute_payload
 
-        old = {"spec": {"nodes": {
-            "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
-        }}}
+        old = {
+            "spec": {
+                "nodes": {
+                    "data": [{"name": "hot", **_group_spec(32, "30000000000")}],
+                }
+            }
+        }
         new = copy.deepcopy(old)
         new["spec"]["nodes"]["data"][0]["resources"]["limits"]["cpu"] = 30
 

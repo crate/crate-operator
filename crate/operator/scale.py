@@ -720,11 +720,12 @@ class ScaleSubHandler(StateBasedSubHandler):
 
         # If a data group's old value is zero we are resuming the cluster (it
         # was suspended); if the new value is zero we are suspending it.
-        have_data_diff = bool(scale_data_diff_items) and (
-            len(scale_data_diff_items[0]) >= 4
-        )
-        data_resuming = have_data_diff and scale_data_diff_items[0][2] == 0
-        data_suspending = have_data_diff and scale_data_diff_items[0][3] == 0
+        data_resuming = False
+        data_suspending = False
+        if scale_data_diff_items and len(scale_data_diff_items[0]) >= 4:
+            first = scale_data_diff_items[0]
+            data_resuming = first[2] == 0
+            data_suspending = first[3] == 0
 
         async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)

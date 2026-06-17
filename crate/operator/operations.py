@@ -980,9 +980,7 @@ async def suspend_or_start_cluster(
                     # unhealthy (tables have no data nodes to live on), and
                     # gating on that here would deadlock the rest of the suspend
                     # (scaling the masters down).
-                    conn_factory = await _get_connection_factory(
-                        core, namespace, name
-                    )
+                    conn_factory = await _get_connection_factory(core, namespace, name)
                     await check_cluster_healthy(
                         name, namespace, apps, conn_factory, logger
                     )
