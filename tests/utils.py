@@ -92,6 +92,25 @@ async def does_namespace_exist(core, namespace: str) -> bool:
     return namespace in (ns.metadata.name for ns in namespaces.items)
 
 
+async def _api_call_retrying_429(coro_func, *args, retries: int = 6, **kwargs):
+    """Call an async k8s API method, retrying transient 429s with backoff.
+
+    Under parallel teardown the AKS apiserver's Priority & Fairness layer will
+    occasionally reject a request with 429 Too Many Requests; that is transient
+    and must not red an otherwise-passing test.
+    """
+    delay = 1.0
+    for attempt in range(retries):
+        try:
+            return await coro_func(*args, **kwargs)
+        except ApiException as e:
+            if e.status == 429 and attempt < retries - 1:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 10.0)
+                continue
+            raise
+
+
 async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
     """Return ``True`` once no CrateDB CRs are left in ``namespace``.
 
@@ -100,7 +119,8 @@ async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
     processed the deletion.
     """
     try:
-        objs = await coapi.list_namespaced_custom_object(
+        objs = await _api_call_retrying_429(
+            coapi.list_namespaced_custom_object,
             group=API_GROUP,
             version="v1",
             plural=RESOURCE_CRATEDB,
@@ -110,6 +130,10 @@ async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
         if e.status == 404:
             # Namespace or CRD already gone -> nothing left to wait for.
             return True
+        if e.status == 429:
+            # Still throttled after retries -> treat as "not gone yet" so the
+            # caller keeps polling instead of erroring.
+            return False
         raise
     return len(objs.get("items", [])) == 0
 
@@ -126,36 +150,34 @@ async def delete_cratedbs_and_wait(
     5s timer that keeps hitting the API server for a phantom cluster for the rest
     of the run, throttling the shared client and flaking other tests
     (see CI_INVESTIGATION.md, mechanism 1).
+
+    Best-effort: any API error here is logged, never raised -- the namespace
+    delete that follows still reclaims the CR, so teardown must not red a
+    passing test.
     """
+    log = logging.getLogger(__name__)
     try:
-        objs = await coapi.list_namespaced_custom_object(
+        objs = await _api_call_retrying_429(
+            coapi.list_namespaced_custom_object,
             group=API_GROUP,
             version="v1",
             plural=RESOURCE_CRATEDB,
             namespace=namespace,
         )
-    except ApiException as e:
-        if e.status == 404:
-            return
-        raise
-    for obj in objs.get("items", []):
-        try:
-            await coapi.delete_namespaced_custom_object(
-                group=API_GROUP,
-                version="v1",
-                plural=RESOURCE_CRATEDB,
-                namespace=namespace,
-                name=obj["metadata"]["name"],
-                body=V1DeleteOptions(),
-            )
-        except ApiException as e:
-            if e.status != 404:
-                raise
-    # Best-effort: wait for the operator to finalize the deletion, but never fail
-    # an otherwise-passing test on a slow teardown. The namespace delete that
-    # follows still reclaims everything; the worst case is the old leaked-timer
-    # behaviour for this one cluster, which we surface as a warning.
-    try:
+        for obj in objs.get("items", []):
+            try:
+                await _api_call_retrying_429(
+                    coapi.delete_namespaced_custom_object,
+                    group=API_GROUP,
+                    version="v1",
+                    plural=RESOURCE_CRATEDB,
+                    namespace=namespace,
+                    name=obj["metadata"]["name"],
+                    body=V1DeleteOptions(),
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
         await assert_wait_for(
             True,
             no_cratedbs_remain,
@@ -163,8 +185,16 @@ async def delete_cratedbs_and_wait(
             namespace,
             timeout=timeout,
         )
+    except ApiException as e:
+        if e.status != 404:
+            log.warning(
+                "Best-effort CrateDB teardown for namespace %s hit a %s; the "
+                "namespace delete will still reclaim it.",
+                namespace,
+                e.status,
+            )
     except AssertionError:
-        logging.getLogger(__name__).warning(
+        log.warning(
             "CrateDB CR(s) in namespace %s were not finalized within %ss; the "
             "ping timer may briefly leak until the namespace finishes deleting.",
             namespace,
