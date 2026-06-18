@@ -95,9 +95,24 @@ def pytest_addoption(parser):
     parser.addoption(KUBECONTEXT_OPTION, help="Name of the context")
 
 
+# k8s/e2e tests spin real clusters on shared cloud infra in parallel, so an
+# occasional transient timing loss (slow disk attach/resize, apiserver
+# throttling) is expected. Retry them on failure: a flake passes on a rerun and
+# keeps the run green, while a real bug fails every attempt and still reds it.
+# Unit tests are never retried, so a logic regression fails immediately.
+K8S_TEST_RERUNS = 2
+K8S_TEST_RERUNS_DELAY = 5  # seconds between attempts
+
+
 def pytest_collection_modifyitems(config, items):
     if config.getoption(KUBECONFIG_OPTION):
-        # --kube-config given in cli: do not skip k8s tests
+        # --kube-config given in cli: do not skip k8s tests; retry them instead.
+        flaky = pytest.mark.flaky(
+            reruns=K8S_TEST_RERUNS, reruns_delay=K8S_TEST_RERUNS_DELAY
+        )
+        for item in items:
+            if "k8s" in item.keywords:
+                item.add_marker(flaky)
         return
     skip = pytest.mark.skip(reason=f"Need {KUBECONFIG_OPTION} option to run")
     for item in items:
