@@ -23,10 +23,13 @@ import asyncio
 import json
 import logging
 import os
+import random
+import time
 from functools import reduce
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
+import aiohttp
 import psycopg2
 from aiopg import Connection
 from kubernetes_asyncio.client import (
@@ -72,14 +75,54 @@ CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG = "5.10.1"
 DEFAULT_TIMEOUT = 60
 
 
+# Control-plane errors that are transient under load -- AKS/EKS apiserver
+# Priority & Fairness rate limiting (429) and brief apiserver unavailability
+# (5xx). These should never fail a polling wait outright; the loop just retries.
+_TRANSIENT_API_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+class _Throttled:
+    """Sentinel returned by a poll that hit a transient control-plane error.
+
+    It never compares equal to a caller's expected ``condition``, so the wait
+    loop simply polls again until the condition is met or the timeout elapses --
+    a one-off 429 from rate limiting no longer reds the test.
+    """
+
+
+_THROTTLED = _Throttled()
+
+
+async def _poll(coro_func, *args, **kwargs):
+    try:
+        return await coro_func(*args, **kwargs)
+    except ApiException as e:
+        if e.status in _TRANSIENT_API_STATUSES:
+            logging.getLogger(__name__).debug(
+                "Transient %s during wait on %s; retrying.",
+                e.status,
+                getattr(coro_func, "__name__", coro_func),
+            )
+            return _THROTTLED
+        raise
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logging.getLogger(__name__).debug(
+            "Transient connection error during wait (%s); retrying.", e
+        )
+        return _THROTTLED
+
+
 async def assert_wait_for(
     condition, coro_func, *args, err_msg="", timeout=DEFAULT_TIMEOUT, delay=2, **kwargs
 ):
-    ret_val = await coro_func(*args, **kwargs)
+    # Poll through _poll() so a transient control-plane error (429/5xx/connection
+    # drop) is swallowed and retried within the existing timeout window instead
+    # of failing the whole wait on a single throttled request.
+    ret_val = await _poll(coro_func, *args, **kwargs)
     duration = 0.0
     while ret_val is not condition:
         await asyncio.sleep(delay)
-        ret_val = await coro_func(*args, **kwargs)
+        ret_val = await _poll(coro_func, *args, **kwargs)
         if ret_val is not condition and duration > timeout:
             break
         else:
@@ -88,27 +131,65 @@ async def assert_wait_for(
 
 
 async def does_namespace_exist(core, namespace: str) -> bool:
-    namespaces = await core.list_namespace()
-    return namespace in (ns.metadata.name for ns in namespaces.items)
+    # A single GET (404 == gone) rather than listing every namespace in the
+    # cluster on each poll -- the list call scales with parallel test namespaces
+    # and is exactly the kind of request the apiserver throttles under load.
+    try:
+        await core.read_namespace(name=namespace)
+        return True
+    except ApiException as e:
+        if e.status == 404:
+            return False
+        raise
 
 
-async def _api_call_retrying_429(coro_func, *args, retries: int = 6, **kwargs):
-    """Call an async k8s API method, retrying transient 429s with backoff.
+def _retry_after_seconds(exc: ApiException) -> Optional[float]:
+    """Parse the ``Retry-After`` header AKS/EKS attach to a 429, if present."""
+    headers = getattr(exc, "headers", None)
+    if not headers:
+        return None
+    try:
+        return float(headers.get("Retry-After"))
+    except (TypeError, ValueError):
+        return None
 
-    Under parallel teardown the AKS apiserver's Priority & Fairness layer will
-    occasionally reject a request with 429 Too Many Requests; that is transient
-    and must not red an otherwise-passing test.
+
+async def retry_on_throttle(coro_func, *args, deadline: float = 90.0, **kwargs):
+    """Call an async k8s API method, retrying transient control-plane errors
+    until ``deadline`` seconds have elapsed.
+
+    Retries on 429 (AKS/EKS Priority & Fairness rejects request *bursts* this way
+    -- always safe to retry, the request is rejected before it executes), on 5xx,
+    and on connection drops. Honours the server's ``Retry-After`` header when
+    present (APF typically sets it to ~1s); otherwise backs off exponentially
+    with **full jitter** so the parallel workers don't resynchronise and re-
+    collide on the shared limiter. Use for one-shot calls (create/delete);
+    polling waits are already covered by ``assert_wait_for``.
     """
-    delay = 1.0
-    for attempt in range(retries):
+    start = time.monotonic()
+    backoff = 1.0
+    while True:
         try:
             return await coro_func(*args, **kwargs)
         except ApiException as e:
-            if e.status == 429 and attempt < retries - 1:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 10.0)
-                continue
-            raise
+            if e.status not in _TRANSIENT_API_STATUSES:
+                raise
+            last_exc: Exception = e
+            retry_after = _retry_after_seconds(e)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            last_exc = e
+            retry_after = None
+        if time.monotonic() - start >= deadline:
+            # Throttling outlasted our budget -- surface the real error.
+            raise last_exc
+        if retry_after is not None:
+            sleep = retry_after
+        else:
+            # Full jitter: sleep uniformly in [0, backoff] so concurrent callers
+            # spread out instead of retrying in lockstep.
+            sleep = random.uniform(0, min(backoff, 10.0))
+            backoff = min(backoff * 2, 10.0)
+        await asyncio.sleep(sleep)
 
 
 async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
@@ -119,7 +200,7 @@ async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
     processed the deletion.
     """
     try:
-        objs = await _api_call_retrying_429(
+        objs = await retry_on_throttle(
             coapi.list_namespaced_custom_object,
             group=API_GROUP,
             version="v1",
@@ -157,7 +238,7 @@ async def delete_cratedbs_and_wait(
     """
     log = logging.getLogger(__name__)
     try:
-        objs = await _api_call_retrying_429(
+        objs = await retry_on_throttle(
             coapi.list_namespaced_custom_object,
             group=API_GROUP,
             version="v1",
@@ -166,7 +247,7 @@ async def delete_cratedbs_and_wait(
         )
         for obj in objs.get("items", []):
             try:
-                await _api_call_retrying_429(
+                await retry_on_throttle(
                     coapi.delete_namespaced_custom_object,
                     group=API_GROUP,
                     version="v1",

@@ -50,6 +50,7 @@ from .utils import (
     assert_wait_for,
     delete_cratedbs_and_wait,
     does_namespace_exist,
+    retry_on_throttle,
 )
 
 KUBECONFIG_OPTION = "--kube-config"
@@ -206,8 +207,9 @@ async def namespace(faker, api_client) -> V1Namespace:
     core = CoreV1Api(api_client)
     name = faker.uuid4()
     await assert_wait_for(False, does_namespace_exist, core, name)
-    ns: V1Namespace = await core.create_namespace(
-        body=V1Namespace(metadata=V1ObjectMeta(name=name))
+    ns: V1Namespace = await retry_on_throttle(
+        core.create_namespace,
+        body=V1Namespace(metadata=V1ObjectMeta(name=name)),
     )
     await assert_wait_for(True, does_namespace_exist, core, name)
     yield ns
@@ -219,7 +221,9 @@ async def namespace(faker, api_client) -> V1Namespace:
     # tests (see CI_INVESTIGATION.md, mechanism 1).
     coapi = CustomObjectsApi(api_client)
     await delete_cratedbs_and_wait(coapi, name)
-    await core.delete_namespace(name=ns.metadata.name, body=V1DeleteOptions())
+    await retry_on_throttle(
+        core.delete_namespace, name=ns.metadata.name, body=V1DeleteOptions()
+    )
 
 
 @pytest.fixture
