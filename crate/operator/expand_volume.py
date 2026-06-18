@@ -128,15 +128,24 @@ async def expand_volume(
                 f"{int(storage_status)}/{int(new_storage)}"
             )
             conditions = current_pvc.status.conditions or []
+            # We only need the control plane to *accept* the expansion, not to
+            # finish the physical resize. Once the external-resizer reports the
+            # PVC ``Resizing`` (or the later ``FileSystemResizePending``), or the
+            # capacity already reflects the new size, we are done -- the online
+            # resize completes on its own and can take a while on some backends
+            # (e.g. azure-disk). Waiting for ``status.capacity`` to actually grow
+            # would block the handler for the full physical resize and times out
+            # on slow backends, even though nothing more is required of us.
+            accepted = {"Resizing", "FileSystemResizePending"}
             if int(storage_status) == int(new_storage) or any(
-                cond.type == "FileSystemResizePending" for cond in conditions
+                cond.type in accepted for cond in conditions
             ):
                 pvc_storage[pvc["name"]] = {"in_progress": False}
             else:
                 pvc_storage[pvc["name"]] = {"in_progress": True}
-    # If resizing for at least one of the PVCs is not finished, we try again.
-    # Or assume that the StorageClass does not support expansion and fail
-    # after the timeout is reached.
+    # If the expansion has not been accepted for at least one PVC yet, retry.
+    # A StorageClass that does not support expansion never produces a resize
+    # condition, so this still fails after the timeout is reached.
     if pending_pvc := next(
         (
             name

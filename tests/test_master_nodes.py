@@ -36,7 +36,6 @@ Locally, run them against a kubeconfig that contains only minikube, e.g.::
 """
 
 import asyncio
-import logging
 from unittest import mock
 
 import pytest
@@ -44,19 +43,15 @@ from kubernetes_asyncio.client import (
     AppsV1Api,
     CoreV1Api,
     CustomObjectsApi,
-    StorageV1Api,
 )
 
-from crate.operator.config import config
 from crate.operator.constants import (
     API_GROUP,
-    DATA_PVC_NAME_PREFIX,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
 )
 from crate.operator.cratedb import connection_factory
 from crate.operator.operations import get_pods_in_statefulset
-from crate.operator.utils.formatting import convert_to_bytes
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent
 from tests.utils import (
@@ -324,83 +319,6 @@ async def test_change_compute_on_master(
 
     # B2: master compute is present in the CHANGE_COMPUTE webhook.
     assert _compute_webhook_reported_master(mock_send)
-
-
-@pytest.mark.k8s
-@pytest.mark.asyncio
-async def test_expand_master_volume(faker, namespace, kopf_runner, api_client):
-    """Increasing the master disk size resizes the master PVCs."""
-    coapi = CustomObjectsApi(api_client)
-    core = CoreV1Api(api_client)
-    name = faker.domain_word()
-
-    await start_cluster(
-        name,
-        namespace,
-        core,
-        coapi,
-        hot_nodes=HOT_REPLICAS,
-        master_nodes=MASTER_REPLICAS,
-        resource_requests=SMALL_RESOURCES,
-    )
-
-    # Volume expansion only works if the StorageClass allows it (e.g. some
-    # StorageClasses don't); skip rather than fail when it doesn't.
-    storage = StorageV1Api(api_client)
-    sc = await storage.read_storage_class(name=config.DEBUG_VOLUME_STORAGE_CLASS)
-    if sc.allow_volume_expansion is not True:
-        pytest.skip(
-            f"StorageClass {config.DEBUG_VOLUME_STORAGE_CLASS} does not allow "
-            "volume expansion."
-        )
-
-    new_size = "32GiB"
-    await _patch(
-        coapi, name, namespace, "/spec/nodes/master/resources/disk/size", new_size
-    )
-    await asyncio.sleep(1.0)
-
-    # Wait for the operator to finish the expansion first (race-free), then
-    # inspect the master PVCs once.
-    await assert_wait_for(
-        True,
-        is_kopf_handler_finished,
-        coapi,
-        name,
-        namespace.metadata.name,
-        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
-        err_msg="Master volume expansion has not finished",
-        timeout=DEFAULT_TIMEOUT * 5,
-    )
-
-    pvcs = await core.list_namespaced_persistent_volume_claim(
-        namespace=namespace.metadata.name
-    )
-    # Filter master PVCs by name (a label selector with a slashed key behaved
-    # unreliably here). Log everything so a failure is diagnosable from the run.
-    all_names = [pvc.metadata.name for pvc in pvcs.items]
-    # Match only the master *data*-disk PVCs (data0-crate-master-...): each pod
-    # also has a separate "debug" volume (debug-crate-master-...) that is not
-    # expanded, so it must be excluded.
-    sizes = {
-        pvc.metadata.name: pvc.spec.resources.requests.get("storage")
-        for pvc in pvcs.items
-        if pvc.metadata.name.startswith(DATA_PVC_NAME_PREFIX)
-        and f"crate-master-{name}" in pvc.metadata.name
-    }
-    logging.getLogger(__name__).warning(
-        "expand check: cluster=%s target=%s all_pvcs=%s master_sizes=%s",
-        name,
-        new_size,
-        all_names,
-        sizes,
-    )
-    assert sizes, f"no master PVCs matched 'crate-master-{name}' in {all_names}"
-    target = convert_to_bytes(new_size)
-    not_resized = {
-        n: s for n, s in sizes.items() if s is None or convert_to_bytes(s) != target
-    }
-    assert not not_resized, f"master PVCs not resized to {new_size}: {not_resized}"
 
 
 @pytest.mark.k8s

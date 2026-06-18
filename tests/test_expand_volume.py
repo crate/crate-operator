@@ -203,13 +203,19 @@ async def _expand_volume(
     )
 
 
-def _fake_pvc(*, requests_storage, capacity_storage, resize_pending=False):
+def _fake_pvc(
+    *, requests_storage, capacity_storage, resize_pending=False, condition_type=None
+):
     pvc = mock.Mock()
     pvc.spec.resources.requests = {"storage": requests_storage}
     pvc.status.capacity = {"storage": capacity_storage}
-    condition = mock.Mock()
-    condition.type = "FileSystemResizePending"
-    pvc.status.conditions = [condition] if resize_pending else []
+    ctype = condition_type or ("FileSystemResizePending" if resize_pending else None)
+    if ctype:
+        condition = mock.Mock()
+        condition.type = ctype
+        pvc.status.conditions = [condition]
+    else:
+        pvc.status.conditions = []
     return pvc
 
 
@@ -267,6 +273,34 @@ class TestExpandVolumePerGroup:
             await expand_volume(
                 core, "ns", "c", [("master", "274877906944")], mock.Mock()
             )
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_accepts_resizing_condition_without_waiting(
+        self, mock_get_pvcs, _mock_notify
+    ):
+        """Once the control plane has accepted the expansion (PVC ``Resizing``),
+        the handler must not block waiting for the physical resize to finish --
+        on slow backends (e.g. azure-disk) that would time out unnecessarily."""
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        # Accepted (Resizing) but capacity not yet grown -> must NOT raise.
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472",
+                capacity_storage="137438953472",
+                condition_type="Resizing",
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
 
     @pytest.mark.asyncio
     @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
