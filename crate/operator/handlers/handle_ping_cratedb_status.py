@@ -25,6 +25,7 @@ from asyncio import TimeoutError
 import kopf
 from aiohttp.client_exceptions import ClientConnectorError
 from kubernetes_asyncio.client import CoreV1Api
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from crate.operator.cratedb import connection_factory, get_healthiness
 from crate.operator.prometheus import PrometheusClusterStatus, report_cluster_status
@@ -75,6 +76,19 @@ async def ping_cratedb_status(
                 status = HEALTHINESS_TO_STATUS.get(
                     healthiness, PrometheusClusterStatus.GREEN
                 )
+    except ApiException as e:
+        if e.status == 404:
+            # The CrateDB resource (or its namespace) is gone -- the cluster has
+            # been deleted but kopf's watch has not yet stopped this timer. There
+            # is nothing to report: skip the status update and the webhook so we
+            # don't spam the API server with health checks and 404 event posts
+            # for a phantom cluster (see CI_INVESTIGATION.md, mechanism 1).
+            logger.debug("CrateDB resource is gone; skipping health check.")
+            return
+        logger.warning(
+            "Kubernetes API error during CrateDB health check.", exc_info=True
+        )
+        status = PrometheusClusterStatus.UNREACHABLE
     except Exception as e:
         if isinstance(e, ClientConnectorError):
             error_msg = (

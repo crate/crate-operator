@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp.client_exceptions import ClientConnectorError
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from crate.operator.handlers.handle_ping_cratedb_status import (
     CLUSTER_STATUS_KEY,
@@ -104,6 +105,57 @@ async def test_ping_cratedb_status_success(mock_cratedb_connection):
     mock_report.assert_called_once_with(
         name, cluster_name, namespace, PrometheusClusterStatus.GREEN
     )
+
+
+@pytest.mark.asyncio
+async def test_ping_cratedb_status_skips_when_resource_gone():
+    """A 404 (CrateDB resource/namespace deleted) must short-circuit: no status
+    report, no patch, no webhook -- otherwise a leaked timer spams the API for a
+    phantom cluster (see CI_INVESTIGATION.md, mechanism 1)."""
+    patch_obj = MagicMock()
+    logger = MagicMock(spec=logging.Logger)
+
+    mock_api_client_cm = AsyncMock()
+    mock_core = MagicMock()
+
+    with (
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.GlobalApiClient",
+            return_value=mock_api_client_cm,
+        ),
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.CoreV1Api",
+            return_value=mock_core,
+        ),
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.get_host",
+            side_effect=ApiException(status=404, reason="Not Found"),
+        ),
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.get_system_user_password",  # noqa
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.report_cluster_status"
+        ) as mock_report,
+        patch(
+            "crate.operator.handlers.handle_ping_cratedb_status.webhook_client.send_notification",  # noqa
+            new_callable=AsyncMock,
+        ) as mock_webhook,
+    ):
+        await ping_cratedb_status(
+            namespace="gone-ns",
+            name="gone-cluster",
+            cluster_name="gone-cluster",
+            desired_instances=1,
+            patch=patch_obj,
+            logger=logger,
+        )
+
+    mock_report.assert_not_called()
+    mock_webhook.assert_not_called()
+    patch_obj.status.__setitem__.assert_not_called()
+    logger.warning.assert_not_called()
 
 
 fake_key = MagicMock()

@@ -33,8 +33,10 @@ from kubernetes_asyncio.client import (
     BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
+    V1DeleteOptions,
     V1Namespace,
 )
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from crate.operator.backup import create_backups
 from crate.operator.config import config
@@ -88,6 +90,86 @@ async def assert_wait_for(
 async def does_namespace_exist(core, namespace: str) -> bool:
     namespaces = await core.list_namespace()
     return namespace in (ns.metadata.name for ns in namespaces.items)
+
+
+async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
+    """Return ``True`` once no CrateDB CRs are left in ``namespace``.
+
+    A lingering CR means kopf is still holding its finalizer (and its per-cluster
+    ping timer); used to gate namespace teardown on the operator having fully
+    processed the deletion.
+    """
+    try:
+        objs = await coapi.list_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+        )
+    except ApiException as e:
+        if e.status == 404:
+            # Namespace or CRD already gone -> nothing left to wait for.
+            return True
+        raise
+    return len(objs.get("items", [])) == 0
+
+
+async def delete_cratedbs_and_wait(
+    coapi: CustomObjectsApi, namespace: str, timeout: float = 120
+) -> None:
+    """Delete every CrateDB CR in ``namespace`` *through kopf* and wait for it
+    to disappear.
+
+    Deleting the CR (rather than only the namespace) lets the session-scoped,
+    all-namespace operator run its ``@kopf.on.delete`` handler, clear the
+    finalizer and **cancel the per-cluster ping timer**. Skipping this leaks a
+    5s timer that keeps hitting the API server for a phantom cluster for the rest
+    of the run, throttling the shared client and flaking other tests
+    (see CI_INVESTIGATION.md, mechanism 1).
+    """
+    try:
+        objs = await coapi.list_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return
+        raise
+    for obj in objs.get("items", []):
+        try:
+            await coapi.delete_namespaced_custom_object(
+                group=API_GROUP,
+                version="v1",
+                plural=RESOURCE_CRATEDB,
+                namespace=namespace,
+                name=obj["metadata"]["name"],
+                body=V1DeleteOptions(),
+            )
+        except ApiException as e:
+            if e.status != 404:
+                raise
+    # Best-effort: wait for the operator to finalize the deletion, but never fail
+    # an otherwise-passing test on a slow teardown. The namespace delete that
+    # follows still reclaims everything; the worst case is the old leaked-timer
+    # behaviour for this one cluster, which we surface as a warning.
+    try:
+        await assert_wait_for(
+            True,
+            no_cratedbs_remain,
+            coapi,
+            namespace,
+            timeout=timeout,
+        )
+    except AssertionError:
+        logging.getLogger(__name__).warning(
+            "CrateDB CR(s) in namespace %s were not finalized within %ss; the "
+            "ping timer may briefly leak until the namespace finishes deleting.",
+            namespace,
+            timeout,
+        )
 
 
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:
