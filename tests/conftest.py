@@ -218,7 +218,7 @@ async def namespace(faker, api_client) -> V1Namespace:
     # Deleting only the namespace leaves that 5s timer firing against a phantom
     # cluster for the rest of this session-scoped, all-namespace operator's life,
     # which under parallel load starves the shared API client and flakes other
-    # tests (see CI_INVESTIGATION.md, mechanism 1).
+    # tests.
     coapi = CustomObjectsApi(api_client)
     await delete_cratedbs_and_wait(coapi, name)
     await retry_on_throttle(

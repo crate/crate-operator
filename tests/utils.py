@@ -226,8 +226,7 @@ async def delete_cratedbs_and_wait(
     all-namespace operator run its ``@kopf.on.delete`` handler, clear the
     finalizer and **cancel the per-cluster ping timer**. Skipping this leaks a
     5s timer that keeps hitting the API server for a phantom cluster for the rest
-    of the run, throttling the shared client and flaking other tests
-    (see CI_INVESTIGATION.md, mechanism 1).
+    of the run, throttling the shared client and flaking other tests.
 
     Best-effort: any API error here is logged, never raised -- the namespace
     delete that follows still reclaims the CR, so teardown must not red a

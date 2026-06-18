@@ -111,7 +111,7 @@ async def test_ping_cratedb_status_success(mock_cratedb_connection):
 async def test_ping_cratedb_status_skips_when_resource_gone():
     """A 404 (CrateDB resource/namespace deleted) must short-circuit: no status
     report, no patch, no webhook -- otherwise a leaked timer spams the API for a
-    phantom cluster (see CI_INVESTIGATION.md, mechanism 1)."""
+    phantom cluster."""
     patch_obj = MagicMock()
     logger = MagicMock(spec=logging.Logger)
 

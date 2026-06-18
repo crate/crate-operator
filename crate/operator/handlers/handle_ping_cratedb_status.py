@@ -82,7 +82,7 @@ async def ping_cratedb_status(
             # been deleted but kopf's watch has not yet stopped this timer. There
             # is nothing to report: skip the status update and the webhook so we
             # don't spam the API server with health checks and 404 event posts
-            # for a phantom cluster (see CI_INVESTIGATION.md, mechanism 1).
+            # for a phantom cluster.
             logger.debug("CrateDB resource is gone; skipping health check.")
             return
         logger.warning(
