@@ -81,6 +81,17 @@ DEFAULT_TIMEOUT = 60
 _TRANSIENT_API_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
+def _is_transient(exc: BaseException) -> bool:
+    """Whether ``exc`` is a transient control-plane error worth retrying.
+
+    Single source of truth for the "is this transient?" policy shared by the
+    polling path (``_poll``) and the one-shot retry path (``retry_on_throttle``).
+    """
+    if isinstance(exc, ApiException):
+        return exc.status in _TRANSIENT_API_STATUSES
+    return isinstance(exc, (aiohttp.ClientError, asyncio.TimeoutError))
+
+
 class _Throttled:
     """Sentinel returned by a poll that hit a transient control-plane error.
 
@@ -96,18 +107,11 @@ _THROTTLED = _Throttled()
 async def _poll(coro_func, *args, **kwargs):
     try:
         return await coro_func(*args, **kwargs)
-    except ApiException as e:
-        if e.status in _TRANSIENT_API_STATUSES:
-            logging.getLogger(__name__).debug(
-                "Transient %s during wait on %s; retrying.",
-                e.status,
-                getattr(coro_func, "__name__", coro_func),
-            )
-            return _THROTTLED
-        raise
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+    except Exception as e:
+        if not _is_transient(e):
+            raise
         logging.getLogger(__name__).debug(
-            "Transient connection error during wait (%s); retrying.", e
+            "Transient error during wait (%s); retrying.", e
         )
         return _THROTTLED
 
@@ -143,7 +147,7 @@ async def does_namespace_exist(core, namespace: str) -> bool:
         raise
 
 
-def _retry_after_seconds(exc: ApiException) -> Optional[float]:
+def _retry_after_seconds(exc: BaseException) -> Optional[float]:
     """Parse the ``Retry-After`` header AKS/EKS attach to a 429, if present."""
     headers = getattr(exc, "headers", None)
     if not headers:
@@ -171,23 +175,20 @@ async def retry_on_throttle(coro_func, *args, deadline: float = 90.0, **kwargs):
     while True:
         try:
             return await coro_func(*args, **kwargs)
-        except ApiException as e:
-            if e.status not in _TRANSIENT_API_STATUSES:
+        except Exception as e:
+            if not _is_transient(e):
                 raise
-            last_exc: Exception = e
-            retry_after = _retry_after_seconds(e)
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             last_exc = e
-            retry_after = None
         if time.monotonic() - start >= deadline:
             # Throttling outlasted our budget -- surface the real error.
             raise last_exc
+        retry_after = _retry_after_seconds(last_exc)
         if retry_after is not None:
             sleep = retry_after
         else:
             # Full jitter: sleep uniformly in [0, backoff] so concurrent callers
             # spread out instead of retrying in lockstep.
-            sleep = random.uniform(0, min(backoff, 10.0))
+            sleep = random.uniform(0, backoff)
             backoff = min(backoff * 2, 10.0)
         await asyncio.sleep(sleep)
 
@@ -197,11 +198,12 @@ async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
 
     A lingering CR means kopf is still holding its finalizer (and its per-cluster
     ping timer); used to gate namespace teardown on the operator having fully
-    processed the deletion.
+    processed the deletion. Only ever driven by ``assert_wait_for``, so transient
+    control-plane errors are absorbed by ``_poll`` -- this just maps a 404
+    (namespace/CRD already gone) to "nothing left".
     """
     try:
-        objs = await retry_on_throttle(
-            coapi.list_namespaced_custom_object,
+        objs = await coapi.list_namespaced_custom_object(
             group=API_GROUP,
             version="v1",
             plural=RESOURCE_CRATEDB,
@@ -209,12 +211,7 @@ async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
         )
     except ApiException as e:
         if e.status == 404:
-            # Namespace or CRD already gone -> nothing left to wait for.
             return True
-        if e.status == 429:
-            # Still throttled after retries -> treat as "not gone yet" so the
-            # caller keeps polling instead of erroring.
-            return False
         raise
     return len(objs.get("items", [])) == 0
 

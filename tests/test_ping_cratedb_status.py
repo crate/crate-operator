@@ -116,7 +116,6 @@ async def test_ping_cratedb_status_skips_when_resource_gone():
     logger = MagicMock(spec=logging.Logger)
 
     mock_api_client_cm = AsyncMock()
-    mock_core = MagicMock()
 
     with (
         patch(
@@ -124,16 +123,8 @@ async def test_ping_cratedb_status_skips_when_resource_gone():
             return_value=mock_api_client_cm,
         ),
         patch(
-            "crate.operator.handlers.handle_ping_cratedb_status.CoreV1Api",
-            return_value=mock_core,
-        ),
-        patch(
             "crate.operator.handlers.handle_ping_cratedb_status.get_host",
             side_effect=ApiException(status=404, reason="Not Found"),
-        ),
-        patch(
-            "crate.operator.handlers.handle_ping_cratedb_status.get_system_user_password",  # noqa
-            new_callable=AsyncMock,
         ),
         patch(
             "crate.operator.handlers.handle_ping_cratedb_status.report_cluster_status"
