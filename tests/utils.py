@@ -23,18 +23,23 @@ import asyncio
 import json
 import logging
 import os
+import random
+import time
 from functools import reduce
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 from unittest import mock
 
+import aiohttp
 import psycopg2
 from aiopg import Connection
 from kubernetes_asyncio.client import (
     BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
+    V1DeleteOptions,
     V1Namespace,
 )
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from crate.operator.backup import create_backups
 from crate.operator.config import config
@@ -70,14 +75,58 @@ CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG = "5.10.1"
 DEFAULT_TIMEOUT = 60
 
 
+# Control-plane errors that are transient under load -- AKS/EKS apiserver
+# Priority & Fairness rate limiting (429) and brief apiserver unavailability
+# (5xx). These should never fail a polling wait outright; the loop just retries.
+_TRANSIENT_API_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Whether ``exc`` is a transient control-plane error worth retrying.
+
+    Single source of truth for the "is this transient?" policy shared by the
+    polling path (``_poll``) and the one-shot retry path (``retry_on_throttle``).
+    """
+    if isinstance(exc, ApiException):
+        return exc.status in _TRANSIENT_API_STATUSES
+    return isinstance(exc, (aiohttp.ClientError, asyncio.TimeoutError))
+
+
+class _Throttled:
+    """Sentinel returned by a poll that hit a transient control-plane error.
+
+    It never compares equal to a caller's expected ``condition``, so the wait
+    loop simply polls again until the condition is met or the timeout elapses --
+    a one-off 429 from rate limiting no longer reds the test.
+    """
+
+
+_THROTTLED = _Throttled()
+
+
+async def _poll(coro_func, *args, **kwargs):
+    try:
+        return await coro_func(*args, **kwargs)
+    except Exception as e:
+        if not _is_transient(e):
+            raise
+        logging.getLogger(__name__).debug(
+            "Transient error during wait (%s); retrying.", e
+        )
+        return _THROTTLED
+
+
 async def assert_wait_for(
     condition, coro_func, *args, err_msg="", timeout=DEFAULT_TIMEOUT, delay=2, **kwargs
 ):
-    ret_val = await coro_func(*args, **kwargs)
+    # Poll through _poll() so a transient control-plane error (429/5xx/connection
+    # drop) is swallowed and retried within the existing timeout window instead
+    # of failing the whole wait on a single throttled request.
+    ret_val = await _poll(coro_func, *args, **kwargs)
     duration = 0.0
     while ret_val is not condition:
         await asyncio.sleep(delay)
-        ret_val = await coro_func(*args, **kwargs)
+        ret_val = await _poll(coro_func, *args, **kwargs)
         if ret_val is not condition and duration > timeout:
             break
         else:
@@ -86,8 +135,148 @@ async def assert_wait_for(
 
 
 async def does_namespace_exist(core, namespace: str) -> bool:
-    namespaces = await core.list_namespace()
-    return namespace in (ns.metadata.name for ns in namespaces.items)
+    # A single GET (404 == gone) rather than listing every namespace in the
+    # cluster on each poll -- the list call scales with parallel test namespaces
+    # and is exactly the kind of request the apiserver throttles under load.
+    try:
+        await core.read_namespace(name=namespace)
+        return True
+    except ApiException as e:
+        if e.status == 404:
+            return False
+        raise
+
+
+def _retry_after_seconds(exc: BaseException) -> Optional[float]:
+    """Parse the ``Retry-After`` header AKS/EKS attach to a 429, if present."""
+    headers = getattr(exc, "headers", None)
+    if not headers:
+        return None
+    try:
+        return float(headers.get("Retry-After"))
+    except (TypeError, ValueError):
+        return None
+
+
+async def retry_on_throttle(coro_func, *args, deadline: float = 90.0, **kwargs):
+    """Call an async k8s API method, retrying transient control-plane errors
+    until ``deadline`` seconds have elapsed.
+
+    Retries on 429 (AKS/EKS Priority & Fairness rejects request *bursts* this way
+    -- always safe to retry, the request is rejected before it executes), on 5xx,
+    and on connection drops. Honours the server's ``Retry-After`` header when
+    present (APF typically sets it to ~1s); otherwise backs off exponentially
+    with **full jitter** so the parallel workers don't resynchronise and re-
+    collide on the shared limiter. Use for one-shot calls (create/delete);
+    polling waits are already covered by ``assert_wait_for``.
+    """
+    start = time.monotonic()
+    backoff = 1.0
+    while True:
+        try:
+            return await coro_func(*args, **kwargs)
+        except Exception as e:
+            if not _is_transient(e):
+                raise
+            last_exc = e
+        if time.monotonic() - start >= deadline:
+            # Throttling outlasted our budget -- surface the real error.
+            raise last_exc
+        retry_after = _retry_after_seconds(last_exc)
+        if retry_after is not None:
+            sleep = retry_after
+        else:
+            # Full jitter: sleep uniformly in [0, backoff] so concurrent callers
+            # spread out instead of retrying in lockstep.
+            sleep = random.uniform(0, backoff)
+            backoff = min(backoff * 2, 10.0)
+        await asyncio.sleep(sleep)
+
+
+async def no_cratedbs_remain(coapi: CustomObjectsApi, namespace: str) -> bool:
+    """Return ``True`` once no CrateDB CRs are left in ``namespace``.
+
+    A lingering CR means kopf is still holding its finalizer (and its per-cluster
+    ping timer); used to gate namespace teardown on the operator having fully
+    processed the deletion. Only ever driven by ``assert_wait_for``, so transient
+    control-plane errors are absorbed by ``_poll`` -- this just maps a 404
+    (namespace/CRD already gone) to "nothing left".
+    """
+    try:
+        objs = await coapi.list_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return True
+        raise
+    return len(objs.get("items", [])) == 0
+
+
+async def delete_cratedbs_and_wait(
+    coapi: CustomObjectsApi, namespace: str, timeout: float = 120
+) -> None:
+    """Delete every CrateDB CR in ``namespace`` *through kopf* and wait for it
+    to disappear.
+
+    Deleting the CR (rather than only the namespace) lets the session-scoped,
+    all-namespace operator run its ``@kopf.on.delete`` handler, clear the
+    finalizer and **cancel the per-cluster ping timer**. Skipping this leaks a
+    5s timer that keeps hitting the API server for a phantom cluster for the rest
+    of the run, throttling the shared client and flaking other tests.
+
+    Best-effort: any API error here is logged, never raised -- the namespace
+    delete that follows still reclaims the CR, so teardown must not red a
+    passing test.
+    """
+    log = logging.getLogger(__name__)
+    try:
+        objs = await retry_on_throttle(
+            coapi.list_namespaced_custom_object,
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+        )
+        for obj in objs.get("items", []):
+            try:
+                await retry_on_throttle(
+                    coapi.delete_namespaced_custom_object,
+                    group=API_GROUP,
+                    version="v1",
+                    plural=RESOURCE_CRATEDB,
+                    namespace=namespace,
+                    name=obj["metadata"]["name"],
+                    body=V1DeleteOptions(),
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        await assert_wait_for(
+            True,
+            no_cratedbs_remain,
+            coapi,
+            namespace,
+            timeout=timeout,
+        )
+    except ApiException as e:
+        if e.status != 404:
+            log.warning(
+                "Best-effort CrateDB teardown for namespace %s hit a %s; the "
+                "namespace delete will still reclaim it.",
+                namespace,
+                e.status,
+            )
+    except AssertionError:
+        log.warning(
+            "CrateDB CR(s) in namespace %s were not finalized within %ss; the "
+            "ping timer may briefly leak until the namespace finishes deleting.",
+            namespace,
+            timeout,
+        )
 
 
 async def do_pods_exist(core: CoreV1Api, namespace: str, expected: Set[str]) -> bool:

@@ -35,6 +35,7 @@ from filelock import FileLock
 from kopf.testing import KopfRunner
 from kubernetes_asyncio.client import (
     CoreV1Api,
+    CustomObjectsApi,
     V1DeleteOptions,
     V1Namespace,
     V1ObjectMeta,
@@ -45,7 +46,12 @@ from kubernetes_asyncio.config import load_kube_config
 from crate.operator.config import config
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 
-from .utils import assert_wait_for, does_namespace_exist
+from .utils import (
+    assert_wait_for,
+    delete_cratedbs_and_wait,
+    does_namespace_exist,
+    retry_on_throttle,
+)
 
 KUBECONFIG_OPTION = "--kube-config"
 KUBECONTEXT_OPTION = "--kube-context"
@@ -201,12 +207,23 @@ async def namespace(faker, api_client) -> V1Namespace:
     core = CoreV1Api(api_client)
     name = faker.uuid4()
     await assert_wait_for(False, does_namespace_exist, core, name)
-    ns: V1Namespace = await core.create_namespace(
-        body=V1Namespace(metadata=V1ObjectMeta(name=name))
+    ns: V1Namespace = await retry_on_throttle(
+        core.create_namespace,
+        body=V1Namespace(metadata=V1ObjectMeta(name=name)),
     )
     await assert_wait_for(True, does_namespace_exist, core, name)
     yield ns
-    await core.delete_namespace(name=ns.metadata.name, body=V1DeleteOptions())
+    # Tear the CrateDB CR(s) down through kopf *before* the namespace so the
+    # operator clears its finalizer and cancels the per-cluster ping timer.
+    # Deleting only the namespace leaves that 5s timer firing against a phantom
+    # cluster for the rest of this session-scoped, all-namespace operator's life,
+    # which under parallel load starves the shared API client and flakes other
+    # tests.
+    coapi = CustomObjectsApi(api_client)
+    await delete_cratedbs_and_wait(coapi, name)
+    await retry_on_throttle(
+        core.delete_namespace, name=ns.metadata.name, body=V1DeleteOptions()
+    )
 
 
 @pytest.fixture
