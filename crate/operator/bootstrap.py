@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -203,6 +204,126 @@ async def _bootstrap_user_via_sidecar(
             raise _temporary_error()
 
 
+# Per-attempt cap. readiness can take minutes under load (disk attach, init
+# containers, JVM boot), and kopf retries beyond it up to BOOTSTRAP_TIMEOUT.
+_READINESS_POLL_INTERVAL = 2
+_READINESS_MAX_WAIT = 300
+
+
+async def _wait_for_crate_container_ready(
+    namespace: str, master_node_pod: str, logger: logging.Logger
+) -> bool:
+    """Wait for the ``crate`` container in ``master_node_pod`` to report ready.
+
+    The bootstrap exec targets the ``crate`` container; attempting it before the
+    container is ready makes the apiserver reject the exec upgrade with a
+    ``400/500 Invalid response status``. Under kopf's retry cadence that adds
+    minutes to cluster bring-up (and cascades into timeouts in other tests).
+    Polling readiness first turns it into a single clean exec.
+
+    Returns ``True`` once ready, or ``False`` if the per-attempt budget elapses
+    (the caller then defers to kopf's handler retry, which calls this again). On
+    timeout it logs the pod's last-seen phase and per-container state so a slow
+    or stuck start (image pull, crash loop, init container waiting on a volume)
+    is diagnosable from the run.
+    """
+    waited = 0
+    last_pod = None
+    while True:
+        try:
+            async with GlobalApiClient() as api_client:
+                last_pod = await CoreV1Api(api_client).read_namespaced_pod(
+                    name=master_node_pod, namespace=namespace
+                )
+            if any(
+                c.name == "crate" and c.ready
+                for c in (last_pod.status.container_statuses or [])
+            ):
+                return True
+        except ApiException as e:
+            # Transient read error -- keep polling within the budget.
+            logger.warning("readiness check for %s failed: %s", master_node_pod, e)
+        if waited >= _READINESS_MAX_WAIT:
+            _log_pod_not_ready(master_node_pod, last_pod, waited, logger)
+            return False
+        await asyncio.sleep(_READINESS_POLL_INTERVAL)
+        waited += _READINESS_POLL_INTERVAL
+
+
+def _log_pod_not_ready(master_node_pod, pod, waited, logger):
+    """Log the target pod's phase and per-container state when the crate
+    container fails to become ready within the bootstrap readiness budget."""
+    if pod is None:
+        logger.warning(
+            "crate container in %s not ready after %ss; pod could not be read",
+            master_node_pod,
+            waited,
+        )
+        return
+    containers = {
+        c.name: {
+            "ready": c.ready,
+            "restartCount": c.restart_count,
+            "state": str(c.state),
+        }
+        for c in (pod.status.container_statuses or [])
+    }
+    init_containers = {
+        c.name: {"ready": c.ready, "state": str(c.state)}
+        for c in (pod.status.init_container_statuses or [])
+    }
+    logger.warning(
+        "crate container in %s not ready after %ss: phase=%s containers=%s "
+        "initContainers=%s",
+        master_node_pod,
+        waited,
+        pod.status.phase,
+        containers,
+        init_containers,
+    )
+
+
+async def _log_pod_exec_failure(namespace, master_node_pod, e, logger):
+    """
+    Log diagnostics for a failed bootstrap pod-exec so transient/persistent
+    websocket failures (e.g. ``400 Invalid response status``) are debuggable
+    from the run: the exception detail plus the target pod's phase and per
+    container readiness (was the ``crate`` container actually ready to exec?).
+    """
+    logger.warning(
+        "bootstrap pod_exec into %s failed: type=%s status=%s detail=%s",
+        master_node_pod,
+        type(e).__name__,
+        getattr(e, "status", None),
+        getattr(e, "message", None) or str(e),
+    )
+    try:
+        async with GlobalApiClient() as api_client:
+            pod = await CoreV1Api(api_client).read_namespaced_pod(
+                name=master_node_pod, namespace=namespace
+            )
+        containers = {
+            c.name: {
+                "ready": c.ready,
+                "restartCount": c.restart_count,
+                "state": str(c.state),
+            }
+            for c in (pod.status.container_statuses or [])
+        }
+        logger.warning(
+            "bootstrap target pod %s phase=%s containers=%s",
+            master_node_pod,
+            pod.status.phase,
+            containers,
+        )
+    except Exception as diag_e:  # diagnostics must never mask the real failure
+        logger.warning(
+            "could not read pod %s for bootstrap diagnostics: %s",
+            master_node_pod,
+            diag_e,
+        )
+
+
 async def _bootstrap_user_via_pod_exec(
     namespace: str,
     master_node_pod: str,
@@ -266,12 +387,20 @@ async def _bootstrap_user_via_pod_exec(
                 tty=False,
             )
 
+    if not await _wait_for_crate_container_ready(namespace, master_node_pod, logger):
+        logger.info(
+            "crate container in %s not ready yet; deferring system-user bootstrap",
+            master_node_pod,
+        )
+        raise _temporary_error()
+
     needs_update = False
     try:
         logger.info("Trying to create system user via pod_exec...")
         result = await pod_exec(command_create)
     except (ApiException, WSServerHandshakeError) as e:
         exception_logger("... failed. %s", str(e))
+        await _log_pod_exec_failure(namespace, master_node_pod, e, logger)
         raise _temporary_error()
     else:
         if "rowcount" in result:
@@ -289,6 +418,7 @@ async def _bootstrap_user_via_pod_exec(
             result = await pod_exec(command_alter)
         except (ApiException, WSServerHandshakeError) as e:
             exception_logger("... failed. %s", str(e))
+            await _log_pod_exec_failure(namespace, master_node_pod, e, logger)
             raise _temporary_error()
         else:
             if "rowcount" in result:
