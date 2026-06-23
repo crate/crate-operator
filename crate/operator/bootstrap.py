@@ -204,16 +204,8 @@ async def _bootstrap_user_via_sidecar(
             raise _temporary_error()
 
 
-# How long a single bootstrap attempt waits for the crate container to become
-# ready before deferring back to kopf's handler retry. Polls frequently so the
-# exec fires the moment the container is up, rather than bouncing off a
-# not-ready container with 400/500s and waiting a full retry cycle.
-#
-# Generous on purpose: a crate container's readiness covers disk attach (slow on
-# azure-disk), init containers (incl. a JMX-jar download), JVM boot and the
-# readiness probe -- routinely a few minutes under load, so a tight budget would
-# just churn kopf retries. This is only a per-attempt cap; kopf still retries
-# beyond it, bounded by the overall BOOTSTRAP_TIMEOUT.
+# Per-attempt cap. readiness can take minutes under load (disk attach, init
+# containers, JVM boot), and kopf retries beyond it up to BOOTSTRAP_TIMEOUT.
 _READINESS_POLL_INTERVAL = 2
 _READINESS_MAX_WAIT = 300
 
@@ -395,10 +387,6 @@ async def _bootstrap_user_via_pod_exec(
                 tty=False,
             )
 
-    # Don't exec into a container that isn't ready yet: that yields a
-    # 400/500 'Invalid response status' and a wasted retry cycle. Wait for the
-    # crate container to be ready first; if it isn't within this attempt's
-    # budget, defer to kopf's handler retry.
     if not await _wait_for_crate_container_ready(namespace, master_node_pod, logger):
         logger.info(
             "crate container in %s not ready yet; deferring system-user bootstrap",
