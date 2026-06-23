@@ -32,6 +32,7 @@ from crate.operator.constants import (
 )
 
 from .utils import (
+    CLUSTER_CREATE_TIMEOUT,
     DEFAULT_TIMEOUT,
     assert_wait_for,
     is_kopf_handler_finished,
@@ -162,11 +163,7 @@ async def test_create_traefik_with_cidrs(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Service should be ClusterIP
@@ -252,11 +249,7 @@ async def test_create_traefik_without_cidrs(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Service ClusterIP
@@ -344,11 +337,7 @@ async def test_update_cidrs_traefik_empty_to_nonempty(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Service should be ClusterIP
@@ -473,11 +462,7 @@ async def test_update_cidrs_traefik_nonempty_to_empty(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Initially middleware exists
@@ -578,11 +563,7 @@ async def test_change_exposure_loadbalancer_to_traefik(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create.bootstrap",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Initially service is LoadBalancer, no Traefik resources
@@ -698,11 +679,7 @@ async def test_change_exposure_traefik_to_loadbalancer(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        # Provisioning and bootstrapping a cluster on a busy parallel CI
-        # cluster can take several minutes (image pulls, JVM start, node
-        # contention), so give the wait generous headroom -- the operator
-        # already retries the bootstrap exec every few seconds in testing.
-        timeout=DEFAULT_TIMEOUT * 10,
+        timeout=CLUSTER_CREATE_TIMEOUT,
     )
 
     # Initially Traefik resources exist

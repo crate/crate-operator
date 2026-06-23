@@ -73,6 +73,10 @@ CRATE_VERSION = "5.6.5"
 CRATE_VERSION_WITH_JWT = "5.7.3"
 CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG = "5.10.1"
 DEFAULT_TIMEOUT = 60
+# Cluster create/bootstrap on a busy parallel CI cluster can take several
+# minutes (image pulls, JVM start, node contention), so the bring-up waits get
+# generous headroom -- the operator already retries the bootstrap exec.
+CLUSTER_CREATE_TIMEOUT = DEFAULT_TIMEOUT * 10
 
 
 # Control-plane errors that are transient under load -- AKS/EKS apiserver
@@ -391,12 +395,12 @@ async def start_cluster(
             namespace.metadata.name,
             f"crate-{name}",
             err_msg="Lb service was not ready.",
-            timeout=DEFAULT_TIMEOUT * 10,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
         host = await asyncio.wait_for(
             get_service_public_hostname(core, namespace.metadata.name, name),
-            timeout=DEFAULT_TIMEOUT * 10,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
         password = await get_system_user_password(core, namespace.metadata.name, name)
     else:
@@ -414,7 +418,7 @@ async def start_cluster(
             namespace.metadata.name,
             f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
             err_msg="Cluster has not finished bootstrapping",
-            timeout=DEFAULT_TIMEOUT * 10,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
         await assert_wait_for(
@@ -423,7 +427,7 @@ async def start_cluster(
             connection_factory(host, password),
             hot_nodes,
             err_msg="Cluster wasn't healthy after 10 minutes.",
-            timeout=DEFAULT_TIMEOUT * 10,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
     return host, password
