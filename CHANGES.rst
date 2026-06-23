@@ -13,6 +13,11 @@ Unreleased
   on resume and stopped after them on suspend, and compute changes and volume
   expansion are applied to the master node group as well as the data nodes.
 
+* Excluded dedicated master nodes from the client-facing service. The load
+  balancer now only targets data nodes, so client traffic is never routed to a
+  ``node.data=false`` master. Master nodes remain in the headless discovery
+  service so the cluster still forms.
+
 * Webhook notifications now reflect dedicated master nodes: the scale webhook
   reports the effective master replica count (``0`` while suspended), the
   change-compute webhook includes master compute, and the storage-expansion

@@ -102,6 +102,7 @@ from crate.operator.constants import (
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
+    LABEL_NODE_DATA,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
     SHARED_NODE_SELECTOR_KEY,
@@ -877,6 +878,9 @@ def get_statefulset(
     node_labels.update(node_spec.get("labels", {}))
     # This is to identify pods of the same cluster but with a different node type
     node_labels[LABEL_NODE_NAME] = node_name
+    # Mark whether this node serves data; the client-facing service selects on
+    # this so dedicated master nodes (data=false) stay out of the LB pool.
+    node_labels[LABEL_NODE_DATA] = "true" if treat_as_data else "false"
     full_pod_name_prefix = f"crate-{node_name_prefix}{name}"
     image_registry, version = crate_image.rsplit(":", 1)
 
@@ -1275,6 +1279,7 @@ def get_data_service(
     source_ranges: Optional[List[str]] = None,
     additional_annotations: Optional[Dict] = None,
     use_traefik: bool = False,
+    has_dedicated_masters: bool = False,
 ) -> V1Service:
     res_annotations = {}
 
@@ -1286,6 +1291,14 @@ def get_data_service(
 
     service_type = "ClusterIP" if use_traefik else "LoadBalancer"
 
+    selector = {LABEL_COMPONENT: "cratedb", LABEL_NAME: name}
+    if has_dedicated_masters:
+        # Only data nodes serve client traffic, so keep dedicated master nodes
+        # (node-data=false) out of the LB pool. Scoped to clusters that actually
+        # have masters: data-only clusters keep the plain selector, so their
+        # (possibly unlabelled, pre-existing) pods still match on resume.
+        selector[LABEL_NODE_DATA] = "true"
+
     spec_kwargs = dict(
         ports=[
             V1ServicePort(name="http", port=http_port, target_port=Port.HTTP.value),
@@ -1293,7 +1306,7 @@ def get_data_service(
                 name="psql", port=postgres_port, target_port=Port.POSTGRES.value
             ),
         ],
-        selector={LABEL_COMPONENT: "cratedb", LABEL_NAME: name},
+        selector=selector,
         type=service_type,
     )
 
@@ -1393,6 +1406,7 @@ async def create_services(
     source_ranges: Optional[List[str]] = None,
     additional_annotations: Optional[Dict] = None,
     use_traefik: bool = False,
+    has_dedicated_masters: bool = False,
 ) -> None:
     async with GlobalApiClient() as api_client:
         core = CoreV1Api(api_client)
@@ -1408,6 +1422,7 @@ async def create_services(
             source_ranges,
             additional_annotations=additional_annotations,
             use_traefik=use_traefik,
+            has_dedicated_masters=has_dedicated_masters,
         )
         await call_kubeapi(
             core.create_namespaced_service,
@@ -1476,6 +1491,7 @@ async def recreate_services(
         source_ranges,
         additional_annotations,
         use_traefik=use_traefik,
+        has_dedicated_masters="master" in spec["nodes"],
     )
 
 
@@ -1707,6 +1723,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
         source_ranges: Optional[List[str]] = None,
         additional_annotations: Optional[Dict] = None,
         exposure: str = "loadbalancer",
+        has_dedicated_masters: bool = False,
         **kwargs: Any,
     ):
         use_traefik = exposure == "traefik"
@@ -1723,6 +1740,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
             source_ranges,
             additional_annotations,
             use_traefik=use_traefik,
+            has_dedicated_masters=has_dedicated_masters,
         )
 
 

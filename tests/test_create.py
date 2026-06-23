@@ -44,6 +44,8 @@ from crate.operator.constants import (
     LABEL_COMPONENT,
     LABEL_MANAGED_BY,
     LABEL_NAME,
+    LABEL_NODE_DATA,
+    LABEL_NODE_NAME,
     LABEL_PART_OF,
     RESOURCE_CRATEDB,
     TERMINATION_GRACE_PERIOD_SECONDS,
@@ -58,7 +60,9 @@ from crate.operator.create import (
     get_cluster_resource_limits,
     get_cluster_resource_requests,
     get_data_service,
+    get_discovery_service,
     get_sql_exporter_config,
+    get_statefulset,
     get_statefulset_affinity,
     get_statefulset_containers,
     get_statefulset_crate_command,
@@ -1188,6 +1192,109 @@ class TestServiceModels:
                 ]
                 == dns
             )
+
+    def test_data_service_selector_excludes_masters_with_dedicated_masters(self, faker):
+        name = faker.domain_word()
+        service = get_data_service(
+            None,
+            name,
+            {},
+            faker.port_number(),
+            faker.port_number(),
+            None,
+            has_dedicated_masters=True,
+        )
+        # With dedicated masters the client-facing service must only target data
+        # nodes, so masters (node-data=false) stay out of the load-balancer pool.
+        assert service.spec.selector == {
+            LABEL_COMPONENT: "cratedb",
+            LABEL_NAME: name,
+            LABEL_NODE_DATA: "true",
+        }
+
+    def test_data_service_selector_unchanged_without_masters(self, faker):
+        name = faker.domain_word()
+        service = get_data_service(
+            None, name, {}, faker.port_number(), faker.port_number(), None
+        )
+        # Data-only clusters keep the plain selector (no node-data), so the
+        # service still matches pre-existing, unlabelled pods on resume.
+        assert service.spec.selector == {
+            LABEL_COMPONENT: "cratedb",
+            LABEL_NAME: name,
+        }
+        assert LABEL_NODE_DATA not in service.spec.selector
+
+    def test_discovery_service_selects_all_nodes(self, faker):
+        name = faker.domain_word()
+        service = get_discovery_service(
+            None,
+            name,
+            {},
+            faker.port_number(),
+            faker.port_number(),
+            faker.port_number(),
+        )
+        # Discovery must reach every node (masters included) for the cluster to
+        # form, so it must not filter on node-data.
+        assert LABEL_NODE_DATA not in service.spec.selector
+        assert service.spec.selector == {
+            LABEL_COMPONENT: "cratedb",
+            LABEL_NAME: name,
+        }
+
+    @pytest.mark.parametrize(
+        "treat_as_data, node_name, expected_node_data",
+        [(True, "hot", "true"), (False, "master", "false")],
+    )
+    def test_statefulset_stamps_node_data_label(
+        self, faker, treat_as_data, node_name, expected_node_data
+    ):
+        name = faker.domain_word()
+        sts = get_statefulset(
+            None,
+            "some-namespace",
+            name,
+            {
+                LABEL_MANAGED_BY: "crate-operator",
+                LABEL_NAME: name,
+                LABEL_PART_OF: "cratedb",
+                LABEL_COMPONENT: "cratedb",
+            },
+            True,  # treat_as_master
+            treat_as_data,
+            name,  # cluster_name
+            node_name,
+            f"{node_name}-",
+            {
+                "replicas": 3,
+                "resources": {
+                    "requests": {"cpu": 0.5, "memory": "1Gi"},
+                    "limits": {"cpu": 0.5, "memory": "1Gi"},
+                    "heapRatio": 0.4,
+                    "disk": {"count": 1, "size": "16Gi", "storageClass": "default"},
+                },
+            },
+            ["master-1", "master-2", "master-3"],
+            3,
+            3,
+            10000,
+            20000,
+            30000,
+            40000,
+            50000,
+            f"crate:{CRATE_VERSION}",
+            None,
+            {},
+            [],
+            {},
+            logging.getLogger(__name__),
+        )
+        # The pod template carries node-data so the data service can select on
+        # it; data nodes are "true", dedicated masters are "false".
+        pod_labels = sts.spec.template.metadata.labels
+        assert pod_labels[LABEL_NODE_NAME] == node_name
+        assert pod_labels[LABEL_NODE_DATA] == expected_node_data
 
 
 @pytest.mark.k8s

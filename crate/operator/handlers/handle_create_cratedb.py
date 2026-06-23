@@ -138,6 +138,7 @@ async def create_cratedb(
             .get("service", {})
             .get("annotations", {}),
             exposure=exposure,
+            has_dedicated_masters=has_master_nodes,
         ),
         id="services",
     )

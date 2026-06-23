@@ -99,6 +99,25 @@ async def _master_pods_present(core: CoreV1Api, namespace: str, name: str) -> bo
     return len(await get_pods_in_statefulset(core, namespace, name, "master")) > 0
 
 
+async def _data_service_target_pods(core: CoreV1Api, namespace: str, name: str):
+    """Pod names currently backing the client-facing ``crate-<name>`` service."""
+    ep = await core.read_namespaced_endpoints(f"crate-{name}", namespace)
+    return {
+        addr.target_ref.name
+        for subset in (ep.subsets or [])
+        for addr in (subset.addresses or [])
+        if addr.target_ref is not None
+    }
+
+
+async def _data_service_excludes_masters(
+    core: CoreV1Api, namespace: str, name: str
+) -> bool:
+    """True once the client service has endpoints, none of them master pods."""
+    pods = await _data_service_target_pods(core, namespace, name)
+    return bool(pods) and not any(p.startswith(f"crate-master-{name}-") for p in pods)
+
+
 def _scale_data(coapi, name, namespace, replicas):
     return coapi.patch_namespaced_custom_object(
         group=API_GROUP,
@@ -179,6 +198,18 @@ async def test_create_cluster_with_dedicated_masters(
         MASTER_REPLICAS + HOT_REPLICAS,
         err_msg="Master cluster wasn't healthy.",
         timeout=DEFAULT_TIMEOUT * 5,
+    )
+
+    # The client-facing service must route to data nodes only: dedicated
+    # masters are deliberately kept out of the load-balancer pool.
+    await assert_wait_for(
+        True,
+        _data_service_excludes_masters,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="dedicated master pods must be excluded from the client service",
+        timeout=DEFAULT_TIMEOUT,
     )
 
 
