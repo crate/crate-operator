@@ -237,3 +237,66 @@ async def test_ping_cratedb_status_exceptions(
         mock_report.assert_called_once_with(
             name, cluster_name, namespace, PrometheusClusterStatus.UNREACHABLE
         )
+
+
+class TestPingCratedbNodeLookup:
+    """The ping timer must derive its desired-instance count from the data node
+    topology without assuming a data group named "hot"."""
+
+    @pytest.mark.asyncio
+    @patch("crate.operator.main.ping_cratedb_status", new_callable=AsyncMock)
+    async def test_uses_total_data_count_for_non_hot_group(self, mock_ping):
+        import crate.operator.main as main
+
+        spec = {
+            "cluster": {"name": "n"},
+            "nodes": {
+                "master": {"replicas": 3},
+                "data": [{"name": "warm", "replicas": 5}],
+            },
+        }
+
+        await main.ping_cratedb(
+            namespace="ns", name="c", spec=spec, patch=MagicMock(), logger=MagicMock()
+        )
+
+        # desired_instances (4th positional arg) is the data node count, and no
+        # StopIteration is raised for the missing "hot" group.
+        assert mock_ping.await_args.args[3] == 5
+
+    @pytest.mark.asyncio
+    @patch("crate.operator.main.ping_cratedb_status", new_callable=AsyncMock)
+    async def test_reports_zero_when_data_suspended(self, mock_ping):
+        import crate.operator.main as main
+
+        spec = {
+            "cluster": {"name": "n"},
+            "nodes": {
+                "master": {"replicas": 3},
+                "data": [{"name": "hot", "replicas": 0}],
+            },
+        }
+
+        await main.ping_cratedb(
+            namespace="ns", name="c", spec=spec, patch=MagicMock(), logger=MagicMock()
+        )
+
+        # Data at 0 -> 0 desired instances, which ping_cratedb_status treats as
+        # SUSPENDED (masters do not affect the gate).
+        assert mock_ping.await_args.args[3] == 0
+
+    @pytest.mark.asyncio
+    @patch("crate.operator.main.ping_cratedb_status", new_callable=AsyncMock)
+    async def test_legacy_cluster_without_masters(self, mock_ping):
+        import crate.operator.main as main
+
+        spec = {
+            "cluster": {"name": "n"},
+            "nodes": {"data": [{"name": "hot", "replicas": 2}]},
+        }
+
+        await main.ping_cratedb(
+            namespace="ns", name="c", spec=spec, patch=MagicMock(), logger=MagicMock()
+        )
+
+        assert mock_ping.await_args.args[3] == 2

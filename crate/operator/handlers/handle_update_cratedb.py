@@ -56,6 +56,21 @@ from crate.operator.utils.notifications import FlushNotificationsSubHandler
 from crate.operator.webhooks import WebhookAction
 
 
+def _data_nodes_cross_zero(diff: kopf.Diff) -> bool:
+    """
+    Return whether any data node group is scaling to or from zero replicas in
+    this diff, i.e. whether the cluster is being suspended or resumed. Used to
+    distinguish a legitimate (data-driven) suspend/resume from an unsafe
+    standalone master scale.
+    """
+    for _, field_path, old_value, new_value in diff:
+        if field_path == ("spec", "nodes", "data"):
+            for old_spec, new_spec in zip(old_value, new_value):
+                if old_spec.get("replicas") == 0 or new_spec.get("replicas") == 0:
+                    return True
+    return False
+
+
 async def update_cratedb(
     namespace: str,
     name: str,
@@ -128,6 +143,8 @@ async def update_cratedb(
 
     operation = OperationType.UNKNOWN
 
+    data_nodes_cross_zero = _data_nodes_cross_zero(diff)
+
     for _, field_path, old_spec, new_spec in diff:
         if field_path in {
             ("spec", "cluster", "imageRegistry"),
@@ -136,9 +153,55 @@ async def update_cratedb(
             do_upgrade = True
             do_restart = True
             operation = OperationType.UPGRADE
-        elif field_path == ("spec", "nodes", "master", "replicas"):
-            do_scale = True
-            operation = OperationType.SCALE
+        elif field_path[:3] == ("spec", "nodes", "master"):
+            # Dedicated masters are a single dict in the CRD, so kopf reports
+            # their changes at leaf level (unlike the data list). Classify the
+            # leaf to route it to the right operation.
+            master_subpath = field_path[3:]
+            if master_subpath == ("replicas",):
+                old_master = old_spec or 0
+                new_master = new_spec or 0
+                if old_master == 0 or new_master == 0:
+                    # When data is also crossing zero, suspend_or_start_cluster
+                    # scales the masters itself - reject only a standalone
+                    # across-zero change.
+                    if not data_nodes_cross_zero:
+                        raise kopf.PermanentError(
+                            "Scaling master nodes to or from zero is only "
+                            "supported as part of a full cluster "
+                            "suspend/resume (driven by the data nodes), not as "
+                            "a standalone master.replicas change."
+                        )
+                elif new_master < 3 or new_master % 2 == 0:
+                    # Masters must stay an odd quorum of at least three.
+                    raise kopf.PermanentError(
+                        "Dedicated master nodes (spec.nodes.master.replicas) "
+                        "must be an odd number >= 3 to form a quorum, got "
+                        f"{new_master}."
+                    )
+                else:
+                    do_scale = True
+                    operation = OperationType.SCALE
+            elif master_subpath == ("resources", "disk", "size"):
+                # A master disk-size increase is a storage expansion, the same
+                # as for data groups.
+                do_expand_volume = True
+                if config.NO_DOWNTIME_STORAGE_EXPANSION:
+                    do_before_update = False
+                    do_after_update = False
+            elif master_subpath[:2] == ("resources", "disk"):
+                # Other disk fields (count/storageClass) are not actioned,
+                # mirroring the data groups.
+                pass
+            elif master_subpath[:1] == ("resources",) or master_subpath == (
+                "nodepool",
+            ):
+                # A master cpu/memory/heapRatio/nodepool change is a compute
+                # change. restart already covers the master StatefulSet, so the
+                # patched resources take effect.
+                do_change_compute = True
+                operation = OperationType.CHANGE_COMPUTE
+                do_restart = True
         elif field_path == ("spec", "cluster", "exposure"):
             old_val = old_spec if old_spec is not None else "loadbalancer"
             new_val = new_spec if new_spec is not None else "loadbalancer"

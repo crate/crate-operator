@@ -18,9 +18,11 @@
 # However, if you have executed another commercial license agreement
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
+import logging
 from unittest import mock
 
 import bitmath
+import kopf
 import pytest
 from kubernetes_asyncio.client import (
     CoreV1Api,
@@ -199,3 +201,173 @@ async def _expand_volume(
         name=name,
         body=patch_body,
     )
+
+
+def _fake_pvc(
+    *, requests_storage, capacity_storage, resize_pending=False, condition_type=None
+):
+    pvc = mock.Mock()
+    pvc.spec.resources.requests = {"storage": requests_storage}
+    pvc.status.capacity = {"storage": capacity_storage}
+    ctype = condition_type or ("FileSystemResizePending" if resize_pending else None)
+    if ctype:
+        condition = mock.Mock()
+        condition.type = ctype
+        pvc.status.conditions = [condition]
+    else:
+        pvc.status.conditions = []
+    return pvc
+
+
+class TestExpandVolumePerGroup:
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_expands_master_pvcs_by_label(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        # Already physically resized, so no retry is raised.
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472", capacity_storage="274877906944"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
+
+        # PVCs were looked up by the master node label.
+        get_pvcs_call = mock_get_pvcs.await_args
+        assert get_pvcs_call is not None
+        assert get_pvcs_call.args[3] == "master"
+        # The PVC was patched to the new size.
+        patch_call = core.patch_namespaced_persistent_volume_claim.await_args
+        assert patch_call is not None
+        patch_body = patch_call.kwargs["body"]
+        assert patch_body["spec"]["resources"]["requests"]["storage"] == "274877906944"
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_retries_while_resize_in_progress(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472", capacity_storage="137438953472"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        with pytest.raises(kopf.TemporaryError):
+            await expand_volume(
+                core, "ns", "c", [("master", "274877906944")], mock.Mock()
+            )
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_accepts_resizing_condition_without_waiting(
+        self, mock_get_pvcs, _mock_notify
+    ):
+        """Once the control plane has accepted the expansion (PVC ``Resizing``),
+        the handler must not block waiting for the physical resize to finish --
+        on slow backends (e.g. azure-disk) that would time out unnecessarily."""
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        # Accepted (Resizing) but capacity not yet grown -> must NOT raise.
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="137438953472",
+                capacity_storage="137438953472",
+                condition_type="Resizing",
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
+
+    @pytest.mark.asyncio
+    @mock.patch("crate.operator.expand_volume.send_operation_progress_notification")
+    @mock.patch(
+        "crate.operator.expand_volume.get_pvcs_in_namespace",
+        new_callable=mock.AsyncMock,
+    )
+    async def test_noop_when_already_at_target_size(self, mock_get_pvcs, _mock_notify):
+        from crate.operator.expand_volume import expand_volume
+
+        mock_get_pvcs.return_value = [{"uid": "u", "name": "data0-crate-master-c-0"}]
+        core = mock.Mock()
+        core.read_namespaced_persistent_volume_claim = mock.AsyncMock(
+            return_value=_fake_pvc(
+                requests_storage="274877906944", capacity_storage="274877906944"
+            )
+        )
+        core.patch_namespaced_persistent_volume_claim = mock.AsyncMock()
+
+        await expand_volume(core, "ns", "c", [("master", "274877906944")], mock.Mock())
+
+        core.patch_namespaced_persistent_volume_claim.assert_not_awaited()
+
+
+def _disk_diff_data(old_size, new_size):
+    return kopf.DiffItem(
+        kopf.DiffOperation.CHANGE,
+        ("spec", "nodes", "data"),
+        [{"name": "hot", "resources": {"disk": {"size": old_size}}}],
+        [{"name": "hot", "resources": {"disk": {"size": new_size}}}],
+    )
+
+
+def _disk_diff_master(old_size, new_size):
+    return kopf.DiffItem(
+        kopf.DiffOperation.CHANGE,
+        ("spec", "nodes", "master", "resources", "disk", "size"),
+        old_size,
+        new_size,
+    )
+
+
+class TestCollectDiskExpansions:
+    def test_collects_master_and_data_groups(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff(
+            [_disk_diff_data("100", "200"), _disk_diff_master("50", "120")]
+        )
+
+        expansions = collect_disk_expansions(diff, logging.getLogger(__name__))
+
+        assert ("hot", "200") in expansions
+        assert ("master", "120") in expansions
+
+    def test_skips_data_groups_with_unchanged_size(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff([_disk_diff_data("200", "200")])
+
+        assert collect_disk_expansions(diff, logging.getLogger(__name__)) == []
+
+    def test_master_only_disk_change(self):
+        from crate.operator.expand_volume import collect_disk_expansions
+
+        diff = kopf.Diff([_disk_diff_master("50", "120")])
+
+        assert collect_disk_expansions(diff, logging.getLogger(__name__)) == [
+            ("master", "120")
+        ]

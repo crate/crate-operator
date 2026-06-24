@@ -20,13 +20,13 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple
 
 import kopf
 from kubernetes_asyncio.client import CoreV1Api
 
 from crate.operator.config import config
-from crate.operator.constants import DATA_NODE_NAME, DATA_PVC_NAME_PREFIX
+from crate.operator.constants import DATA_PVC_NAME_PREFIX
 from crate.operator.operations import get_pvcs_in_namespace
 from crate.operator.utils import crate
 from crate.operator.utils.formatting import convert_to_bytes
@@ -39,29 +39,53 @@ from crate.operator.webhooks import (
     WebhookFeedbackPayload,
     WebhookOperation,
     WebhookStatus,
+    WebhookStorageGroupPayload,
 )
+
+
+def collect_disk_expansions(
+    diff: kopf.Diff, logger: logging.Logger
+) -> List[Tuple[str, Any]]:
+    """
+    Build one ``(node_label, new_size)`` pair per node group whose disk size
+    changed. Data groups are a list (diffed as a whole); the dedicated masters
+    are a single dict, so kopf reports their disk size at the leaf.
+
+    :param diff: The kopf diff for the update.
+    """
+    expansions: List[Tuple[str, Any]] = []
+    for operation, field_path, old_value, new_value in diff:
+        if field_path == ("spec", "nodes", "data"):
+            for old_spec, new_spec in zip(old_value, new_value):
+                old_size = old_spec["resources"]["disk"]["size"]
+                new_size = new_spec["resources"]["disk"]["size"]
+                if old_size != new_size:
+                    expansions.append((new_spec["name"], new_size))
+        elif field_path == ("spec", "nodes", "master", "resources", "disk", "size"):
+            expansions.append(("master", new_value))
+        else:
+            logger.info("Ignoring operation %s on field %s", operation, field_path)
+    return expansions
 
 
 async def expand_volume(
     core: CoreV1Api,
     namespace: str,
     name: str,
-    data_diff_items: kopf.Diff,
+    expansions: List[Tuple[str, Any]],
     logger: logging.Logger,
 ):
     """
-    Expand a cluster's disk size according to the given ``data_diff_items``.
+    Expand the disk volumes of one or more node groups.
 
     :param core: An instance of the Kubernetes Core V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
-    :param old: The old resource body.
-    :param data_diff_items: A list of changes made to the individual
-        data node specifications.
+    :param expansions: One ``(node_label, new_size)`` pair per node group whose
+        disk size changed. ``node_label`` is the group's node-name label
+        (``"master"`` for the dedicated masters, or a data group's name);
+        ``new_size`` is the target disk size (a size string or byte count).
     """
-    all_pvcs = await get_pvcs_in_namespace(core, namespace, name, DATA_NODE_NAME)
-    pvc_storage = {}
-
     await send_operation_progress_notification(
         namespace=namespace,
         name=name,
@@ -72,54 +96,52 @@ async def expand_volume(
         action=WebhookAction.EXPAND_STORAGE,
     )
 
-    for pvc in all_pvcs:
-        if not pvc["name"].startswith(DATA_PVC_NAME_PREFIX):
-            continue
-        current_pvc = await core.read_namespaced_persistent_volume_claim(
-            name=pvc["name"],
-            namespace=namespace,
-        )
-        if data_diff_items:
-            for _, field_path, old_storage, new_storage in data_diff_items:
-                current_storage = convert_to_bytes(
-                    current_pvc.spec.resources.requests["storage"]
-                )
-                new_storage = convert_to_bytes(new_storage)
-                if current_storage != new_storage:
-                    body: Dict[str, Any] = {
-                        "spec": {
-                            "resources": {
-                                "requests": {"storage": str(int(new_storage))}
-                            },
-                        }
+    pvc_storage = {}
+    for node_label, new_size in expansions:
+        new_storage = convert_to_bytes(new_size)
+        all_pvcs = await get_pvcs_in_namespace(core, namespace, name, node_label)
+        for pvc in all_pvcs:
+            if not pvc["name"].startswith(DATA_PVC_NAME_PREFIX):
+                continue
+            current_pvc = await core.read_namespaced_persistent_volume_claim(
+                name=pvc["name"],
+                namespace=namespace,
+            )
+            current_storage = convert_to_bytes(
+                current_pvc.spec.resources.requests["storage"]
+            )
+            if current_storage != new_storage:
+                body: Dict[str, Any] = {
+                    "spec": {
+                        "resources": {"requests": {"storage": str(int(new_storage))}},
                     }
-                    logger.info(f"Patch PVC {pvc['name']} with body {body}")
-                    await core.patch_namespaced_persistent_volume_claim(
-                        name=pvc["name"],
-                        namespace=namespace,
-                        body=body,
-                    )
-                storage_status = convert_to_bytes(
-                    current_pvc.status.capacity["storage"]
+                }
+                logger.info(f"Patch PVC {pvc['name']} with body {body}")
+                await core.patch_namespaced_persistent_volume_claim(
+                    name=pvc["name"],
+                    namespace=namespace,
+                    body=body,
                 )
-                logger.info(
-                    f"PVC {pvc['name']} storage current/new "
-                    f"{int(storage_status)}/{int(new_storage)}"
-                )
-                conditions = current_pvc.status.conditions or []
-                if int(storage_status) == int(new_storage) or any(
-                    cond.type == "FileSystemResizePending" for cond in conditions
-                ):
-                    pvc_storage[pvc["name"]] = {
-                        "in_progress": False,
-                    }
-                else:
-                    pvc_storage[pvc["name"]] = {
-                        "in_progress": True,
-                    }
-    # If resizing for at least one of the PVCs is not finished, we try again.
-    # Or assume that the StorageClass does not support expansion and fail
-    # after the timeout is reached.
+            storage_status = convert_to_bytes(current_pvc.status.capacity["storage"])
+            logger.info(
+                f"PVC {pvc['name']} storage current/new "
+                f"{int(storage_status)}/{int(new_storage)}"
+            )
+            conditions = current_pvc.status.conditions or []
+            # We only need the resize accepted, not physically complete -
+            # ``Resizing/FileSystemResizePending`` (or capacity already grown)
+            # is enough. The online resize finishes on its own, waiting would
+            # time out on slow backends.
+            accepted = {"Resizing", "FileSystemResizePending"}
+            if int(storage_status) == int(new_storage) or any(
+                cond.type in accepted for cond in conditions
+            ):
+                pvc_storage[pvc["name"]] = {"in_progress": False}
+            else:
+                pvc_storage[pvc["name"]] = {"in_progress": True}
+    # If the expansion has not been accepted for at least one PVC yet, retry.
+    # A StorageClass that does not support expansion never produces a resize
+    # condition, so this still fails after the timeout is reached.
     if pending_pvc := next(
         (
             name
@@ -148,46 +170,29 @@ class ExpandVolumeSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        expand_data_diff_items: Optional[List[kopf.DiffItem]] = None
+        expansions = collect_disk_expansions(diff, logger)
 
-        for operation, field_path, old_value, new_value in diff:
-            if field_path == ("spec", "nodes", "data"):
-                expand_data_diff_items = []
-                for node_spec_idx in range(len(old_value)):
-                    old_spec = old_value[node_spec_idx]
-                    new_spec = new_value[node_spec_idx]
-
-                    expand_data_diff_items.append(
-                        kopf.DiffItem(
-                            kopf.DiffOperation.CHANGE,
-                            (str(node_spec_idx), "resources", "disk", "size"),
-                            old_spec["resources"]["disk"]["size"],
-                            new_spec["resources"]["disk"]["size"],
-                        )
-                    )
-            else:
-                logger.info("Ignoring operation %s on field %s", operation, field_path)
-
-        if expand_data_diff_items:
+        if expansions:
             async with GlobalApiClient() as api_client:
                 core = CoreV1Api(api_client)
 
-                await expand_volume(
-                    core,
-                    namespace,
-                    name,
-                    kopf.Diff(expand_data_diff_items),
-                    logger,
-                )
+                await expand_volume(core, namespace, name, expansions, logger)
 
         # schedule success notification and send it after the cluster
-        # has been restarted successfully.
+        # has been restarted successfully. The per-group new sizes let billing
+        # attribute storage per node group (master, hot, ...).
         self.schedule_notification(
             WebhookEvent.FEEDBACK,
             WebhookFeedbackPayload(
                 message="The cluster storage has been resized successfully.",
                 operation=WebhookOperation.UPDATE,
                 action=WebhookAction.EXPAND_STORAGE,
+                disk_sizes=[
+                    WebhookStorageGroupPayload(
+                        name=node_label, new_disk_size=str(new_size)
+                    )
+                    for node_label, new_size in expansions
+                ],
             ),
             WebhookStatus.SUCCESS,
         )

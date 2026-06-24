@@ -8,6 +8,9 @@ Unreleased
 * Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
   ``spec.cluster.exposure`` is set to ``traefik``.
 
+* Made dedicated master nodes (``spec.nodes.master``) behave consistently
+  across all cluster operations.
+
 2.61.0 (2026-06-02)
 -------------------
 
