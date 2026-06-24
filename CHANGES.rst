@@ -11,9 +11,6 @@ Unreleased
 * Made dedicated master nodes (``spec.nodes.master``) behave consistently
   across all cluster operations.
 
-* A compute change now performs a rolling restart of only the node groups whose
-  resources actually changed, instead of the whole cluster.
-
 2.61.0 (2026-06-02)
 -------------------
 
