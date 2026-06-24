@@ -9,25 +9,10 @@ Unreleased
   ``spec.cluster.exposure`` is set to ``traefik``.
 
 * Made dedicated master nodes (``spec.nodes.master``) behave consistently
-  across all cluster operations. Master nodes are now started before data nodes
-  on resume and stopped after them on suspend, and compute changes and volume
-  expansion are applied to the master node group as well as the data nodes.
-
-* Excluded dedicated master nodes from the client-facing service. The load
-  balancer now only targets data nodes, so client traffic is never routed to a
-  ``node.data=false`` master. Master nodes remain in the headless discovery
-  service so the cluster still forms.
-
-* Webhook notifications now reflect dedicated master nodes: the scale webhook
-  reports the effective master replica count (``0`` while suspended), the
-  change-compute webhook includes master compute, and the storage-expansion
-  feedback reports the new disk size per node group.
+  across all cluster operations.
 
 * A compute change now performs a rolling restart of only the node groups whose
-  resources actually changed, instead of the whole cluster. Changing just the
-  master group no longer restarts the data nodes; when several groups change at
-  once they are restarted one node at a time, masters first. Upgrades continue
-  to restart every node.
+  resources actually changed, instead of the whole cluster.
 
 2.61.0 (2026-06-02)
 -------------------
