@@ -73,6 +73,10 @@ CRATE_VERSION = "5.6.5"
 CRATE_VERSION_WITH_JWT = "5.7.3"
 CRATE_VERSION_WITH_GLOBAL_JWT_CONFIG = "5.10.1"
 DEFAULT_TIMEOUT = 60
+# Cluster create/bootstrap on a busy parallel CI cluster can take several
+# minutes (image pulls, JVM start, node contention), so the bring-up waits get
+# generous headroom -- the operator already retries the bootstrap exec.
+CLUSTER_CREATE_TIMEOUT = DEFAULT_TIMEOUT * 10
 
 
 # Control-plane errors that are transient under load -- AKS/EKS apiserver
@@ -391,12 +395,12 @@ async def start_cluster(
             namespace.metadata.name,
             f"crate-{name}",
             err_msg="Lb service was not ready.",
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
         host = await asyncio.wait_for(
             get_service_public_hostname(core, namespace.metadata.name, name),
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
         password = await get_system_user_password(core, namespace.metadata.name, name)
     else:
@@ -414,7 +418,7 @@ async def start_cluster(
             namespace.metadata.name,
             f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
             err_msg="Cluster has not finished bootstrapping",
-            timeout=DEFAULT_TIMEOUT * 5,
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
         await assert_wait_for(
@@ -422,8 +426,8 @@ async def start_cluster(
             is_cluster_healthy,
             connection_factory(host, password),
             hot_nodes,
-            err_msg="Cluster wasn't healthy after 5 minutes.",
-            timeout=DEFAULT_TIMEOUT * 5,
+            err_msg="Cluster wasn't healthy after 10 minutes.",
+            timeout=CLUSTER_CREATE_TIMEOUT,
         )
 
     return host, password
@@ -549,6 +553,55 @@ async def _check_kopf_handler_status(
     return result
 
 
+def _summarize_container_state(cs) -> str:
+    """
+    Render a container status compactly, surfacing the actionable waiting/
+    terminated *reason* (``ImagePullBackOff``, ``CrashLoopBackOff``,
+    ``ErrImagePull``, ``CreateContainerError`` …) rather than a raw blob.
+    """
+    state = cs.state
+    if state is not None and state.waiting is not None:
+        detail = f"waiting/{state.waiting.reason}"
+        if state.waiting.message:
+            detail += f": {state.waiting.message}"
+    elif state is not None and state.terminated is not None:
+        t = state.terminated
+        detail = f"terminated/{t.reason} exit={t.exit_code}"
+    elif state is not None and state.running is not None:
+        detail = "running"
+    else:
+        detail = "unknown"
+    return f"{cs.name}:{detail} ready={cs.ready} restarts={cs.restart_count}"
+
+
+async def describe_pods(core: CoreV1Api, namespace: str) -> str:
+    """
+    A compact, per-pod summary of container states for a namespace, used to
+    explain *why* a handler is stuck when a wait times out (e.g. a pod sitting
+    in ``ImagePullBackOff`` or ``CrashLoopBackOff``). Falls back to pod
+    conditions when no container has been created yet (the ``Pending`` case).
+    """
+    try:
+        pods = await core.list_namespaced_pod(namespace=namespace)
+    except Exception as e:  # diagnostics must never mask the real failure
+        return f"<could not list pods in {namespace}: {e}>"
+    lines = []
+    for p in pods.items:
+        st = p.status
+        states = [
+            _summarize_container_state(cs)
+            for cs in (st.init_container_statuses or []) + (st.container_statuses or [])
+        ]
+        if not states:
+            states = [
+                f"{c.type}={c.status}"
+                + (f"({c.reason})" if c.status != "True" and c.reason else "")
+                for c in (st.conditions or [])
+            ] or ["<no container status>"]
+        lines.append(f"  {p.metadata.name} phase={st.phase}: {', '.join(states)}")
+    return "\n".join(lines) if lines else "  <no pods>"
+
+
 async def wait_for_kopf_handler(
     coapi: CustomObjectsApi,
     name: str,
@@ -575,7 +628,14 @@ async def wait_for_kopf_handler(
             seen = True
         await asyncio.sleep(delay)
 
-    raise AssertionError(f"Handler '{handler_name}' did not finish within {timeout}s")
+    # The wait gives the cluster the full timeout to come up; if it still has
+    # not, include the pods' container states so the failure points at the
+    # cause (image pull, crash loop, unschedulable) instead of a bare timeout.
+    pod_states = await describe_pods(CoreV1Api(coapi.api_client), namespace)
+    raise AssertionError(
+        f"Handler '{handler_name}' did not finish within {timeout}s.\n"
+        f"Pod states:\n{pod_states}"
+    )
 
 
 async def create_test_sys_jobs_table(conn_factory):
