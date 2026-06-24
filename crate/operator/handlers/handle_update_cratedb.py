@@ -143,10 +143,6 @@ async def update_cratedb(
 
     operation = OperationType.UNKNOWN
 
-    # A master replica change that crosses zero (0<->N) is only valid as part of
-    # a whole-cluster suspend/resume, which is driven by the data nodes. We
-    # precompute that here so the master branch below can tell a legitimate
-    # suspend/resume apart from an unsafe standalone master scale.
     data_nodes_cross_zero = _data_nodes_cross_zero(diff)
 
     for _, field_path, old_spec, new_spec in diff:
@@ -166,14 +162,9 @@ async def update_cratedb(
                 old_master = old_spec or 0
                 new_master = new_spec or 0
                 if old_master == 0 or new_master == 0:
-                    # Scaling masters across zero is only safe as part of a
-                    # full cluster suspend/resume, where the operator scales
-                    # the masters itself (after data on suspend, before data on
-                    # resume; see suspend_or_start_cluster). When the data nodes
-                    # are crossing zero too we let that data-driven path handle
-                    # it and do not register a separate master scale. Otherwise
-                    # shutting masters down while data nodes stay up would break
-                    # cluster formation, so we reject it outright.
+                    # When data is also crossing zero, suspend_or_start_cluster
+                    # scales the masters itself - reject only a standalone
+                    # across-zero change.
                     if not data_nodes_cross_zero:
                         raise kopf.PermanentError(
                             "Scaling master nodes to or from zero is only "

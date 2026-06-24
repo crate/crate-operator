@@ -710,9 +710,6 @@ async def restart_cluster(
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
     if not pending_pods:
-        # Restart only the node groups that need it (masters first); a compute
-        # change to one group must not roll the others, while an upgrade rolls
-        # all. The one-at-a-time loop below serialises whatever is collected.
         for group in _node_groups_to_restart(old, body, action):
             pending_pods.extend(
                 await get_pods_in_statefulset(core, namespace, name, group.name)
@@ -1055,12 +1052,9 @@ async def suspend_or_start_cluster(
                 )
                 current_replicas = statefulset.spec.replicas
                 if current_replicas != new_replicas:
-                    # Check the cluster is healthy before removing a data node,
-                    # but only while data nodes still need scaling down. Once the
-                    # data nodes are gone, a dedicated-master remainder reports
-                    # unhealthy (tables have no data nodes to live on), and
-                    # gating on that here would deadlock the rest of the suspend
-                    # (scaling the masters down).
+                    # Only gate on health while data nodes remain - a
+                    # masters-only remainder always reports unhealthy and would
+                    # deadlock the suspend.
                     conn_factory = await _get_connection_factory(core, namespace, name)
                     await check_cluster_healthy(
                         name, namespace, apps, conn_factory, logger
@@ -1111,8 +1105,6 @@ async def suspend_or_start_cluster(
                     # Delete the LoadBalancer service
                     await delete_lb_service(core, namespace, name)
 
-    # On suspend, scale the masters to 0 only after every data node is gone, so
-    # we never remove the masters out from under running data nodes.
     if has_dedicated_masters and is_suspend:
         await scale_master_statefulset(apps, namespace, name, 0, logger)
         await check_all_master_nodes_gone(core, namespace, name)

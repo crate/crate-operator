@@ -878,8 +878,6 @@ def get_statefulset(
     node_labels.update(node_spec.get("labels", {}))
     # This is to identify pods of the same cluster but with a different node type
     node_labels[LABEL_NODE_NAME] = node_name
-    # Mark whether this node serves data; the client-facing service selects on
-    # this so dedicated master nodes (data=false) stay out of the LB pool.
     node_labels[LABEL_NODE_DATA] = "true" if treat_as_data else "false"
     full_pod_name_prefix = f"crate-{node_name_prefix}{name}"
     image_registry, version = crate_image.rsplit(":", 1)

@@ -128,14 +128,10 @@ async def expand_volume(
                 f"{int(storage_status)}/{int(new_storage)}"
             )
             conditions = current_pvc.status.conditions or []
-            # We only need the control plane to *accept* the expansion, not to
-            # finish the physical resize. Once the external-resizer reports the
-            # PVC ``Resizing`` (or the later ``FileSystemResizePending``), or the
-            # capacity already reflects the new size, we are done -- the online
-            # resize completes on its own and can take a while on some backends
-            # (e.g. azure-disk). Waiting for ``status.capacity`` to actually grow
-            # would block the handler for the full physical resize and times out
-            # on slow backends, even though nothing more is required of us.
+            # We only need the resize accepted, not physically complete -
+            # ``Resizing/FileSystemResizePending`` (or capacity already grown)
+            # is enough. The online resize finishes on its own, waiting would
+            # time out on slow backends.
             accepted = {"Resizing", "FileSystemResizePending"}
             if int(storage_status) == int(new_storage) or any(
                 cond.type in accepted for cond in conditions

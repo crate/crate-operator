@@ -182,8 +182,6 @@ async def update_cprocessor_crate_settings(
             updated_command = []
             for cmd in container.command:
                 if cmd.startswith("-Cprocessors=") and processors is not None:
-                    # Round up to match create.py, which bakes -Cprocessors as
-                    # the rounded-up CPU limit.
                     updated_command.append(
                         f"-Cprocessors={math.ceil(float(processors))}"
                     )

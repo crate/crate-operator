@@ -39,11 +39,7 @@ import asyncio
 from unittest import mock
 
 import pytest
-from kubernetes_asyncio.client import (
-    AppsV1Api,
-    CoreV1Api,
-    CustomObjectsApi,
-)
+from kubernetes_asyncio.client import AppsV1Api, CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import (
     API_GROUP,
