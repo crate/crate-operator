@@ -27,6 +27,7 @@ from crate.operator.config import config
 from crate.operator.grand_central import (
     create_grand_central_backend,
     create_grand_central_user,
+    grand_central_uses_traefik,
 )
 from crate.operator.utils.kopf import subhandler_partial
 from crate.operator.utils.kubeapi import get_cratedb_resource
@@ -45,8 +46,7 @@ async def create_grand_central(
         new is not None and new.get("backendEnabled")
     ):
         cratedb = await get_cratedb_resource(namespace, name)
-        exposure = cratedb["spec"]["cluster"].get("exposure", "loadbalancer")
-        use_traefik = exposure == "traefik"
+        use_traefik = grand_central_uses_traefik(cratedb["spec"])
         kopf.register(
             fn=subhandler_partial(
                 create_grand_central_backend,

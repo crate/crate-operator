@@ -82,6 +82,7 @@ from crate.operator.grand_central import (
     create_grand_central_exposure,
     delete_grand_central_ingress,
     delete_grand_central_traefik_resources,
+    grand_central_uses_traefik,
     read_grand_central_deployment,
     read_grand_central_httproute,
     read_grand_central_ingress,
@@ -1139,12 +1140,11 @@ async def suspend_or_start_grand_central(
     if not deployment:
         return
 
-    # Determine which exposure mode is active
+    # Determine which exposure mode is active for grand-central
     cratedb = await get_cratedb_resource(namespace, name)
     spec = cratedb["spec"]
     meta = cratedb["metadata"]
-    exposure = spec.get("cluster", {}).get("exposure", "loadbalancer")
-    use_traefik = exposure == "traefik"
+    use_traefik = grand_central_uses_traefik(spec)
 
     if suspend:
         # Scale the deployment to 0 first, then remove the routing resource
