@@ -15,6 +15,10 @@ Unreleased
 * Made dedicated master nodes (``spec.nodes.master``) behave consistently
   across all cluster operations.
 
+* Added optional ``spec.grandCentral.exposure`` field (``nginx`` or
+  ``traefik``) to decouple grand-central routing from the CrateDB service
+  exposure.
+
 2.61.0 (2026-06-02)
 -------------------
 
