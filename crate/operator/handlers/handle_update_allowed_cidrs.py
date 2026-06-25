@@ -28,6 +28,7 @@ from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
 from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
 from crate.operator.exposure import update_traefik_ip_restriction
 from crate.operator.grand_central import (
+    grand_central_uses_traefik,
     read_grand_central_httproute,
     read_grand_central_ingress,
     update_grand_central_ip_allowlist,
@@ -92,6 +93,9 @@ async def update_service_allowed_cidrs(
         if exposure == "traefik":
             await update_traefik_ip_restriction(namespace, name, new_cidrs, logger)
 
+        # Grand-central IP allowlist follows its own exposure, which
+        # may differ from the CrateDB service exposure.
+        if grand_central_uses_traefik(cratedb["spec"]):
             httproute = await read_grand_central_httproute(
                 namespace=namespace, name=name
             )

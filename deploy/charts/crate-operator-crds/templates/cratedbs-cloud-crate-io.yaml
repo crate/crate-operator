@@ -585,6 +585,10 @@ spec:
                   apiUrl:
                     description: The CrateDB Cloud API URL.
                     type: string
+                  exposure:
+                    description: Grand Central routing exposure type.
+                    type: string
+                    enum: ["nginx", "traefik"]
                 required:
                 - backendImage
                 - jwkUrl
