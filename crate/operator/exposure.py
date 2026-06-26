@@ -40,6 +40,7 @@ from crate.operator.grand_central import (
     create_grand_central_exposure,
     delete_grand_central_ingress,
     delete_grand_central_traefik_resources,
+    grand_central_uses_traefik,
     read_grand_central_deployment,
 )
 from crate.operator.utils import crate
@@ -525,6 +526,50 @@ async def patch_service_exposure(
     )
 
 
+async def migrate_grand_central_exposure(
+    namespace: str,
+    name: str,
+    spec: kopf.Spec,
+    meta: kopf.Meta,
+    old_use_traefik: bool,
+    new_use_traefik: bool,
+    logger: logging.Logger,
+) -> None:
+    """
+    Migrate grand-central routing resources from one exposure to the other.
+
+    Creates the routing resources for ``new_use_traefik`` and deletes the
+    resources belonging to the old exposure. Does nothing if grand-central is
+    not deployed for this cluster.
+
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param spec: The ``spec`` section of the CrateDB custom resource.
+    :param meta: The ``metadata`` section of the CrateDB custom resource.
+    :param old_use_traefik: Whether grand-central was previously on Traefik.
+    :param new_use_traefik: Whether grand-central should now be on Traefik.
+    :param logger: Logger for operation tracking.
+    """
+    gc_deployment = await read_grand_central_deployment(namespace, name)
+    if not gc_deployment:
+        logger.info("Grand-central not deployed; skipping GC exposure migration")
+        return
+
+    await create_grand_central_exposure(
+        namespace=namespace,
+        name=name,
+        spec=spec,
+        meta=meta,
+        logger=logger,
+        use_traefik=new_use_traefik,
+    )
+
+    if old_use_traefik:
+        await delete_grand_central_traefik_resources(namespace, name, logger)
+    else:
+        await delete_grand_central_ingress(namespace, name, logger)
+
+
 class CreateTraefikResourcesSubHandler(StateBasedSubHandler):
     """
     Creates Traefik resources during cluster creation.
@@ -621,19 +666,59 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
                 logger,
             )
 
-        # grand-central: only if GC is deployed in this cluster
-        gc_deployment = await read_grand_central_deployment(namespace, name)
-        if gc_deployment:
-            await create_grand_central_exposure(
-                namespace=namespace,
-                name=name,
-                spec=spec,
+        gc_exposure_explicit = bool((spec.get("grandCentral") or {}).get("exposure"))
+        if gc_exposure_explicit:
+            logger.info(
+                "Grand-central has its own exposure setting; "
+                "not migrating it on cluster exposure change"
+            )
+        else:
+            await migrate_grand_central_exposure(
+                namespace,
+                name,
+                spec,
                 meta=body["metadata"],
+                old_use_traefik=(old_exposure == "traefik"),
+                new_use_traefik=(new_exposure == "traefik"),
                 logger=logger,
-                use_traefik=(new_exposure == "traefik"),
             )
 
-            if old_exposure == "traefik":
-                await delete_grand_central_traefik_resources(namespace, name, logger)
-            else:
-                await delete_grand_central_ingress(namespace, name, logger)
+
+class ChangeGrandCentralExposureSubHandler(StateBasedSubHandler):
+    """
+    Handles changes to ``spec.grandCentral.exposure`` between 'nginx' and
+    'traefik', migrating only the grand-central routing resources and leaving
+    the CrateDB service untouched.
+    """
+
+    @crate.on.error(error_handler=crate.send_update_failed_notification)
+    async def handle(
+        self,
+        namespace: str,
+        name: str,
+        body: kopf.Body,
+        old: kopf.Body,
+        logger: logging.Logger,
+        **kwargs: Any,
+    ):
+        old_use_traefik = grand_central_uses_traefik(old["spec"])
+        new_use_traefik = grand_central_uses_traefik(body["spec"])
+
+        if old_use_traefik == new_use_traefik:
+            logger.info("Grand-central exposure unchanged")
+            return
+
+        logger.info(
+            "Changing grand-central exposure "
+            f"(traefik={old_use_traefik} -> traefik={new_use_traefik})"
+        )
+
+        await migrate_grand_central_exposure(
+            namespace,
+            name,
+            body["spec"],
+            meta=body["metadata"],
+            old_use_traefik=old_use_traefik,
+            new_use_traefik=new_use_traefik,
+            logger=logger,
+        )
