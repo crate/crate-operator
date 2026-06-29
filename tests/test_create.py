@@ -52,6 +52,7 @@ from crate.operator.constants import (
     CloudProvider,
 )
 from crate.operator.create import (
+    _lb_annotations_to_remove,
     build_cratedb_labels,
     create_services,
     create_sql_exporter_config,
@@ -1192,6 +1193,18 @@ class TestServiceModels:
                 ]
                 == dns
             )
+
+    def test_lb_type_annotation_retained_when_switching_to_clusterip(self):
+        # Switching to traefik (LoadBalancer -> ClusterIP) must keep
+        # aws-load-balancer-type so the service controller can identify and
+        # delete the NLB; dropping it orphans the LB on AWS (crate/cloud#2976).
+        removed = _lb_annotations_to_remove()
+        assert "service.beta.kubernetes.io/aws-load-balancer-type" not in removed
+        assert all(value is None for value in removed.values())
+        assert (
+            "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled"
+            in removed
+        )
 
     def test_data_service_selector_excludes_masters_with_dedicated_masters(self, faker):
         name = faker.domain_word()

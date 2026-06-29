@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Fixed AWS load balancers being orphaned when switching
+  ``spec.cluster.exposure`` from ``loadbalancer`` to ``traefik`` by keeping the
+  ``aws-load-balancer-type`` annotation so Kubernetes deletes the NLB.
+
 * Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
   ``spec.cluster.exposure`` is set to ``traefik``.
 
