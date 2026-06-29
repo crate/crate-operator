@@ -58,6 +58,7 @@ from crate.operator.operations import (
     DELAY_CRONJOB,
     DELAY_CRONJOB_START,
     ensure_cronjob_reenabled,
+    get_total_nodes_count,
     is_namespace_terminating,
 )
 from crate.operator.restore_backup import is_valid_snapshot
@@ -367,11 +368,13 @@ async def ping_cratedb(
     logger: logging.Logger,
     **_kwargs,
 ):
-    hot_node: dict = next(
-        filter(lambda node: node["name"] == "hot", spec["nodes"]["data"])
-    )
+    # The health check is gated on the total number of *data* nodes: the
+    # cluster is treated as suspended (and the ping skipped) only when all data
+    # nodes are at 0. Summing across data groups avoids assuming a group named
+    # "hot" and works regardless of dedicated masters.
+    desired_instances = get_total_nodes_count(spec["nodes"], "data")
     await ping_cratedb_status(
-        namespace, name, spec["cluster"]["name"], hot_node["replicas"], patch, logger
+        namespace, name, spec["cluster"]["name"], desired_instances, patch, logger
     )
 
 

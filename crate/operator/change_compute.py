@@ -19,7 +19,8 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 import logging
-from typing import Any, List
+import math
+from typing import Any, List, Optional
 
 import kopf
 from kubernetes_asyncio.client import AppsV1Api
@@ -30,11 +31,13 @@ from crate.operator.create import (
     get_statefulset_env_crate_heap,
     get_tolerations,
 )
+from crate.operator.operations import iter_changed_compute_groups
 from crate.operator.utils import crate
 from crate.operator.utils.k8s_api_client import GlobalApiClient
 from crate.operator.utils.kopf import StateBasedSubHandler
 from crate.operator.utils.kubeapi import get_cratedb_resource
 from crate.operator.webhooks import (
+    WebhookChangeComputeMasterFields,
     WebhookChangeComputePayload,
     WebhookEvent,
     WebhookStatus,
@@ -56,7 +59,7 @@ class ChangeComputeSubHandler(StateBasedSubHandler):
         webhook_payload = generate_change_compute_payload(old, body)
         async with GlobalApiClient() as api_client:
             apps = AppsV1Api(api_client)
-            await change_cluster_compute(apps, namespace, name, webhook_payload, logger)
+            await change_cluster_compute(apps, namespace, name, old, body, logger)
 
         await self.send_notification_now(
             logger,
@@ -89,32 +92,75 @@ class AfterChangeComputeSubHandler(StateBasedSubHandler):
         )
 
 
-def generate_change_compute_payload(old, body):
-    old_data = old["spec"]["nodes"]["data"][0]
-    new_data = body["spec"]["nodes"]["data"][0]
-    old_resources = old_data.get("resources", {})
-    new_resources = new_data.get("resources", {})
+def compute_payload_for_specs(old_spec, new_spec) -> WebhookChangeComputePayload:
+    """
+    Build a compute-change payload from a single node group's old/new specs.
+    The same StatefulSet patch is derived from this payload for masters and
+    data groups alike (resources are read per group, since master CPU/mem may
+    differ from data).
+    """
+    old_resources = old_spec.get("resources", {})
+    new_resources = new_spec.get("resources", {})
     return WebhookChangeComputePayload(
         old_cpu_limit=old_resources.get("limits", {}).get("cpu"),
         old_memory_limit=old_resources.get("limits", {}).get("memory"),
         old_cpu_request=old_resources.get("requests", {}).get("cpu"),
         old_memory_request=old_resources.get("requests", {}).get("memory"),
         old_heap_ratio=old_resources.get("heapRatio"),
-        old_nodepool=old_data.get("nodepool"),
+        old_nodepool=old_spec.get("nodepool"),
         new_cpu_limit=new_resources.get("limits", {}).get("cpu"),
         new_memory_limit=new_resources.get("limits", {}).get("memory"),
         new_cpu_request=new_resources.get("requests", {}).get("cpu"),
         new_memory_request=new_resources.get("requests", {}).get("memory"),
         new_heap_ratio=new_resources.get("heapRatio"),
-        new_nodepool=new_data.get("nodepool"),
+        new_nodepool=new_spec.get("nodepool"),
     )
+
+
+def _master_compute_fields(old_master, new_master) -> WebhookChangeComputeMasterFields:
+    """
+    The dedicated-master compute fields for the CHANGE_COMPUTE webhook, keyed
+    with the ``*_master_*`` names. Empty for clusters without dedicated masters.
+    """
+    if old_master is None or new_master is None:
+        return WebhookChangeComputeMasterFields()
+    p = compute_payload_for_specs(old_master, new_master)
+    return WebhookChangeComputeMasterFields(
+        old_master_cpu_limit=p["old_cpu_limit"],
+        old_master_memory_limit=p["old_memory_limit"],
+        old_master_cpu_request=p["old_cpu_request"],
+        old_master_memory_request=p["old_memory_request"],
+        old_master_heap_ratio=p["old_heap_ratio"],
+        old_master_nodepool=p["old_nodepool"],
+        new_master_cpu_limit=p["new_cpu_limit"],
+        new_master_memory_limit=p["new_memory_limit"],
+        new_master_cpu_request=p["new_cpu_request"],
+        new_master_memory_request=p["new_memory_request"],
+        new_master_heap_ratio=p["new_heap_ratio"],
+        new_master_nodepool=p["new_nodepool"],
+    )
+
+
+def generate_change_compute_payload(old, body):
+    # Reports the first data group's compute plus, additively, the dedicated
+    # masters' compute (so billing sees master compute changes too).
+    payload = compute_payload_for_specs(
+        old["spec"]["nodes"]["data"][0], body["spec"]["nodes"]["data"][0]
+    )
+    payload.update(
+        _master_compute_fields(
+            old["spec"]["nodes"].get("master"),
+            body["spec"]["nodes"].get("master"),
+        )
+    )
+    return payload
 
 
 async def update_cprocessor_crate_settings(
     apps: AppsV1Api,
     namespace: str,
     sts_name: str,
-    processors: int,
+    processors: float,
 ) -> List[str]:
     """
     Call the Kubernetes API, update the -Cprocessors value in the crate
@@ -123,7 +169,8 @@ async def update_cprocessor_crate_settings(
     :param apps: An instance of the Kubernetes Apps V1 API.
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param sts_name: The name of the Kubernetes StatefulSet to update.
-    :param processors: The new number of processors.
+    :param processors: The new number of processors; fractional values are
+        rounded up (``ceil``) to match how create bakes ``-Cprocessors``.
     :return: The updated command list.
     """
     stateful_set = await apps.read_namespaced_stateful_set(
@@ -135,7 +182,9 @@ async def update_cprocessor_crate_settings(
             updated_command = []
             for cmd in container.command:
                 if cmd.startswith("-Cprocessors=") and processors is not None:
-                    updated_command.append(f"-Cprocessors={processors}")
+                    updated_command.append(
+                        f"-Cprocessors={math.ceil(float(processors))}"
+                    )
                 else:
                     updated_command.append(cmd)
             container.command = updated_command
@@ -148,23 +197,26 @@ async def change_cluster_compute(
     apps: AppsV1Api,
     namespace: str,
     name: str,
-    compute_change_data: WebhookChangeComputePayload,
+    old: kopf.Body,
+    body: kopf.Body,
     logger: logging.Logger,
 ):
     """
-    Patches the statefulset with the new cpu and memory requests and limits.
+    Patch the StatefulSet of every node group whose compute changed -- the
+    dedicated masters and/or any data group -- each with its own resources.
+    Pods pick up the new cpu/memory on the subsequent restart.
     """
-    body = await generate_body_patch(apps, name, namespace, compute_change_data, logger)
-
-    # Note only the stateful set is updated. Pods will become updated on restart
-    sts_name = f"crate-data-hot-{name}"
-    await apps.patch_namespaced_stateful_set(
-        namespace=namespace,
-        name=sts_name,
-        body=body,
-    )
-    logger.info("updated the statefulset with name %s with body: %s", sts_name, body)
-    pass
+    for old_group, group in iter_changed_compute_groups(old, body):
+        sts_name = group.statefulset_name(name)
+        compute_change_data = compute_payload_for_specs(old_group.spec, group.spec)
+        patch = await generate_body_patch(
+            apps, name, namespace, compute_change_data, logger, sts_name=sts_name
+        )
+        # Note only the stateful set is updated. Pods are updated on restart.
+        await apps.patch_namespaced_stateful_set(
+            namespace=namespace, name=sts_name, body=patch
+        )
+        logger.info("updated the statefulset %s with body: %s", sts_name, patch)
 
 
 async def generate_body_patch(
@@ -173,30 +225,33 @@ async def generate_body_patch(
     namespace: str,
     compute_change_data: WebhookChangeComputePayload,
     logger: logging.Logger,
+    sts_name: Optional[str] = None,
 ) -> dict:
     """
     Generates a dict representing the patch that will be applied to the statefulset.
     That patch modifies cpu/memory requests/limits based on compute_change_data.
     It also patches affinity as needed based on the existence or not of requests data.
+
+    :param sts_name: The StatefulSet to patch. Defaults to the first data
+        group's StatefulSet when omitted (callers patching the master or a
+        specific data group pass it explicitly).
     """
 
-    crd = await get_cratedb_resource(namespace, name)
-    if crd is None:
-        raise ValueError(f"CRD {name} not found in namespace {namespace}")
+    if sts_name is None:
+        crd = await get_cratedb_resource(namespace, name)
+        if crd is None:
+            raise ValueError(f"CRD {name} not found in namespace {namespace}")
 
-    try:
-        sts_name = f"crate-data-{crd['spec']['nodes']['data'][0]['name']}-{name}"
-    except (KeyError, IndexError) as e:
-        logger.error(f"Failed to construct sts_name: {e}")
-        raise ValueError(f"Failed to construct sts_name: {e}")
-
-    # sts_name = sts_name + f"-{name}"
+        try:
+            sts_name = f"crate-data-{crd['spec']['nodes']['data'][0]['name']}-{name}"
+        except (KeyError, IndexError) as e:
+            logger.error(f"Failed to construct sts_name: {e}")
+            raise ValueError(f"Failed to construct sts_name: {e}")
 
     updated_command = await update_cprocessor_crate_settings(
         apps=apps,
         namespace=namespace,
         sts_name=sts_name,
-        # sts_name=f"crate-data-hot-{name}",
         processors=compute_change_data["new_cpu_limit"],
     )
 

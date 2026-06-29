@@ -30,6 +30,10 @@ LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 LABEL_NAME = "app.kubernetes.io/name"
 LABEL_PART_OF = "app.kubernetes.io/part-of"
 LABEL_NODE_NAME = f"{API_GROUP}/node-name"
+# Whether a node serves data (and thus client traffic). "false" on dedicated
+# master nodes; the client-facing service selects on "true" to keep masters
+# out of the load-balancer pool.
+LABEL_NODE_DATA = f"{API_GROUP}/node-data"
 LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
 SYSTEM_USERNAME = "system"

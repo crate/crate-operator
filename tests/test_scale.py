@@ -43,7 +43,12 @@ from crate.operator.constants import (
 from crate.operator.cratedb import connection_factory
 from crate.operator.create import get_statefulset_crate_command
 from crate.operator.operations import get_pods_in_statefulset, is_lb_service_present
-from crate.operator.scale import parse_replicas, patch_command, reset_allocation
+from crate.operator.scale import (
+    classify_data_scaling,
+    parse_replicas,
+    patch_command,
+    reset_allocation,
+)
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
 from tests.utils import (
@@ -650,3 +655,129 @@ async def do_crate_pods_exist(
 ) -> bool:
     crate_pods = await get_pods_in_statefulset(core, namespace, name, node_name)
     return len(crate_pods) > 0
+
+
+class TestEffectiveMasterReplicas:
+    """The SCALE webhook must report the master count the operator actually
+    runs, so suspend bills as zero masters."""
+
+    def test_suspend_reports_new_masters_as_zero(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 0}]},
+            data_suspending=True,
+            data_resuming=False,
+        )
+
+        # Masters were running (3) and are now effectively scaled to 0.
+        assert (old, new) == (3, 0)
+
+    def test_resume_reports_old_masters_as_zero(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 0}]},
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            data_suspending=False,
+            data_resuming=True,
+        )
+
+        # Masters were suspended (0) and are restored to 3.
+        assert (old, new) == (0, 3)
+
+    def test_ordinary_scale_uses_spec_values(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"master": {"replicas": 3}, "data": [{"name": "hot", "replicas": 3}]},
+            {"master": {"replicas": 5}, "data": [{"name": "hot", "replicas": 3}]},
+            data_suspending=False,
+            data_resuming=False,
+        )
+
+        assert (old, new) == (3, 5)
+
+    def test_legacy_cluster_without_masters(self):
+        from crate.operator.scale import effective_master_replicas
+
+        old, new = effective_master_replicas(
+            {"data": [{"name": "hot", "replicas": 3}]},
+            {"data": [{"name": "hot", "replicas": 0}]},
+            data_suspending=True,
+            data_resuming=False,
+        )
+
+        assert (old, new) == (None, None)
+
+
+class TestClassifyDataScaling:
+    # ``classify_data_scaling`` only inspects the diff list for emptiness; the
+    # suspend/resume decision is driven by the full old/new data specs, so a
+    # single placeholder item is enough to mark "something changed".
+    CHANGED = [object()]
+
+    def test_no_data_change_is_neither(self):
+        assert classify_data_scaling(
+            None,
+            [{"name": "hot", "replicas": 3}],
+            [{"name": "hot", "replicas": 3}],
+        ) == (False, False)
+        assert classify_data_scaling(
+            [],
+            [{"name": "hot", "replicas": 3}],
+            [{"name": "hot", "replicas": 3}],
+        ) == (False, False)
+
+    def test_single_group_suspend(self):
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 3}],
+            [{"name": "hot", "replicas": 0}],
+        )
+        assert (resuming, suspending) == (False, True)
+
+    def test_single_group_resume(self):
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 0}],
+            [{"name": "hot", "replicas": 3}],
+        )
+        assert (resuming, suspending) == (True, False)
+
+    def test_single_group_plain_scale(self):
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 3}],
+            [{"name": "hot", "replicas": 5}],
+        )
+        assert (resuming, suspending) == (False, False)
+
+    def test_multi_group_full_suspend(self):
+        # All groups go to zero -> cluster-wide suspend.
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 3}, {"name": "cold", "replicas": 2}],
+            [{"name": "hot", "replicas": 0}, {"name": "cold", "replicas": 0}],
+        )
+        assert (resuming, suspending) == (False, True)
+
+    def test_multi_group_full_resume(self):
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 0}, {"name": "cold", "replicas": 0}],
+            [{"name": "hot", "replicas": 3}, {"name": "cold", "replicas": 2}],
+        )
+        assert (resuming, suspending) == (True, False)
+
+    def test_multi_group_partial_scaledown_is_not_suspend(self):
+        # Only the cold group goes to zero while hot keeps running: this is an
+        # ordinary scale, NOT a suspend. (The bug in the old first-item-only
+        # detection misclassified this as a full suspend.)
+        resuming, suspending = classify_data_scaling(
+            self.CHANGED,
+            [{"name": "hot", "replicas": 3}, {"name": "cold", "replicas": 2}],
+            [{"name": "hot", "replicas": 3}, {"name": "cold", "replicas": 0}],
+        )
+        assert (resuming, suspending) == (False, False)

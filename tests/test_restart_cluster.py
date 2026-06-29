@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import kopf
 import pytest
 
-from crate.operator.operations import restart_cluster
+from crate.operator.operations import _node_groups_to_restart, restart_cluster
 from crate.operator.webhooks import WebhookAction
 
 
@@ -86,6 +86,7 @@ async def test_restart_cluster_calls_set_cluster_setting(
             namespace="abc",
             name="test-cluster",
             old=old,
+            body=old,
             logger=logger,
             patch=patch_obj,
             status=status,
@@ -100,6 +101,7 @@ async def test_restart_cluster_calls_set_cluster_setting(
             namespace="abc",
             name="test-cluster",
             old=old,
+            body=old,
             logger=logger,
             patch=patch_obj,
             status=status,
@@ -119,3 +121,62 @@ async def test_restart_cluster_calls_set_cluster_setting(
         logger,
         setting="cluster.routing.allocation.enable",
     )
+
+
+def _res(cpu):
+    return {
+        "resources": {
+            "limits": {"cpu": cpu, "memory": "1Gi"},
+            "requests": {"cpu": cpu, "memory": "1Gi"},
+        }
+    }
+
+
+def _spec(master_cpu=2, hot_cpu=2, cold_cpu=None):
+    data = [{"name": "hot", "replicas": 1, **_res(hot_cpu)}]
+    if cold_cpu is not None:
+        data.append({"name": "cold", "replicas": 1, **_res(cold_cpu)})
+    nodes = {"master": {"replicas": 3, **_res(master_cpu)}, "data": data}
+    return {"spec": {"nodes": nodes}}
+
+
+def test_change_compute_restarts_only_the_changed_master_group():
+    # Only the master CPU changed -> only the master group restarts (the data
+    # node must not be rolled).
+    groups = _node_groups_to_restart(
+        _spec(master_cpu=2, hot_cpu=2),
+        _spec(master_cpu=3, hot_cpu=2),
+        WebhookAction.CHANGE_COMPUTE,
+    )
+    assert [g.name for g in groups] == ["master"]
+
+
+def test_change_compute_restarts_only_the_changed_data_group():
+    groups = _node_groups_to_restart(
+        _spec(master_cpu=2, hot_cpu=2),
+        _spec(master_cpu=2, hot_cpu=3),
+        WebhookAction.CHANGE_COMPUTE,
+    )
+    assert [g.name for g in groups] == ["hot"]
+
+
+def test_change_compute_restarts_all_changed_groups_masters_first():
+    # master + hot + cold all change at once -> all restart, masters first,
+    # serialised by the caller's one-at-a-time loop.
+    groups = _node_groups_to_restart(
+        _spec(master_cpu=2, hot_cpu=2, cold_cpu=2),
+        _spec(master_cpu=3, hot_cpu=3, cold_cpu=3),
+        WebhookAction.CHANGE_COMPUTE,
+    )
+    assert [g.name for g in groups] == ["master", "hot", "cold"]
+
+
+def test_change_compute_with_no_compute_change_restarts_nothing():
+    groups = _node_groups_to_restart(_spec(), _spec(), WebhookAction.CHANGE_COMPUTE)
+    assert groups == []
+
+
+def test_upgrade_restarts_all_groups_regardless_of_change():
+    # An upgrade must roll every node (new image), even with no resource change.
+    groups = _node_groups_to_restart(_spec(), _spec(), WebhookAction.UPGRADE)
+    assert [g.name for g in groups] == ["master", "hot"]
