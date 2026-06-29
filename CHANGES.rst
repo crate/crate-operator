@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Added optional ``spec.grandCentral.exposure`` field (``nginx`` or
+  ``traefik``) to decouple grand-central routing from the CrateDB service
+  exposure.
+
 * Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
   ``spec.cluster.exposure`` is set to ``traefik``.
 

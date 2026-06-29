@@ -739,6 +739,27 @@ async def read_grand_central_httproute(
             return None
 
 
+def get_grand_central_exposure(spec: kopf.Spec) -> str:
+    """
+    Resolve the effective exposure mode for grand-central.
+
+    :param spec: The ``spec`` section of the CrateDB custom resource.
+    """
+    explicit = (spec.get("grandCentral") or {}).get("exposure")
+    if explicit:
+        return explicit
+    return spec.get("cluster", {}).get("exposure", "loadbalancer")
+
+
+def grand_central_uses_traefik(spec: kopf.Spec) -> bool:
+    """
+    Return whether grand-central should be exposed via Traefik.
+
+    :param spec: The ``spec`` section of the CrateDB custom resource.
+    """
+    return get_grand_central_exposure(spec) == "traefik"
+
+
 async def create_grand_central_exposure(
     namespace: str,
     name: str,
