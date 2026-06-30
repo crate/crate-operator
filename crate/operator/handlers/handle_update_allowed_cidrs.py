@@ -107,6 +107,8 @@ async def update_service_allowed_cidrs(
                     logger=logger,
                 )
         else:
+            # grand-central is on nginx Ingress (e.g. cluster on Traefik but
+            # GC explicitly on nginx) - patch its whitelist annotation instead.
             ingress = await read_grand_central_ingress(namespace=namespace, name=name)
 
             if ingress:

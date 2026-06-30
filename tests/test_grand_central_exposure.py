@@ -36,6 +36,7 @@ from crate.operator.grand_central import (
         ({}, False),
         ({"cluster": {"exposure": "traefik"}, "grandCentral": {}}, True),
         ({"cluster": {"exposure": "traefik"}, "grandCentral": None}, True),
+        # Decoupled: cluster on LoadBalancer, grand-central explicitly on Traefik.
         (
             {
                 "cluster": {"exposure": "loadbalancer"},
@@ -43,6 +44,8 @@ from crate.operator.grand_central import (
             },
             True,
         ),
+        # Decoupled (opposite): cluster on Traefik, grand-central explicitly on
+        # nginx -> resolves to False so the nginx Ingress path is taken.
         (
             {
                 "cluster": {"exposure": "traefik"},
