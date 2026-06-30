@@ -1253,13 +1253,19 @@ def _lb_annotations_to_add(dns_record: Optional[str]) -> dict:
 
 def _lb_annotations_to_remove() -> dict:
     """
-    Return all LB annotations set to None to remove them via merge patch.
+    Return the LB tuning annotations set to None to remove them via merge patch.
+
+    The ``aws-load-balancer-type`` annotation is deliberately NOT removed: the
+    in-tree service controller reads it in ``EnsureLoadBalancerDeleted`` to tell
+    an NLB from a Classic ELB. Dropping it while switching the service to
+    ClusterIP makes the controller fall back to the Classic ELB path, fail to
+    find the NLB, and orphan it on AWS (crate/cloud#2976, kubernetes#95042). The
+    annotation is inert on a ClusterIP service, so leaving it is safe.
     """
     return {
         "service.beta.kubernetes.io/aws-load-balancer-connection-draining-enabled": None,  # noqa
         "service.beta.kubernetes.io/aws-load-balancer-connection-draining-timeout": None,  # noqa
         "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout": None,
-        "service.beta.kubernetes.io/aws-load-balancer-type": None,
         "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": None,  # noqa
         "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset": None,
         "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout": None,

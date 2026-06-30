@@ -487,8 +487,8 @@ async def patch_service_exposure(
 
     new_annotations: dict[str, Optional[str]] = {}
     if use_traefik:
-        # When switching to traefik, explicitly null out all LB-specific annotations
-        # so they don't linger on the ClusterIP service.
+        # Drop the LB tuning annotations, but keep aws-load-balancer-type so the
+        # service controller can delete the NLB instead of orphaning it.
         new_annotations.update(_lb_annotations_to_remove())
     else:
         new_annotations.update(_lb_annotations_to_add(dns_record))
