@@ -75,7 +75,7 @@ setup(
             "pytest-asyncio==1.4.0",
             "pytest-xdist==3.8.0",  # enables parallel testing
             "pytest-rerunfailures==16.3",  # retry flaky k8s/e2e tests
-            "filelock==3.29.0",  # used for locks when running in parallel mode
+            "filelock==3.29.7",  # used for locks when running in parallel mode
         ],
         "develop": [
             "black==22.3.0",
