@@ -19,6 +19,8 @@ Unreleased
   ``traefik``) to decouple grand-central routing from the CrateDB service
   exposure.
 
+* Bumped sql_exporter to ``0.24.3`` for CVE fixes.
+
 2.61.0 (2026-06-02)
 -------------------
 
