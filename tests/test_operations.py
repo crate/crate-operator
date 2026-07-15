@@ -24,12 +24,15 @@ from unittest import mock
 
 import kopf
 import pytest
+from kubernetes_asyncio.client import ApiException
 
+from crate.operator.constants import BACKUP_METRICS_DEPLOYMENT_NAME
 from crate.operator.handlers.handle_update_cratedb import _data_nodes_cross_zero
 from crate.operator.operations import (
     check_all_master_nodes_gone,
     check_all_master_nodes_present,
     iter_node_groups,
+    scale_backup_metrics_deployment_if_present,
     scale_master_statefulset,
     suspend_or_start_cluster,
     validate_node_spec,
@@ -420,3 +423,73 @@ class TestSuspendResumeOrdering:
         assert order.index("data_scale:0") < order.index("master_scale:0")
         assert order.index("data_gone") < order.index("master_scale:0")
         assert order.index("master_scale:0") < order.index("masters_gone")
+
+
+class TestScaleBackupMetricsIfPresent:
+    @pytest.mark.asyncio
+    async def test_scales_when_deployment_exists(self):
+        apps = mock.Mock()
+        with mock.patch(
+            "crate.operator.operations.update_deployment_replicas",
+            new=mock.AsyncMock(),
+        ) as mock_update:
+            await scale_backup_metrics_deployment_if_present(
+                apps, "ns", "c", 1, mock.Mock()
+            )
+        mock_update.assert_awaited_once_with(
+            apps, "ns", BACKUP_METRICS_DEPLOYMENT_NAME.format(name="c"), 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_deployment_is_a_noop(self):
+        apps = mock.Mock()
+        with mock.patch(
+            "crate.operator.operations.update_deployment_replicas",
+            new=mock.AsyncMock(side_effect=ApiException(status=404)),
+        ):
+            # should not raise.
+            await scale_backup_metrics_deployment_if_present(
+                apps, "ns", "c", 0, mock.Mock()
+            )
+
+    @pytest.mark.asyncio
+    async def test_other_api_errors_propagate(self):
+        apps = mock.Mock()
+        with mock.patch(
+            "crate.operator.operations.update_deployment_replicas",
+            new=mock.AsyncMock(side_effect=ApiException(status=409)),
+        ):
+            with pytest.raises(ApiException):
+                await scale_backup_metrics_deployment_if_present(
+                    apps, "ns", "c", 1, mock.Mock()
+                )
+
+
+class TestSuspendResumeWithoutBackups:
+    @pytest.mark.asyncio
+    async def test_resume_does_not_wedge_when_no_backup_metrics_deployment(self):
+        order: list = []
+        old = {"spec": {"nodes": {"data": [{"name": "hot", "replicas": 0}]}}}
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=0)
+        )
+
+        with _suspend_resume_patches(order):
+            with mock.patch(
+                "crate.operator.operations.update_deployment_replicas",
+                new=mock.AsyncMock(side_effect=ApiException(status=404)),
+            ):
+                # should complete without raising despite the missing deployment.
+                await suspend_or_start_cluster(
+                    apps,
+                    mock.Mock(),
+                    "ns",
+                    "c",
+                    old,
+                    _data_scaling_diff(0, 3),
+                    True,
+                    mock.Mock(),
+                )
+
+        assert "data_scale:3" in order

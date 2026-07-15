@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed suspend/resume getting stuck on clusters without backups configured.
+
 2.62.0 (2026-07-15)
 -------------------
 
