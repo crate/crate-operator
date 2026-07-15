@@ -660,6 +660,37 @@ async def scale_backup_metrics_deployment(
         await update_deployment_replicas(apps, namespace, backup_metrics_name, replicas)
 
 
+async def scale_backup_metrics_deployment_if_present(
+    apps: AppsV1Api,
+    namespace: str,
+    name: str,
+    replicas: int,
+    logger: logging.Logger,
+):
+    """
+    Scale the backup-metrics Deployment to ``replicas`` if it exists.
+
+    :param apps: An instance of the Kubernetes Apps V1 API.
+    :param namespace: The Kubernetes namespace for the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param replicas: The new number of replicas for the Deployment.
+    :param logger: The logger on which we're logging.
+    """
+    backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(name=name)
+    try:
+        await update_deployment_replicas(apps, namespace, backup_metrics_name, replicas)
+    except ApiException as e:
+        if e.status == 404:
+            logger.info(
+                "No backup-metrics deployment %s found (no backups configured); "
+                "skipping scaling to %d replicas.",
+                backup_metrics_name,
+                replicas,
+            )
+            return
+        raise
+
+
 def _node_groups_to_restart(
     old: kopf.Body, body: kopf.Body, action: WebhookAction
 ) -> List[NodeGroup]:
@@ -1006,12 +1037,10 @@ async def suspend_or_start_cluster(
                         new_replicas,
                     )
                     if scale_backup_metrics:
-                        # scale backup-metrics deployment back up
-                        backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(
-                            name=name
-                        )
-                        await update_deployment_replicas(
-                            apps, namespace, backup_metrics_name, 1
+                        # scale backup-metrics deployment back up (no-op when the
+                        # cluster has no backups configured and thus no deployment)
+                        await scale_backup_metrics_deployment_if_present(
+                            apps, namespace, name, 1, logger
                         )
                     # scale grand central deployment back up if it exists
                     await suspend_or_start_grand_central(
@@ -1064,12 +1093,10 @@ async def suspend_or_start_cluster(
                         apps, namespace, sts_name, statefulset, new_replicas
                     )
                     if scale_backup_metrics:
-                        # scale backup-metrics deployment down
-                        backup_metrics_name = BACKUP_METRICS_DEPLOYMENT_NAME.format(
-                            name=name
-                        )
-                        await update_deployment_replicas(
-                            apps, namespace, backup_metrics_name, 0
+                        # scale backup-metrics deployment down (no-op when the
+                        # cluster has no backups configured and thus no deployment)
+                        await scale_backup_metrics_deployment_if_present(
+                            apps, namespace, name, 0, logger
                         )
                     # scale grand central deployment down if it exists
                     await suspend_or_start_grand_central(
