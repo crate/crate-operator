@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.62.0 (2026-07-15)
+-------------------
+
 * Fixed AWS load balancers being orphaned when switching
   ``spec.cluster.exposure`` from ``loadbalancer`` to ``traefik`` by keeping the
   ``aws-load-balancer-type`` annotation so Kubernetes deletes the NLB.
@@ -12,8 +15,9 @@ Unreleased
 * Replaced grand-central Ingress with HTTPRoute and Traefik Middlewares when
   ``spec.cluster.exposure`` is set to ``traefik``.
 
-* Made dedicated master nodes (``spec.nodes.master``) behave consistently
-  across all cluster operations.
+* Added first-class support for dedicated master nodes via
+  ``spec.nodes.master``, handling them consistently across suspend/resume,
+  change-compute, volume expansion, health checks, and webhook feedback.
 
 * Added optional ``spec.grandCentral.exposure`` field (``nginx`` or
   ``traefik``) to decouple grand-central routing from the CrateDB service
