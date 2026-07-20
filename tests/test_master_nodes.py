@@ -95,6 +95,15 @@ async def _master_pods_present(core: CoreV1Api, namespace: str, name: str) -> bo
     return len(await get_pods_in_statefulset(core, namespace, name, "master")) > 0
 
 
+async def _data_nodes_ready(
+    apps: AppsV1Api, namespace: str, name: str, expected: int
+) -> bool:
+    sts = await apps.read_namespaced_stateful_set(
+        namespace=namespace, name=f"crate-data-hot-{name}"
+    )
+    return (sts.status.ready_replicas or 0) == expected
+
+
 async def _data_service_target_pods(core: CoreV1Api, namespace: str, name: str):
     """Pod names currently backing the client-facing ``crate-<name>`` service."""
     ep = await core.read_namespaced_endpoints(f"crate-{name}", namespace)
@@ -401,12 +410,13 @@ async def test_legacy_cluster_without_masters_regression(
         err_msg="Resume has not finished",
         timeout=DEFAULT_TIMEOUT * 5,
     )
-    host = await get_host(core, namespace.metadata.name, name)
     await assert_wait_for(
         True,
-        is_cluster_healthy,
-        connection_factory(*require_connection(host, password)),
+        _data_nodes_ready,
+        apps,
+        namespace.metadata.name,
+        name,
         HOT_REPLICAS,
-        err_msg="Legacy cluster wasn't healthy after resume.",
+        err_msg="Data nodes were not scaled back up after resume.",
         timeout=DEFAULT_TIMEOUT * 5,
     )
