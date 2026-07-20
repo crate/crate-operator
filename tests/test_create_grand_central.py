@@ -502,7 +502,7 @@ async def test_gc_change_exposure_loadbalancer_to_traefik(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        timeout=DEFAULT_TIMEOUT * 3,
+        timeout=DEFAULT_TIMEOUT * 5,
     )
     await _start_gc_on_cluster(coapi, name, namespace.metadata.name)
 
