@@ -10,6 +10,9 @@ Unreleased
 
 * Fixed suspend/resume getting stuck on clusters without backups configured.
 
+* Fixed the ``grand-central-cors`` when ``spec.cluster.settings.http.cors.allow-origin``
+  is not set (which might be the case on older clusters)
+
 2.62.0 (2026-07-15)
 -------------------
 

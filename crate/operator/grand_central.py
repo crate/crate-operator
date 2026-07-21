@@ -555,8 +555,12 @@ def get_grand_central_middleware_cors(
     Build the ``grand-central-cors`` Traefik Middleware manifest.
 
     The CrateDB setting accepts a comma-separated list of origins; these are
-    split into individual entries. Falls back to ``["*"]`` when the setting
-    is absent.
+    split into individual entries. When the setting is absent, all origins
+    are allowed via ``accessControlAllowOriginListRegex`` rather than a
+    literal ``"*"`` in ``accessControlAllowOriginList``: Traefik's headers
+    middleware returns the literal ``"*"`` for the latter, which browsers
+    reject on credentialed requests, whereas a regex match reflects the
+    actual request Origin.
 
     :param owner_references: Owner references to set on the resource.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
@@ -564,28 +568,30 @@ def get_grand_central_middleware_cors(
     :param spec: The ``spec`` section of the CrateDB custom resource, used to
         read ``cluster.settings.http.cors.allow-origin``.
     """
-    raw_origin = (
-        spec["cluster"].get("settings", {}).get("http.cors.allow-origin") or "*"
-    )
-    origin_list = [o.strip() for o in raw_origin.split(",") if o.strip()]
+    raw_origin = spec["cluster"].get("settings", {}).get("http.cors.allow-origin")
+
+    headers: Dict[str, Any] = {
+        "accessControlAllowCredentials": True,
+        "accessControlAllowMethods": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "OPTIONS",
+            "DELETE",
+        ],
+        "accessControlAllowHeaders": ["Content-Type", "Authorization"],
+        "accessControlMaxAge": 7200,
+    }
+    if raw_origin:
+        headers["accessControlAllowOriginList"] = [
+            o.strip() for o in raw_origin.split(",") if o.strip()
+        ]
+    else:
+        headers["accessControlAllowOriginListRegex"] = [".*"]
 
     body = _build_middleware_base(name, _MIDDLEWARE_CORS, labels, owner_references)
-    body["spec"] = {
-        "headers": {
-            "accessControlAllowOriginList": origin_list,
-            "accessControlAllowCredentials": True,
-            "accessControlAllowMethods": [
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "OPTIONS",
-                "DELETE",
-            ],
-            "accessControlAllowHeaders": ["Content-Type", "Authorization"],
-            "accessControlMaxAge": 7200,
-        }
-    }
+    body["spec"] = {"headers": headers}
     return body
 
 
