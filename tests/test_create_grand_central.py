@@ -383,9 +383,15 @@ async def test_create_grand_central_traefik(
     ]
     assert cors_headers["accessControlAllowCredentials"] is True
     assert cors_headers["accessControlMaxAge"] == 7200
-    assert cors_headers["accessControlAllowOriginList"] == [
-        "*"
-    ], "Expected default origin list ['*'] when no cors setting is configured"
+    assert cors_headers.get("accessControlAllowOriginList") is None, (
+        "Expected no literal accessControlAllowOriginList when no cors setting "
+        "is configured, since Traefik returns the literal '*' for it, which "
+        "browsers reject on credentialed requests"
+    )
+    assert cors_headers["accessControlAllowOriginListRegex"] == [".*"], (
+        "Expected a regex match-all when no cors setting is configured, so "
+        "Traefik reflects the request Origin"
+    )
 
     # No nginx Ingress should be created
     await assert_wait_for(
