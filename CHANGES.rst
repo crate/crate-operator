@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added support for ``stackit`` as a cloud provider.
+
 2.62.2 (2026-07-22)
 -------------------
 

@@ -230,7 +230,15 @@ class TestStatefulSetAffinity:
             }
         ]
 
-    @pytest.mark.parametrize("provider", [CloudProvider.AWS, CloudProvider.AZURE])
+    @pytest.mark.parametrize(
+        "provider",
+        [
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
+    )
     def test_cloud_provider(self, provider, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):
@@ -692,6 +700,11 @@ class TestStatefulSetCrateCommand:
                 CloudProvider.GCP,
                 "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
                 " -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}'",
+            ),
+            (
+                CloudProvider.STACKIT,
+                "'http://169.254.169.254/latest/meta-data/placement/availability-zone'",  # noqa
+                "",
             ),
         ],
     )

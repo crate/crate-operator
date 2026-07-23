@@ -254,7 +254,8 @@ def test_upgrade_sts_command_with_jwt():
 
 
 @pytest.mark.parametrize(
-    "provider", [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+    "provider",
+    [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP, CloudProvider.STACKIT],
 )
 def test_upgrade_sts_command_hostname_zone(provider):
     cmd = [
