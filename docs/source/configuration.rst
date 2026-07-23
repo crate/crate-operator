@@ -51,6 +51,7 @@ expected to use upper case letters and must be prefixed with
    - ``azure``
    - ``gcp``
    - ``openshift`` (Red Hat OpenShift Container Platform)
+   - ``stackit`` (STACKIT)
 
    When set to ``openshift``, the operator will:
 

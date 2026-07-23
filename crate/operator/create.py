@@ -285,6 +285,7 @@ def get_topology_spread(
         CloudProvider.AWS,
         CloudProvider.AZURE,
         CloudProvider.GCP,
+        CloudProvider.STACKIT,
     }:
         topology_spread = [
             V1TopologySpreadConstraint(
@@ -597,6 +598,9 @@ def get_statefulset_crate_command(
         settings["-Cnode.attr.zone"] = (
             f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
         )
+    elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
+        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
+        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
 
     if cluster_settings:
         for k, v in cluster_settings.items():

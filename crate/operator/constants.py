@@ -91,6 +91,7 @@ class CloudProvider(str, enum.Enum):
     AZURE = "azure"
     GCP = "gcp"
     OPENSHIFT = "openshift"
+    STACKIT = "stackit"
 
 
 class Port(enum.Enum):
