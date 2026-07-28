@@ -1083,6 +1083,48 @@ class CreateCrateServiceAccountSubHandler(StateBasedSubHandler):
         )
 
 
+def get_pod_disruption_budget(
+    owner_references: Optional[List[V1OwnerReference]],
+    name: str,
+    node_name: str,
+    node_name_prefix: str,
+) -> V1PodDisruptionBudget:
+    """
+    Build the ``PodDisruptionBudget`` protecting one node spec's pods.
+
+    A PodDisruptionBudget ensures that when performing Kubernetes cluster
+    maintenance (i.e. upgrades), we make sure to not disrupt more than 1 pod in a
+    StatefulSet at a time.
+
+    The budget is named after the StatefulSet it guards, because
+    ``create_statefulset`` runs once per node spec and a cluster-wide name would
+    collide: the first budget wins and every later one is dropped as a conflict,
+    leaving those node specs unprotected (crate/cloud#3037).
+
+    :param owner_references: Owner references to set on the budget.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param node_name: The name of the node spec, e.g. ``master`` or ``hot``.
+    :param node_name_prefix: The pod name prefix of the node spec, e.g.
+        ``master-`` or ``data-hot-``.
+    """
+    return V1PodDisruptionBudget(
+        metadata=V1ObjectMeta(
+            name=f"crate-{node_name_prefix}{name}",
+            owner_references=owner_references,
+        ),
+        spec=V1PodDisruptionBudgetSpec(
+            max_unavailable=1,
+            selector=V1LabelSelector(
+                match_labels={
+                    LABEL_COMPONENT: "cratedb",
+                    LABEL_NAME: name,
+                    LABEL_NODE_NAME: node_name,
+                }
+            ),
+        ),
+    )
+
+
 async def create_statefulset(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
@@ -1144,27 +1186,9 @@ async def create_statefulset(
             ),
         )
         policy = PolicyV1Api(api_client)
-        pdb = V1PodDisruptionBudget(
-            metadata=V1ObjectMeta(
-                name=f"crate-{name}",
-                owner_references=owner_references,
-            ),
-            spec=V1PodDisruptionBudgetSpec(
-                max_unavailable=1,
-                selector=V1LabelSelector(
-                    match_labels={
-                        LABEL_COMPONENT: "cratedb",
-                        LABEL_NAME: name,
-                        LABEL_NODE_NAME: node_name,
-                    }
-                ),
-            ),
+        pdb = get_pod_disruption_budget(
+            owner_references, name, node_name, node_name_prefix
         )
-        """
-           A Pod Distruption Budget ensures that when performing Kubernetes cluster
-           maintenance (i.e. upgrades), we make sure to not disrupt more than
-           1 pod in a StatefulSet at a time.
-        """
         await call_kubeapi(
             policy.create_namespaced_pod_disruption_budget,
             logger,

@@ -62,6 +62,8 @@ from crate.operator.create import (
     get_cluster_resource_requests,
     get_data_service,
     get_discovery_service,
+    get_owner_references,
+    get_pod_disruption_budget,
     get_sql_exporter_config,
     get_statefulset,
     get_statefulset_affinity,
@@ -1026,6 +1028,64 @@ class TestStatefulSetVolumes:
             "mode": None,
             "path": "keystore.jks",
         }
+
+
+class TestPodDisruptionBudget:
+    @pytest.mark.parametrize(
+        "node_name, node_name_prefix, expected_suffix",
+        [
+            ("master", "master-", "master-"),
+            ("hot", "data-hot-", "data-hot-"),
+            ("warm", "data-warm-", "data-warm-"),
+        ],
+    )
+    def test_named_after_the_statefulset(
+        self, node_name, node_name_prefix, expected_suffix, faker
+    ):
+        name = faker.domain_word()
+
+        pdb = get_pod_disruption_budget(None, name, node_name, node_name_prefix)
+
+        assert pdb.metadata.name == f"crate-{expected_suffix}{name}"
+        assert pdb.spec.max_unavailable == 1
+        assert pdb.spec.selector.match_labels == {
+            LABEL_COMPONENT: "cratedb",
+            LABEL_NAME: name,
+            LABEL_NODE_NAME: node_name,
+        }
+
+    def test_every_node_spec_gets_its_own_budget(self, faker):
+        """
+        ``create_statefulset`` runs once per node spec and swallows conflicts, so
+        two node specs sharing a name left the second one unprotected
+        (crate/cloud#3037).
+        """
+        name = faker.domain_word()
+        node_specs = [
+            ("master", "master-"),
+            ("hot", "data-hot-"),
+            ("warm", "data-warm-"),
+        ]
+
+        budgets = [
+            get_pod_disruption_budget(None, name, node_name, prefix)
+            for node_name, prefix in node_specs
+        ]
+
+        names = [pdb.metadata.name for pdb in budgets]
+        assert len(set(names)) == len(node_specs), names
+        selectors = [
+            tuple(sorted(p.spec.selector.match_labels.items())) for p in budgets
+        ]
+        assert len(set(selectors)) == len(node_specs), selectors
+
+    def test_owner_references_are_passed_through(self, faker):
+        name = faker.domain_word()
+        owner_references = get_owner_references(name, {"uid": faker.uuid4()})
+
+        pdb = get_pod_disruption_budget(owner_references, name, "hot", "data-hot-")
+
+        assert pdb.metadata.owner_references == owner_references
 
 
 @pytest.mark.k8s

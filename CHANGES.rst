@@ -5,6 +5,13 @@ Changelog
 Unreleased
 ----------
 
+* Fixed the ``PodDisruptionBudget`` being created once per node spec but always
+  named after the cluster. Only the first node spec ended up with a budget, the
+  rest were dropped as name conflicts - on clusters with dedicated master nodes
+  that left the data nodes unprotected during node drains. Budgets are now named
+  after the ``StatefulSet`` they guard. Clusters created before this release keep
+  their single budget until they are recreated.
+
 2.62.2 (2026-07-22)
 -------------------
 
