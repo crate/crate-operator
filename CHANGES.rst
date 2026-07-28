@@ -11,7 +11,8 @@ Unreleased
   Engine). CrateDB is bound to ``0.0.0.0`` and publishes the pod IP, since
   STACKIT's carrier-grade NAT pod addresses are not site-local and CrateDB
   would otherwise refuse to start. The ``node.attr.zone`` attribute is read
-  from the OpenStack metadata service.
+  from the OpenStack metadata service and pods are spread across availability
+  zones, as they already are on the other providers.
 
 2.62.2 (2026-07-22)
 -------------------

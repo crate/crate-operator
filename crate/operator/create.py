@@ -286,6 +286,7 @@ def get_topology_spread(
         CloudProvider.AWS,
         CloudProvider.AZURE,
         CloudProvider.GCP,
+        CloudProvider.STACKIT,
     }:
         topology_spread = [
             V1TopologySpreadConstraint(

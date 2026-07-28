@@ -232,7 +232,10 @@ class TestStatefulSetAffinity:
             }
         ]
 
-    @pytest.mark.parametrize("provider", [CloudProvider.AWS, CloudProvider.AZURE])
+    @pytest.mark.parametrize(
+        "provider",
+        [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.STACKIT],
+    )
     def test_cloud_provider(self, provider, faker):
         name = faker.domain_word()
         with mock.patch("crate.operator.create.config.TESTING", False):

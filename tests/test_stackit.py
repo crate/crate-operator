@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import logging
 import subprocess
 from unittest import mock
 
@@ -28,6 +29,7 @@ from crate.operator.constants import CloudProvider
 from crate.operator.create import (
     get_statefulset_crate_command,
     get_statefulset_crate_env,
+    get_topology_spread,
 )
 
 OTHER_PROVIDERS = [
@@ -202,6 +204,28 @@ class TestStackitZoneAttribute:
         cmd = crate_command(provider)
 
         assert not any(METADATA_URL in arg for arg in cmd)
+
+
+class TestStackitTopologySpread:
+    def test_pods_are_spread_over_three_zones(self, faker):
+        """
+        ``min_domains=3`` with ``DoNotSchedule`` means the region has to offer three
+        zones, otherwise pods stay Pending instead of merely being unspread.
+        STACKIT ``eu01`` does (crate/cloud#3036).
+        """
+        name = faker.domain_word()
+        with mock.patch("crate.operator.create.config.TESTING", False):
+            with mock.patch(
+                "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.STACKIT
+            ):
+                topology_spread = get_topology_spread(name, logging.getLogger(__name__))
+
+        assert topology_spread
+        constraint = topology_spread[0]
+        assert constraint.topology_key == "topology.kubernetes.io/zone"
+        assert constraint.min_domains == 3
+        assert constraint.max_skew == 1
+        assert constraint.when_unsatisfiable == "DoNotSchedule"
 
 
 class TestStackitCrateEnv:
