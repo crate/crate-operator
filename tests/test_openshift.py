@@ -50,7 +50,14 @@ class TestOpenShiftOwnerReferences:
         assert owner_refs[0].name == name
 
     @pytest.mark.parametrize(
-        "provider", [None, CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+        "provider",
+        [
+            None,
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
     )
     def test_non_openshift_enables_block_owner_deletion(self, provider, faker):
         name = faker.domain_word()
@@ -78,7 +85,14 @@ class TestOpenShiftInitContainers:
         assert "mkdir-heapdump" in container_names
 
     @pytest.mark.parametrize(
-        "provider", [None, CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+        "provider",
+        [
+            None,
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
     )
     def test_non_openshift_includes_sysctl_init_container(self, provider):
         with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
@@ -186,7 +200,14 @@ class TestOpenShiftSidecarContainer:
         assert crate_http_url.value == "https://localhost:4200/_sql"
 
     @pytest.mark.parametrize(
-        "provider", [None, CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+        "provider",
+        [
+            None,
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
     )
     def test_non_openshift_no_crate_control_sidecar(self, provider, faker):
         name = faker.domain_word()
@@ -255,7 +276,14 @@ class TestOpenShiftLifecycleHooks:
         )
 
     @pytest.mark.parametrize(
-        "provider", [None, CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP]
+        "provider",
+        [
+            None,
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
     )
     def test_non_openshift_includes_lifecycle_hooks(self, provider, faker):
         name = faker.domain_word()

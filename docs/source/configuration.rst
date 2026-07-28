@@ -51,6 +51,12 @@ expected to use upper case letters and must be prefixed with
    - ``azure``
    - ``gcp``
    - ``openshift`` (Red Hat OpenShift Container Platform)
+   - ``stackit`` (STACKIT Kubernetes Engine)
+
+   When set to ``stackit``, the operator binds CrateDB to ``0.0.0.0`` and publishes
+   the pod IP as ``network.publish_host``. STACKIT assigns pods carrier-grade NAT
+   addresses from ``100.64.0.0/10``, which CrateDB's default ``_site_`` host
+   resolution does not accept as site-local, so without this a node does not start.
 
    When set to ``openshift``, the operator will:
 
