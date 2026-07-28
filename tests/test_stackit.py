@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import subprocess
 from unittest import mock
 
 import pytest
@@ -36,6 +37,18 @@ OTHER_PROVIDERS = [
     CloudProvider.GCP,
     CloudProvider.OPENSHIFT,
 ]
+
+METADATA_URL = "http://169.254.169.254/openstack/latest/meta_data.json"
+
+#: Shaped like a real SKE reply - one line, ``availability_zone`` in the middle,
+#: base64 blobs and a nested ``meta`` object around it. Values are dummies.
+OPENSTACK_METADATA = (
+    '{"uuid": "00000000-0000-0000-0000-000000000000", "meta": {"cratedb": "shared", '
+    '"node.kubernetes.io-role": "node"}, "hostname": "shoot--x--y-pool-z1-abcde", '
+    '"launch_index": 0, "availability_zone": "eu01-1", '
+    '"random_seed": "B9mC7ObLSxIS9h8jv5d17p3Ut+5WgAx7CfpcySsEIK2nObp906TM6w2u", '
+    '"project_id": "00000000000000000000000000000000", "devices": []}'
+)
 
 
 def crate_command(provider):
@@ -136,6 +149,59 @@ class TestStackitNetworkSettings:
         assert "-Cauth.host_based.config.0.address=_local_" in cmd
         assert "-Cauth.host_based.config.0.method=trust" in cmd
         assert "-Cauth.host_based.config.99.method=password" in cmd
+
+
+class TestStackitZoneAttribute:
+    """
+    ``node.attr.zone`` is read from the OpenStack metadata service at pod launch.
+    The exact shell snippet is asserted in
+    ``tests/test_create.py::TestStatefulSetCrateCommand::test_zone_attr``; here we
+    run it to prove it really extracts the zone.
+    """
+
+    def zone_pipeline(self):
+        cmd = crate_command(CloudProvider.STACKIT)
+        zone = [arg for arg in cmd if arg.startswith("-Cnode.attr.zone=")]
+        assert len(zone) == 1
+        # -Cnode.attr.zone=$(<pipeline>) -> <pipeline>
+        return zone[0][len("-Cnode.attr.zone=$(") : -1]
+
+    def run_pipeline(self, metadata):
+        """
+        Run the generated pipeline with ``curl`` replaced by a local echo, so the
+        parsing is exercised without touching the network.
+        """
+        pipeline = self.zone_pipeline()
+        assert pipeline.startswith(f"curl -s '{METADATA_URL}'")
+        stdin = pipeline.replace(f"curl -s '{METADATA_URL}'", "cat", 1)
+        return subprocess.run(
+            ["sh", "-c", stdin],
+            input=metadata,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_extracts_the_availability_zone(self):
+        result = self.run_pipeline(OPENSTACK_METADATA)
+
+        assert result.returncode == 0
+        assert result.stdout.strip() == "eu01-1"
+
+    def test_yields_nothing_when_the_metadata_service_is_unreachable(self):
+        """
+        A failed request must not emit a partial or bogus zone. It resolves to an
+        empty attribute, same as the other providers do today.
+        """
+        result = self.run_pipeline("")
+
+        assert result.stdout.strip() == ""
+
+    @pytest.mark.parametrize("provider", OTHER_PROVIDERS)
+    def test_other_providers_are_untouched(self, provider):
+        cmd = crate_command(provider)
+
+        assert not any(METADATA_URL in arg for arg in cmd)
 
 
 class TestStackitCrateEnv:

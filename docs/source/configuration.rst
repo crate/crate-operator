@@ -57,6 +57,8 @@ expected to use upper case letters and must be prefixed with
    the pod IP as ``network.publish_host``. STACKIT assigns pods carrier-grade NAT
    addresses from ``100.64.0.0/10``, which CrateDB's default ``_site_`` host
    resolution does not accept as site-local, so without this a node does not start.
+   The ``zone`` attribute is read from the OpenStack metadata service, which
+   reports zones as ``eu01-1``, ``eu01-2`` and so on.
 
    When set to ``openshift``, the operator will:
 

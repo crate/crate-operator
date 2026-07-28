@@ -695,6 +695,11 @@ class TestStatefulSetCrateCommand:
                 "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
                 " -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}'",
             ),
+            (
+                CloudProvider.STACKIT,
+                "'http://169.254.169.254/openstack/latest/meta_data.json'",
+                " | tr ',' '\\n' | grep -m 1 '\"availability_zone\"' | cut -d '\"' -f 4",  # noqa
+            ),
         ],
     )
     def test_zone_attr(self, provider, url, header):

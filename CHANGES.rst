@@ -10,7 +10,8 @@ Unreleased
 * Added ``stackit`` as an allowed ``CLOUD_PROVIDER`` value (STACKIT Kubernetes
   Engine). CrateDB is bound to ``0.0.0.0`` and publishes the pod IP, since
   STACKIT's carrier-grade NAT pod addresses are not site-local and CrateDB
-  would otherwise refuse to start.
+  would otherwise refuse to start. The ``node.attr.zone`` attribute is read
+  from the OpenStack metadata service.
 
 2.62.2 (2026-07-22)
 -------------------
