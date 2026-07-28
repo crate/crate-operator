@@ -76,6 +76,15 @@ expected to use upper case letters and must be prefixed with
    To set or override the attribute on a node type level, set it in
    ``.spec.nodes.master.settings`` or ``.spec.nodes.data.*.settings``.
 
+   When set to ``stackit``, the operator additionally sets
+   ``network.host: 0.0.0.0`` and ``network.publish_host: $(POD_IP)`` (backed
+   by a ``POD_IP`` downward API environment variable) on all CrateDB nodes.
+   This is required because STACKIT assigns pods CGNAT addresses
+   (``100.64.0.0/10``, RFC 6598), which the JVM does not classify as
+   site-local, causing CrateDB's default network host auto-detection to fail.
+   These settings can also be overridden the same way as ``node.attr.zone``
+   above.
+
 .. envvar:: CRATE_CONTROL_IMAGE
 
    When running on OpenShift (``CLOUD_PROVIDER=openshift``), this variable

@@ -57,6 +57,7 @@ from kubernetes_asyncio.client import (
     V1NodeSelector,
     V1NodeSelectorRequirement,
     V1NodeSelectorTerm,
+    V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
     V1PersistentVolumeClaim,
@@ -601,6 +602,10 @@ def get_statefulset_crate_command(
     elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
         url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
         settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
+        # StackIT pods get CGNAT addresses (100.64.0.0/10) that the JVM does
+        # not recognize as site-local. Bind explicitly and publish the pod's own IP.
+        settings["-Cnetwork.host"] = "0.0.0.0"
+        settings["-Cnetwork.publish_host"] = "$(POD_IP)"
 
     if cluster_settings:
         for k, v in cluster_settings.items():
@@ -681,6 +686,18 @@ def get_statefulset_crate_env(
                     ),
                 ),
             ]
+        )
+
+    if config.CLOUD_PROVIDER == CloudProvider.STACKIT:
+        # StackIT assigns pods CGNAT addresses (RFC 6598, 100.64.0.0/10), which
+        # the JVM does not classify as site-local.
+        crate_env.append(
+            V1EnvVar(
+                name="POD_IP",
+                value_from=V1EnvVarSource(
+                    field_ref=V1ObjectFieldSelector(field_path="status.podIP")
+                ),
+            )
         )
 
     return crate_env

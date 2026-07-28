@@ -736,6 +736,73 @@ class TestStatefulSetCrateCommand:
         assert f"-Cnode.attr.zone=$(curl -s {url}{header})" in cmd
 
     @pytest.mark.parametrize(
+        "provider",
+        [
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.OPENSHIFT,
+        ],
+    )
+    def test_network_settings_not_set_for_non_stackit(self, provider):
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                data_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    }
+                },
+                cluster_settings=None,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+                crate_version="6.4.1",
+                cloud_settings={},
+            )
+        assert not any(setting.startswith("-Cnetwork.host") for setting in cmd)
+        assert not any(setting.startswith("-Cnetwork.publish_host") for setting in cmd)
+
+    def test_network_settings_for_stackit(self):
+        with mock.patch(
+            "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.STACKIT
+        ):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                data_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    }
+                },
+                cluster_settings=None,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+                crate_version="6.4.1",
+                cloud_settings={},
+            )
+        assert "-Cnetwork.host=0.0.0.0" in cmd
+        assert "-Cnetwork.publish_host=$(POD_IP)" in cmd
+
+    @pytest.mark.parametrize(
         "node_settings, cluster_settings",
         [
             ({"node.attr.zone": "test"}, None),
@@ -933,6 +1000,29 @@ class TestStatefulSetCrateEnv:
         assert e_pw.name == "KEYSTORE_PASSWORD"
         assert e_pw.value_from.secret_key_ref.key == keystore_password_key
         assert e_pw.value_from.secret_key_ref.name == keystore_password_name
+
+    def test_stackit_pod_ip(self, faker):
+        memory = "123Mi"
+        heap_ratio = 0.456
+        node_spec = {"resources": {"memory": memory, "heapRatio": heap_ratio}}
+        with mock.patch(
+            "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.STACKIT
+        ):
+            crate_env = get_statefulset_crate_env(node_spec, 1234, 5678, None)
+        pod_ip_env = next(e for e in crate_env if e.name == "POD_IP")
+        assert pod_ip_env.value_from.field_ref.field_path == "status.podIP"
+
+    @pytest.mark.parametrize(
+        "provider",
+        [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP],
+    )
+    def test_pod_ip_not_set_for_non_stackit(self, faker, provider):
+        memory = "123Mi"
+        heap_ratio = 0.456
+        node_spec = {"resources": {"memory": memory, "heapRatio": heap_ratio}}
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            crate_env = get_statefulset_crate_env(node_spec, 1234, 5678, None)
+        assert not any(e.name == "POD_IP" for e in crate_env)
 
 
 class TestStatefulSetCrateVolumeMounts:

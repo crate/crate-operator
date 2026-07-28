@@ -7,6 +7,9 @@ Unreleased
 
 * Added support for ``stackit`` as a cloud provider.
 
+* Fixed CrateDB network host auto-detection on ``stackit``, where CGNAT pod
+  addresses are not recognized as site-local by the JVM.
+
 2.62.2 (2026-07-22)
 -------------------
 
