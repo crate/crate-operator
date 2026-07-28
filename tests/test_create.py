@@ -800,7 +800,7 @@ class TestStatefulSetCrateCommand:
                 cloud_settings={},
             )
         assert "-Cnetwork.host=0.0.0.0" in cmd
-        assert "-Cnetwork.publish_host=$(POD_IP)" in cmd
+        assert "-Cnetwork.publish_host=${POD_IP}" in cmd
 
     @pytest.mark.parametrize(
         "node_settings, cluster_settings",
@@ -1014,7 +1014,7 @@ class TestStatefulSetCrateEnv:
 
     @pytest.mark.parametrize(
         "provider",
-        [CloudProvider.AWS, CloudProvider.AZURE, CloudProvider.GCP],
+        [provider for provider in CloudProvider if provider != CloudProvider.STACKIT],
     )
     def test_pod_ip_not_set_for_non_stackit(self, faker, provider):
         memory = "123Mi"

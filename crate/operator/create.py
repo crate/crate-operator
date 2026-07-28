@@ -605,7 +605,7 @@ def get_statefulset_crate_command(
         # StackIT pods get CGNAT addresses (100.64.0.0/10) that the JVM does
         # not recognize as site-local. Bind explicitly and publish the pod's own IP.
         settings["-Cnetwork.host"] = "0.0.0.0"
-        settings["-Cnetwork.publish_host"] = "$(POD_IP)"
+        settings["-Cnetwork.publish_host"] = "${POD_IP}"
 
     if cluster_settings:
         for k, v in cluster_settings.items():
