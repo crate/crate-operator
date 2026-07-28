@@ -151,7 +151,8 @@ expected to use upper case letters and must be prefixed with
    The Kubernetes storage class name for the ``PersistentVolume`` that is
    used as a storage location for Java heap dumps.
 
-   The default value is ``crate-local``.
+   The default value is ``crate-standard``. The Helm chart sets it to
+   ``default``.
 
 .. envvar:: IMAGE_PULL_SECRETS
 
@@ -202,7 +203,7 @@ expected to use upper case letters and must be prefixed with
    many seconds and will be considered to have failed. Set to ``0`` to disable
    timeouts.
 
-   The default value is ``3600`` seconds.
+   The default value is ``14400`` seconds. The Helm chart sets it to ``3600``.
 
 .. envvar:: TESTING
 
