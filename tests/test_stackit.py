@@ -21,6 +21,7 @@
 
 import logging
 import subprocess
+from typing import Any, Dict
 from unittest import mock
 
 import pytest
@@ -105,7 +106,7 @@ class TestStackitNetworkSettings:
         operator can still pin the publish host by hand.
         """
         overrides = {"network.publish_host": "_eth0_"}
-        node_spec = {
+        node_spec: Dict[str, Any] = {
             "resources": {
                 "requests": {"cpu": 1},
                 "limits": {"cpu": 1},
