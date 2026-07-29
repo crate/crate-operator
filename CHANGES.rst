@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Fixed only the first node group of a cluster getting a ``PodDisruptionBudget``.
+
 2.62.2 (2026-07-22)
 -------------------
 
