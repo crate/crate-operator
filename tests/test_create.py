@@ -700,8 +700,8 @@ class TestStatefulSetCrateCommand:
             ),
             (
                 CloudProvider.STACKIT,
-                "'http://169.254.169.254/openstack/latest/meta_data.json'",
-                " | tr ',' '\\n' | grep -m 1 '\"availability_zone\"' | cut -d '\"' -f 4",  # noqa
+                "'http://169.254.169.254/latest/meta-data/placement/availability-zone'",  # noqa
+                "",
             ),
         ],
     )

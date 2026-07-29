@@ -58,8 +58,9 @@ expected to use upper case letters and must be prefixed with
    addresses from ``100.64.0.0/10``, which CrateDB's default ``_site_`` host
    resolution does not accept as site-local, so without this a node does not start.
 
-   The ``zone`` attribute is read from the OpenStack metadata service. STACKIT
-   names its zones ``<region>-<number>``, so the values that go into
+   The ``zone`` attribute is read from the EC2-compatible metadata endpoint that
+   OpenStack serves. STACKIT names its zones ``<region>-<number>``, so the values
+   that go into
    ``cluster.routing.allocation.awareness.force.zone.values`` differ from the AWS
    example above. For the ``eu01`` region:
 

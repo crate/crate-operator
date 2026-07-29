@@ -610,15 +610,12 @@ def get_statefulset_crate_command(
             f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
         )
     elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
-        url = "http://169.254.169.254/openstack/latest/meta_data.json"
-        # STACKIT runs on OpenStack, whose metadata service answers with one
-        # single-line JSON document and the crate image has no ``jq``. Splitting on
-        # commas puts the field on a line of its own, so the quoted value is the
-        # fourth ``"``-delimited field: {..., "availability_zone": "eu01-1", ...}
-        settings["-Cnode.attr.zone"] = (
-            f"$(curl -s '{url}' | tr ',' '\\n'"
-            " | grep -m 1 '\"availability_zone\"' | cut -d '\"' -f 4)"
-        )
+        # STACKIT runs on OpenStack, which serves the EC2-compatible metadata API
+        # as well, so the zone comes back as a bare string and needs no parsing.
+        # Same path as AWS above, minus the IMDSv2 token: OpenStack does not
+        # require one.
+        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
+        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
 
     if cluster_settings:
         for k, v in cluster_settings.items():
