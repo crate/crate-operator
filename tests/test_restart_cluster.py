@@ -303,3 +303,61 @@ async def test_restart_progress_total_is_the_pods_this_run_restarts(
         )
 
     assert _progress_messages(mock_send_notification) == ["1/2"]
+
+
+@pytest.mark.asyncio
+@patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
+@patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_cluster", new_callable=AsyncMock)
+@patch(
+    "crate.operator.operations.send_operation_progress_notification",
+    new_callable=AsyncMock,
+)
+async def test_restart_progress_seeds_a_total_for_a_restart_already_in_flight(
+    mock_send_notification,
+    mock_get_pods_in_cluster,
+    mock_get_pods_in_statefulset,
+    _mock_set_cluster_setting,
+    _mock_get_connection_factory,
+):
+    # A restart that was already running when pendingPodsTotal was introduced has
+    # a queue but no total. Seeding it from what is left and persisting it keeps
+    # the numerator moving; re-deriving it each pass would track the shrinking
+    # queue and report 1/3, 1/2, 1/1.
+    hot = [{"uid": f"h{i}", "name": f"crate-data-hot-c-{i}"} for i in range(3)]
+    mock_get_pods_in_cluster.return_value = (
+        [p["uid"] for p in hot],
+        [p["name"] for p in hot],
+    )
+
+    core = MagicMock()
+    core.delete_namespaced_pod = AsyncMock()
+    old = _spec()
+    # Mid-restart status as an older operator version left it.
+    status: dict[str, Any] = {"pendingPods": list(hot)}
+    patch_obj = kopf.Patch()
+
+    reported = []
+    for _ in range(len(hot)):
+        with pytest.raises(kopf.TemporaryError, match="Waiting for pod"):
+            await restart_cluster(
+                core=core,
+                namespace="ns",
+                name="c",
+                old=old,
+                body=old,
+                logger=MagicMock(),
+                patch=patch_obj,
+                status=status,
+                action=WebhookAction.UPGRADE,
+            )
+        reported.extend(_progress_messages(mock_send_notification))
+        mock_send_notification.reset_mock()
+        # The seeded total is persisted, so it carries into the next pass.
+        status["pendingPodsTotal"] = patch_obj.status["pendingPodsTotal"]
+        status["pendingPods"] = status["pendingPods"][1:]
+
+    assert reported == ["1/3", "2/3", "3/3"]
+    # The queue was never rebuilt, so no StatefulSet lookup was needed.
+    mock_get_pods_in_statefulset.assert_not_awaited()

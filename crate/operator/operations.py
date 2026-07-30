@@ -156,8 +156,22 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
 #: A data node group's name ends up in the StatefulSet name
 #: (``crate-data-<group>-<cluster>``) and in the CrateDB node names
 #: (``data-<group>-<i>``), so it has to be a valid Kubernetes name fragment:
-#: lowercase alphanumeric and dashes, starting and ending alphanumeric.
-DATA_NODE_GROUP_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+#: lowercase alphanumeric and dashes, starting and ending alphanumeric. Matched
+#: with ``fullmatch`` -- with ``match``, ``$`` would also accept a trailing
+#: newline, which is not a valid Kubernetes name.
+DATA_NODE_GROUP_NAME = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?")
+
+#: The name also becomes the ``node-name`` label value verbatim, and Kubernetes
+#: caps label values at 63 characters. This does not bound the *composite*
+#: StatefulSet name, which also carries the cluster name -- that needs the
+#: cluster name, which this validation does not get (crate/cloud#3039).
+DATA_NODE_GROUP_NAME_MAX_LENGTH = 63
+
+#: ``master`` is reserved for the dedicated master group, which is created with
+#: ``node_name="master"``. A data group of that name would get the same
+#: ``node-name`` label, so its StatefulSet selector would be identical to the
+#: master StatefulSet's and the two would fight over each other's pods.
+RESERVED_NODE_GROUP_NAMES = frozenset({"master"})
 
 
 def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
@@ -172,14 +186,20 @@ def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
     are configured their replica count must be odd and at least three, so the
     masters can always form a quorum.
 
-    Data node group names must be valid Kubernetes name fragments and unique
-    within the cluster. The CRD schema is looser than Kubernetes itself on both
-    counts, and neither shape can start (crate/cloud#3039): a name with an
-    underscore or a capital produces a StatefulSet the API server rejects with an
-    opaque 422, and two groups sharing a name produce the *same* StatefulSet
-    name, where the second create is a 409 that ``call_kubeapi`` swallows -- so
-    one group silently gets no StatefulSet while its replicas still count towards
-    ``gateway.expected_data_nodes``, and the cluster never forms.
+    Data node group names must be valid Kubernetes name fragments, not clash with
+    the reserved ``master`` group, and be unique within the cluster. The CRD
+    schema is looser than Kubernetes itself, and none of the shapes it lets
+    through can start (crate/cloud#3039):
+
+    - a name with an underscore or a capital, or one over 63 characters,
+      produces a StatefulSet the API server rejects with an opaque 422;
+    - two groups sharing a name produce the *same* StatefulSet name, where the
+      second create is a 409 that ``call_kubeapi`` swallows -- so one group
+      silently gets no StatefulSet while its replicas still count towards
+      ``gateway.expected_data_nodes``, and the cluster never forms;
+    - a group named ``master`` gets the same ``node-name`` label as the
+      dedicated master group, so the two StatefulSets end up with identical
+      selectors and fight over each other's pods.
 
     :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
     :param logger: Logger used to record why the spec was rejected.
@@ -196,7 +216,9 @@ def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
     invalid = [
         name
         for name in names
-        if not isinstance(name, str) or not DATA_NODE_GROUP_NAME.match(name)
+        if not isinstance(name, str)
+        or not DATA_NODE_GROUP_NAME.fullmatch(name)
+        or len(name) > DATA_NODE_GROUP_NAME_MAX_LENGTH
     ]
     if invalid:
         logger.error(
@@ -205,7 +227,19 @@ def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
         raise kopf.PermanentError(
             "Data node group names (spec.nodes.data[].name) must be lowercase "
             "alphanumeric or '-', starting and ending with an alphanumeric "
-            f"character. Invalid: {', '.join(repr(name) for name in invalid)}."
+            f"character, and at most {DATA_NODE_GROUP_NAME_MAX_LENGTH} characters. "
+            f"Invalid: {', '.join(repr(name) for name in invalid)}."
+        )
+
+    reserved = sorted(set(names) & RESERVED_NODE_GROUP_NAMES)
+    if reserved:
+        logger.error(
+            "CrateDB spec rejected: reserved data node group names %s.", reserved
+        )
+        raise kopf.PermanentError(
+            "Data node group names (spec.nodes.data[].name) must not use the "
+            "reserved name of the dedicated master group, which would give both "
+            f"StatefulSets the same selector. Reserved: {', '.join(reserved)}."
         )
 
     duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -809,9 +843,12 @@ async def restart_cluster(
     # restart at 0 in every StatefulSet, so a masters + data restart reported
     # 1/6, 2/6, 3/6, 1/6, ... (crate/cloud#3039). The total is what *this* run set
     # out to restart, which for a compute change is only the changed groups. A
-    # restart already running when this field was introduced has none recorded,
-    # hence the floor.
-    total_pods = max(total_pods, len(pending_pods))
+    # restart already in flight when this field was introduced has none recorded,
+    # so seed it from what is left and persist it - re-deriving it every pass
+    # would track the shrinking queue and report 1/5, 1/4, 1/3, ...
+    if not total_pods:
+        total_pods = len(pending_pods)
+        patch.status["pendingPodsTotal"] = total_pods
     node_progress = f"{total_pods - len(pending_pods) + 1}/{total_pods}"
 
     all_pod_uids, all_pod_names = await get_pods_in_cluster(core, namespace, name)
