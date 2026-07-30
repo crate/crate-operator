@@ -180,3 +180,126 @@ def test_upgrade_restarts_all_groups_regardless_of_change():
     # An upgrade must roll every node (new image), even with no resource change.
     groups = _node_groups_to_restart(_spec(), _spec(), WebhookAction.UPGRADE)
     assert [g.name for g in groups] == ["master", "hot"]
+
+
+def _progress_messages(mock_send_notification):
+    """The ``N/M`` fragments of the progress notifications, in order."""
+    return [
+        call.kwargs["message"].split("node ", 1)[1].split(" ", 1)[0]
+        for call in mock_send_notification.await_args_list
+    ]
+
+
+@pytest.mark.asyncio
+@patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
+@patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_cluster", new_callable=AsyncMock)
+@patch(
+    "crate.operator.operations.send_operation_progress_notification",
+    new_callable=AsyncMock,
+)
+async def test_restart_progress_counts_across_node_groups(
+    mock_send_notification,
+    mock_get_pods_in_cluster,
+    mock_get_pods_in_statefulset,
+    _mock_set_cluster_setting,
+    _mock_get_connection_factory,
+):
+    # Pod ordinals restart at 0 in every StatefulSet, so a masters + data restart
+    # used to report 1/6, 2/6, 3/6, 1/6, 2/6, 3/6 (crate/cloud#3039). Progress
+    # must instead count off the pods still to do.
+    masters = [{"uid": f"m{i}", "name": f"crate-master-c-{i}"} for i in range(3)]
+    hot = [{"uid": f"h{i}", "name": f"crate-data-hot-c-{i}"} for i in range(3)]
+    mock_get_pods_in_statefulset.side_effect = [masters, hot]
+
+    all_pods = masters + hot
+    mock_get_pods_in_cluster.return_value = (
+        [p["uid"] for p in all_pods],
+        [p["name"] for p in all_pods],
+    )
+
+    core = MagicMock()
+    core.delete_namespaced_pod = AsyncMock()
+    patch_obj = kopf.Patch()
+    status: dict[str, Any] = {}
+    old = _spec()
+
+    reported = []
+    for _ in range(len(all_pods)):
+        # Every pass terminates the pod at the head of the queue and reruns.
+        with pytest.raises(kopf.TemporaryError, match="Waiting for pod"):
+            await restart_cluster(
+                core=core,
+                namespace="ns",
+                name="c",
+                old=old,
+                body=old,
+                logger=MagicMock(),
+                patch=patch_obj,
+                status=status,
+                action=WebhookAction.UPGRADE,
+            )
+        reported.extend(_progress_messages(mock_send_notification))
+        mock_send_notification.reset_mock()
+        # The handler only builds the queue on the first pass, so pick it up from
+        # the patch once and then keep it here, dropping the pod just terminated.
+        if "pendingPods" not in status:
+            status["pendingPods"] = patch_obj.status["pendingPods"]
+            status["pendingPodsTotal"] = patch_obj.status["pendingPodsTotal"]
+        status["pendingPods"] = status["pendingPods"][1:]
+
+    assert reported == ["1/6", "2/6", "3/6", "4/6", "5/6", "6/6"]
+
+
+@pytest.mark.asyncio
+@patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
+@patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_cluster", new_callable=AsyncMock)
+@patch(
+    "crate.operator.operations.send_operation_progress_notification",
+    new_callable=AsyncMock,
+)
+async def test_restart_progress_total_is_the_pods_this_run_restarts(
+    mock_send_notification,
+    mock_get_pods_in_cluster,
+    mock_get_pods_in_statefulset,
+    _mock_set_cluster_setting,
+    _mock_get_connection_factory,
+):
+    # A compute change restarts only the changed groups, so the denominator is
+    # that group's pods -- not every pod in the cluster.
+    hot = [{"uid": f"h{i}", "name": f"crate-data-hot-c-{i}"} for i in range(2)]
+    mock_get_pods_in_statefulset.side_effect = [hot]
+    mock_get_pods_in_cluster.return_value = (
+        ["m0", "m1", "m2", "h0", "h1"],
+        [
+            "crate-master-c-0",
+            "crate-master-c-1",
+            "crate-master-c-2",
+            "crate-data-hot-c-0",
+            "crate-data-hot-c-1",
+        ],
+    )
+
+    core = MagicMock()
+    core.delete_namespaced_pod = AsyncMock()
+    patch_obj = kopf.Patch()
+    old = _spec(hot_cpu=2)
+    new = _spec(hot_cpu=4)
+
+    with pytest.raises(kopf.TemporaryError, match="Waiting for pod"):
+        await restart_cluster(
+            core=core,
+            namespace="ns",
+            name="c",
+            old=old,
+            body=new,
+            logger=MagicMock(),
+            patch=patch_obj,
+            status={},
+            action=WebhookAction.CHANGE_COMPUTE,
+        )
+
+    assert _progress_messages(mock_send_notification) == ["1/2"]

@@ -9,6 +9,10 @@ Unreleased
 
 * Added support for STACKIT Kubernetes Engine via ``CLOUD_PROVIDER=stackit``.
 
+* Added validation of data node group names when creating a cluster.
+
+* Fixed rolling restart progress restarting from 1 for every node group.
+
 2.62.2 (2026-07-22)
 -------------------
 
