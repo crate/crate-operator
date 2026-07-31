@@ -57,6 +57,7 @@ from kubernetes_asyncio.client import (
     V1NodeSelector,
     V1NodeSelectorRequirement,
     V1NodeSelectorTerm,
+    V1ObjectFieldSelector,
     V1ObjectMeta,
     V1OwnerReference,
     V1PersistentVolumeClaim,
@@ -285,6 +286,7 @@ def get_topology_spread(
         CloudProvider.AWS,
         CloudProvider.AZURE,
         CloudProvider.GCP,
+        CloudProvider.STACKIT,
     }:
         topology_spread = [
             V1TopologySpreadConstraint(
@@ -578,6 +580,16 @@ def get_statefulset_crate_command(
             }
         )
 
+    # STACKIT (SKE) assigns pods carrier-grade NAT addresses (100.64.0.0/10). Those
+    # are not site-local, so CrateDB's default ``_site_`` host resolution finds no
+    # candidate address and the node refuses to start (crate/cloud#2926). Bind on all
+    # interfaces of the pod's own network namespace and publish the pod IP instead.
+    # This does not widen access: the ``crate`` trust rule stays pinned to ``_local_``
+    # and every other connection keeps going through password or JWT auth.
+    if config.CLOUD_PROVIDER == CloudProvider.STACKIT:
+        settings["-Cnetwork.host"] = "0.0.0.0"
+        settings["-Cnetwork.publish_host"] = "$(POD_IP)"
+
     # Availability zone retrieval at pod launch time
     if config.CLOUD_PROVIDER == CloudProvider.AWS:
         aws_cmd = (
@@ -597,6 +609,13 @@ def get_statefulset_crate_command(
         settings["-Cnode.attr.zone"] = (
             f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
         )
+    elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
+        # STACKIT runs on OpenStack, which serves the EC2-compatible metadata API
+        # as well, so the zone comes back as a bare string and needs no parsing.
+        # Same path as AWS above, minus the IMDSv2 token: OpenStack does not
+        # require one.
+        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
+        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
 
     if cluster_settings:
         for k, v in cluster_settings.items():
@@ -677,6 +696,21 @@ def get_statefulset_crate_env(
                     ),
                 ),
             ]
+        )
+
+    # Referenced as ``$(POD_IP)`` by ``-Cnetwork.publish_host`` on STACKIT. Appended
+    # only there, and last, so the pod spec of every other provider stays byte for
+    # byte what it was - an extra env var would restart all existing clusters.
+    if config.CLOUD_PROVIDER == CloudProvider.STACKIT:
+        crate_env.append(
+            V1EnvVar(
+                name="POD_IP",
+                value_from=V1EnvVarSource(
+                    field_ref=V1ObjectFieldSelector(
+                        api_version="v1", field_path="status.podIP"
+                    )
+                ),
+            )
         )
 
     return crate_env

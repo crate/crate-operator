@@ -51,6 +51,48 @@ expected to use upper case letters and must be prefixed with
    - ``azure``
    - ``gcp``
    - ``openshift`` (Red Hat OpenShift Container Platform)
+   - ``stackit`` (STACKIT Kubernetes Engine)
+
+   When set to ``stackit``, the operator binds CrateDB to ``0.0.0.0`` and publishes
+   the pod IP as ``network.publish_host``. STACKIT assigns pods carrier-grade NAT
+   addresses from ``100.64.0.0/10``, which CrateDB's default ``_site_`` host
+   resolution does not accept as site-local, so without this a node does not start.
+
+   The ``zone`` attribute is read from the EC2-compatible metadata endpoint that
+   OpenStack serves. STACKIT names its zones ``<region>-<number>``, so the values
+   that go into
+   ``cluster.routing.allocation.awareness.force.zone.values`` differ from the AWS
+   example above. For the ``eu01`` region:
+
+   .. code-block:: yaml
+
+      kind: CrateDB
+      spec:
+        cluster:
+          settings:
+            cluster.routing.allocation.awareness.attributes: "zone"
+            cluster.routing.allocation.awareness.force.zone.values: "eu01-1,eu01-2,eu01-3"
+
+   The names must match what the metadata service reports for the nodes the
+   cluster runs on. If they do not, CrateDB will not force shard copies apart and
+   a replica can end up in the same zone as its primary.
+
+   STACKIT ships no ``StorageClass`` named ``default``, which the Helm chart uses
+   as the value for :envvar:`DEBUG_VOLUME_STORAGE_CLASS`. Point that variable at
+   a class that exists, otherwise the heap dump ``PersistentVolumeClaim`` of every
+   CrateDB pod stays ``Pending`` and the pod never starts. The data volumes are
+   unaffected, as their class comes from
+   ``.spec.nodes.*.resources.disk.storageClass`` on the CrateDB resource, but it
+   needs to name an existing class for the same reason.
+
+   Block storage on STACKIT expands while it is mounted, so
+   :envvar:`NO_DOWNTIME_STORAGE_EXPANSION` can be enabled to grow volumes without
+   suspending the cluster.
+
+   Adding a node takes a few minutes on STACKIT and the cluster autoscaler brings
+   nodes up one after another, so scaling out a cluster is noticeably slower than
+   on the other providers. The default :envvar:`BOOTSTRAP_TIMEOUT` and
+   :envvar:`SCALING_TIMEOUT` leave enough room for this.
 
    When set to ``openshift``, the operator will:
 
@@ -110,7 +152,8 @@ expected to use upper case letters and must be prefixed with
    The Kubernetes storage class name for the ``PersistentVolume`` that is
    used as a storage location for Java heap dumps.
 
-   The default value is ``crate-local``.
+   The default value is ``crate-standard``. The Helm chart sets it to
+   ``default``.
 
 .. envvar:: IMAGE_PULL_SECRETS
 
@@ -161,7 +204,7 @@ expected to use upper case letters and must be prefixed with
    many seconds and will be considered to have failed. Set to ``0`` to disable
    timeouts.
 
-   The default value is ``3600`` seconds.
+   The default value is ``14400`` seconds. The Helm chart sets it to ``3600``.
 
 .. envvar:: TESTING
 
@@ -208,7 +251,8 @@ expected to use upper case letters and must be prefixed with
 
    Whether to perform volume expansion operations without suspending the cluster.
    For this to work, it must be supported by the underlying infrastructure. At the time
-   of writing, this works on Azure AKS and AWS EKS if using the CSI drivers.
+   of writing, this works on Azure AKS, AWS EKS and STACKIT SKE if using the CSI
+   drivers.
 
    By default, the operator will suspend the cluster while performing volume expansion,
    and resume it once the PVCs expand.

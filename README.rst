@@ -89,7 +89,7 @@ Previous versions might work, but the operator will not attempt to set a license
 - custom node settings
 - custom cluster settings
 - custom storage classes
-- region/zone awareness for AWS and Azure
+- region/zone awareness for AWS, Azure, GCP and STACKIT
 - OpenShift support (Red Hat OpenShift Container Platform 4.x)
 
 💽 Installation

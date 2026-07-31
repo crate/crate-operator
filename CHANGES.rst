@@ -7,6 +7,8 @@ Unreleased
 
 * Fixed only the first node group of a cluster getting a ``PodDisruptionBudget``.
 
+* Added support for STACKIT Kubernetes Engine via ``CLOUD_PROVIDER=stackit``.
+
 2.62.2 (2026-07-22)
 -------------------
 
