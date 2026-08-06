@@ -263,6 +263,83 @@ class TestValidateNodeSpec:
             )
 
 
+class TestValidateDataNodeGroupNames:
+    """
+    The CRD schema is looser than Kubernetes on both name validity and
+    uniqueness, and neither shape it lets through can actually start
+    (crate/cloud#3039).
+    """
+
+    @staticmethod
+    def _nodes(*names):
+        return {"data": [{"name": name, "replicas": 1} for name in names]}
+
+    def test_accepts_several_distinct_groups(self):
+        validate_node_spec(self._nodes("hot", "warm", "cold-2"), mock.Mock())
+
+    def test_rejects_duplicate_names(self):
+        # Both groups would name the same StatefulSet; the second create is a 409
+        # that call_kubeapi swallows, so one group silently gets none.
+        with pytest.raises(kopf.PermanentError, match="must be unique"):
+            validate_node_spec(self._nodes("hot", "hot"), mock.Mock())
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Hot",  # uppercase: rejected by the API server
+            "hot_tier",  # underscore: not valid in a Kubernetes name
+            "",  # empty: yields "crate-data--<cluster>"
+            "-hot",  # must start alphanumeric
+            "hot-",  # must end alphanumeric
+            "hot.tier",  # dot: breaks the pod hostname
+        ],
+    )
+    def test_rejects_names_kubernetes_would_not_accept(self, name):
+        with pytest.raises(kopf.PermanentError, match="must be lowercase"):
+            validate_node_spec(self._nodes(name), mock.Mock())
+
+    def test_rejects_missing_name(self):
+        with pytest.raises(kopf.PermanentError, match="must be lowercase"):
+            validate_node_spec({"data": [{"replicas": 1}]}, mock.Mock())
+
+    def test_rejects_trailing_newline(self):
+        # ``$`` also matches before a final newline, so this needs ``fullmatch``.
+        with pytest.raises(kopf.PermanentError, match="must be lowercase"):
+            validate_node_spec(self._nodes("hot\n"), mock.Mock())
+
+    def test_rejects_names_over_the_label_value_limit(self):
+        # The name is the ``node-name`` label value verbatim, capped at 63 by
+        # Kubernetes.
+        validate_node_spec(self._nodes("a" * 63), mock.Mock())
+        with pytest.raises(kopf.PermanentError, match="at most 63"):
+            validate_node_spec(self._nodes("a" * 64), mock.Mock())
+
+    def test_rejects_a_group_named_master(self):
+        # ``master`` is the dedicated master group's node-name label, so a data
+        # group of that name gives both StatefulSets the same selector and they
+        # fight over each other's pods.
+        with pytest.raises(kopf.PermanentError, match="reserved name"):
+            validate_node_spec(
+                {
+                    "master": {"replicas": 3},
+                    "data": [{"name": "master", "replicas": 1}],
+                },
+                mock.Mock(),
+            )
+
+    def test_rejects_a_group_named_master_without_dedicated_masters(self):
+        # Rejected regardless: the cluster may gain dedicated masters later, and
+        # the name is reserved either way.
+        with pytest.raises(kopf.PermanentError, match="reserved name"):
+            validate_node_spec(self._nodes("master"), mock.Mock())
+
+    def test_name_validity_is_reported_before_uniqueness(self):
+        # Two invalid *and* duplicated names: the format message is the more
+        # actionable one, and it also keeps the duplicate report free of None.
+        with pytest.raises(kopf.PermanentError, match="must be lowercase"):
+            validate_node_spec(self._nodes("Hot", "Hot"), mock.Mock())
+
+
 def _suspend_resume_patches(order, master_replicas=3, data_groups=None):
     """
     Patch every collaborator ``suspend_or_start_cluster`` calls so the function

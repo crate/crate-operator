@@ -112,6 +112,9 @@ class FinalRollbackSubHandler(StateBasedSubHandler):
                 if "pendingPods" in status:
                     logger.info("Clearing pendingPods from status.")
                     patch.status["pendingPods"] = None
+                    # Cleared together with the queue it counts, so the two
+                    # never outlive each other in the status stanza.
+                    patch.status["pendingPodsTotal"] = None
             except Exception as e:
                 logger.warning(f"Failed to clear pendingPods during rollback: {e}")
 

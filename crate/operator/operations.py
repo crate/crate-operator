@@ -23,6 +23,7 @@ import asyncio
 import datetime
 import logging
 import pkgutil
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, cast
 
@@ -152,6 +153,19 @@ def get_master_nodes_names(nodes: Dict[str, Any]) -> List[str]:
         return [f"data-{node_name}-{i}" for i in range(node["replicas"])]
 
 
+#: Valid Kubernetes name fragment; ``fullmatch`` so a trailing newline is
+#: rejected. The name ends up in the StatefulSet name and CrateDB node names.
+DATA_NODE_GROUP_NAME = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?")
+
+#: The name is the ``node-name`` label value verbatim; Kubernetes caps those
+#: at 63. Does not bound the composite StatefulSet name (crate/cloud#3039).
+DATA_NODE_GROUP_NAME_MAX_LENGTH = 63
+
+#: ``master`` is the dedicated master group's node name; a data group of that
+#: name would share its selector and the two would fight over each other's pods.
+RESERVED_NODE_GROUP_NAMES = frozenset({"master"})
+
+
 def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
     """
     Validate the ``spec.nodes`` of a CrateDB resource, raising a
@@ -164,6 +178,11 @@ def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
     are configured their replica count must be odd and at least three, so the
     masters can always form a quorum.
 
+    Data node group names must be valid Kubernetes name fragments, not clash
+    with the reserved ``master`` group, and be unique within the cluster. The
+    CRD schema is looser than Kubernetes on all three, and none of the shapes it
+    lets through can start (crate/cloud#3039).
+
     :param nodes: The ``spec.nodes`` from a CrateDB custom resource.
     :param logger: Logger used to record why the spec was rejected.
     """
@@ -172,6 +191,52 @@ def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
         raise kopf.PermanentError(
             "A CrateDB cluster must define at least one data node group "
             "(spec.nodes.data)."
+        )
+
+    names = [group.get("name") for group in nodes["data"]]
+
+    invalid = [
+        name
+        for name in names
+        if not isinstance(name, str)
+        or not DATA_NODE_GROUP_NAME.fullmatch(name)
+        or len(name) > DATA_NODE_GROUP_NAME_MAX_LENGTH
+    ]
+    if invalid:
+        logger.error(
+            "CrateDB spec rejected: invalid data node group names %s.", invalid
+        )
+        raise kopf.PermanentError(
+            "Data node group names (spec.nodes.data[].name) must be lowercase "
+            "alphanumeric or '-', starting and ending with an alphanumeric "
+            f"character, and at most {DATA_NODE_GROUP_NAME_MAX_LENGTH} characters. "
+            f"Invalid: {', '.join(repr(name) for name in invalid)}."
+        )
+
+    reserved = sorted(set(names) & RESERVED_NODE_GROUP_NAMES)
+    if reserved:
+        logger.error(
+            "CrateDB spec rejected: reserved data node group names %s.", reserved
+        )
+        raise kopf.PermanentError(
+            "Data node group names (spec.nodes.data[].name) must not use the "
+            "reserved name of the dedicated master group, which would give both "
+            f"StatefulSets the same selector. Reserved: {', '.join(reserved)}."
+        )
+
+    # Two groups of the same name means one StatefulSet name, and the second
+    # create is a 409 that ``call_kubeapi`` swallows -- so a group silently ends
+    # up with no StatefulSet while its replicas still count towards
+    # ``gateway.expected_data_nodes``, and the cluster never forms.
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        logger.error(
+            "CrateDB spec rejected: duplicate data node group names %s.", duplicates
+        )
+        raise kopf.PermanentError(
+            "Data node group names (spec.nodes.data[].name) must be unique, "
+            f"because each one names a StatefulSet. Duplicated: "
+            f"{', '.join(duplicates)}."
         )
 
     if "master" in nodes:
@@ -741,27 +806,38 @@ async def restart_cluster(
         changed (and therefore need restarting) for a compute change.
     """
     pending_pods: List[Dict[str, str]] = status.get("pendingPods") or []
+    total_pods: int = status.get("pendingPodsTotal") or 0
     if not pending_pods:
         for group in _node_groups_to_restart(old, body, action):
             pending_pods.extend(
                 await get_pods_in_statefulset(core, namespace, name, group.name)
             )
+        total_pods = len(pending_pods)
         patch.status["pendingPods"] = pending_pods
+        patch.status["pendingPodsTotal"] = total_pods
 
     if not pending_pods:
         # We're all done
         patch.status["pendingPods"] = None  # Remove attribute from status stanza
+        patch.status["pendingPodsTotal"] = None
         return
 
     next_pod_uid = pending_pods[0]["uid"]
     next_pod_name = pending_pods[0]["name"]
 
+    # Count off the pods still to do, not the pod's ordinal (which restarts at 0
+    # per StatefulSet). Seed and persist a total for a restart already in flight
+    # when this field shipped; re-deriving it would track the shrinking queue.
+    # (crate/cloud#3039)
+    if not total_pods:
+        total_pods = len(pending_pods)
+        patch.status["pendingPodsTotal"] = total_pods
+    node_progress = f"{total_pods - len(pending_pods) + 1}/{total_pods}"
+
     all_pod_uids, all_pod_names = await get_pods_in_cluster(core, namespace, name)
     if next_pod_uid in all_pod_uids:
         # The next to-be-terminated pod still appears to be running.
         logger.info("Terminating pod '%s'", next_pod_name)
-        node_index = int(next_pod_name[next_pod_name.rindex("-") + 1 :])
-        node_progress = f"{node_index + 1}/{len(all_pod_uids)}"
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
@@ -798,8 +874,6 @@ async def restart_cluster(
     elif next_pod_name in all_pod_names:
         total_nodes = get_total_nodes_count(old["spec"]["nodes"], "all")
         # The new pod has been spawned. Only a matter of time until it's ready.
-        node_index = int(next_pod_name[next_pod_name.rindex("-") + 1 :])
-        node_progress = f"{node_index + 1}/{len(all_pod_uids)}"
         await send_operation_progress_notification(
             namespace=namespace,
             name=name,
@@ -826,6 +900,7 @@ async def restart_cluster(
             else:
                 # We're all done
                 patch.status["pendingPods"] = None  # Remove attribute from `.status`
+                patch.status["pendingPodsTotal"] = None
                 return
         else:
             try:
