@@ -22,7 +22,7 @@
 import datetime
 import hashlib
 import logging
-from typing import List
+from typing import List, Tuple
 
 import kopf
 
@@ -59,19 +59,23 @@ from crate.operator.utils.notifications import FlushNotificationsSubHandler
 from crate.operator.webhooks import WebhookAction
 
 
-def _data_nodes_cross_zero(diff: kopf.Diff) -> bool:
+def _classify_data_scaling(diff: kopf.Diff) -> Tuple[bool, bool]:
     """
-    Return whether any data node group is scaling to or from zero replicas in
-    this diff, i.e. whether the cluster is being suspended or resumed. Used to
-    distinguish a legitimate (data-driven) suspend/resume from an unsafe
-    standalone master scale.
+    Return ``(resuming, suspending)`` for the data node groups in this diff.
+
+    Suspend and resume are cluster-wide, so one group of several reaching zero is
+    an ordinary scale. Must agree with
+    :func:`crate.operator.scale.classify_data_scaling`, or a ``master.replicas``
+    change to zero gets waved through and the masters go down under the groups
+    still serving (crate/cloud#3038).
     """
     for _, field_path, old_value, new_value in diff:
         if field_path == ("spec", "nodes", "data"):
-            for old_spec, new_spec in zip(old_value, new_value):
-                if old_spec.get("replicas") == 0 or new_spec.get("replicas") == 0:
-                    return True
-    return False
+            return (
+                all(group.get("replicas", 0) == 0 for group in old_value),
+                all(group.get("replicas", 0) == 0 for group in new_value),
+            )
+    return False, False
 
 
 async def update_cratedb(
@@ -147,7 +151,9 @@ async def update_cratedb(
 
     operation = OperationType.UNKNOWN
 
-    data_nodes_cross_zero = _data_nodes_cross_zero(diff)
+    # One decision, used both to guard the master scale and to classify the data
+    # groups - two would drift apart, and this one gates a master scale to zero.
+    data_resuming, data_suspending = _classify_data_scaling(diff)
 
     for _, field_path, old_spec, new_spec in diff:
         if field_path in {
@@ -166,10 +172,11 @@ async def update_cratedb(
                 old_master = old_spec or 0
                 new_master = new_spec or 0
                 if old_master == 0 or new_master == 0:
-                    # When data is also crossing zero, suspend_or_start_cluster
-                    # scales the masters itself - reject only a standalone
-                    # across-zero change.
-                    if not data_nodes_cross_zero:
+                    # Only safe for a whole-cluster suspend/resume, where
+                    # suspend_or_start_cluster scales the masters itself in the
+                    # right order. On an ordinary scale, scale_cluster would take
+                    # them down under the groups still serving.
+                    if not (data_resuming or data_suspending):
                         raise kopf.PermanentError(
                             "Scaling master nodes to or from zero is only "
                             "supported as part of a full cluster "
@@ -221,15 +228,21 @@ async def update_cratedb(
                 do_after_update = False
                 operation = OperationType.CHANGE_EXPOSURE
         elif field_path == ("spec", "nodes", "data"):
-            for node_spec_idx in range(len(old_spec)):
-                old_spec = old_spec[node_spec_idx]
-                new_spec = new_spec[node_spec_idx]
+            if len(old_spec) != len(new_spec):
+                # ScaleSubHandler rejects this too but never gets registered from
+                # here, so without this the update is a silent no-op.
+                raise kopf.PermanentError(
+                    "Adding and removing node specs is not supported at this "
+                    f"time (spec.nodes.data went from {len(old_spec)} to "
+                    f"{len(new_spec)} groups)."
+                )
 
-                if old_spec.get("replicas") != new_spec.get("replicas"):
+            for old_group, new_group in zip(old_spec, new_spec):
+                if old_group.get("replicas") != new_group.get("replicas"):
                     do_scale = True
                     operation = OperationType.SCALE
                     # When resuming the cluster do not register before_update
-                    if old_spec.get("replicas") == 0:
+                    if data_resuming:
                         do_before_update = False
                         operation = OperationType.RESUME
 
@@ -237,21 +250,21 @@ async def update_cratedb(
                         await set_cronjob_delay(patch)
 
                     # When suspending the cluster do not register after_update
-                    elif new_spec.get("replicas") == 0:
+                    elif data_suspending:
                         do_after_update = False
                         operation = OperationType.SUSPEND
 
                         # Do not re-enable the cronjobs if the cluster is suspended
                         patch.status[DELAY_CRONJOB] = False
 
-                elif old_spec.get("resources", {}).get("disk", {}).get(
+                elif old_group.get("resources", {}).get("disk", {}).get(
                     "size"
-                ) != new_spec.get("resources", {}).get("disk", {}).get("size"):
+                ) != new_group.get("resources", {}).get("disk", {}).get("size"):
                     do_expand_volume = True
                     if config.NO_DOWNTIME_STORAGE_EXPANSION:
                         do_before_update = False
                         do_after_update = False
-                elif has_compute_changed(old_spec, new_spec):
+                elif has_compute_changed(old_group, new_group):
                     do_change_compute = True
                     operation = OperationType.CHANGE_COMPUTE
                     # pod resources won't change until each pod is recreated

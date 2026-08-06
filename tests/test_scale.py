@@ -20,9 +20,11 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import contextlib
 import sys
 from unittest import mock
 
+import kopf
 import pytest
 from kubernetes_asyncio.client import (
     AppsV1Api,
@@ -48,6 +50,7 @@ from crate.operator.scale import (
     parse_replicas,
     patch_command,
     reset_allocation,
+    scale_cluster,
 )
 from crate.operator.utils.kubeapi import get_host
 from crate.operator.webhooks import WebhookEvent, WebhookStatus
@@ -218,6 +221,133 @@ async def test_reset_allocation_noop_when_nodes_not_present(
             ),
         ]
     )
+
+
+class TestScaleDownAllocationReset:
+    """
+    ``deallocate_nodes`` excludes the nodes it is about to remove from shard
+    allocation, and ``reset_allocation`` clears those exclusions once at the end.
+    With several data groups scaling down, the reset has to cover every group -
+    anything left behind stays excluded in the persistent cluster state, so a
+    later scale-up returns those nodes to the cluster holding no shards
+    (crate/cloud#3038).
+    """
+
+    @staticmethod
+    def _old_body(groups):
+        return {
+            "spec": {
+                "cluster": {"version": "5.9.0"},
+                "nodes": {"data": groups},
+            }
+        }
+
+    @staticmethod
+    def _scale_down_diff(pairs):
+        return kopf.Diff(
+            [
+                kopf.DiffItem(
+                    kopf.DiffOperation.CHANGE, (str(index), "replicas"), old, new
+                )
+                for index, (old, new) in enumerate(pairs)
+            ]
+        )
+
+    async def _run(self, names, pairs, mock_cratedb_connection):
+        """
+        Run ``scale_cluster`` over ``names``, each scaling by its ``(old, new)``
+        pair. ``old["spec"]`` carries the *old* replica counts, as it does in
+        production, so the total-node arithmetic the function does on the way is
+        modelled faithfully rather than incidentally.
+        """
+        groups = [
+            {"name": name, "replicas": old} for name, (old, _) in zip(names, pairs)
+        ]
+        replicas_by_sts = {
+            f"crate-data-{name}-c": old for name, (old, _) in zip(names, pairs)
+        }
+
+        async def _read(namespace, name):
+            return mock.Mock(**{"spec.replicas": replicas_by_sts[name]})
+
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(side_effect=_read)
+        M = "crate.operator.scale."
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch(M + "get_host", new=mock.AsyncMock(return_value="host"))
+            )
+            stack.enter_context(
+                mock.patch(
+                    M + "get_system_user_password",
+                    new=mock.AsyncMock(return_value="password"),
+                )
+            )
+            stack.enter_context(
+                mock.patch(M + "_ensure_cluster_healthy", new=mock.AsyncMock())
+            )
+            deallocate = stack.enter_context(
+                mock.patch(M + "deallocate_nodes", new=mock.AsyncMock())
+            )
+            reset = stack.enter_context(
+                mock.patch(M + "reset_allocation", new=mock.AsyncMock())
+            )
+            for fn in (
+                "update_statefulset",
+                "scale_cluster_patch_total_nodes",
+                "check_nodes_present_or_gone",
+            ):
+                stack.enter_context(mock.patch(M + fn, new=mock.AsyncMock()))
+
+            await scale_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                self._old_body(groups),
+                None,
+                self._scale_down_diff(pairs),
+                mock.Mock(),
+            )
+        return deallocate, reset
+
+    @pytest.mark.asyncio
+    async def test_reset_covers_every_group_that_scaled_down(
+        self, mock_cratedb_connection
+    ):
+        _, reset = await self._run(
+            ["hot", "cold"], [(3, 1), (3, 1)], mock_cratedb_connection
+        )
+
+        reset.assert_awaited_once()
+        assert sorted(reset.await_args.args[1]) == [
+            "data-cold-1",
+            "data-cold-2",
+            "data-hot-1",
+            "data-hot-2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_each_group_is_deallocated_with_only_its_own_nodes(
+        self, mock_cratedb_connection
+    ):
+        # The exclusions accumulate in CrateDB (``deallocate_nodes`` unions them),
+        # so each call still passes just the group it is removing.
+        deallocate, _ = await self._run(
+            ["hot", "cold"], [(3, 1), (3, 1)], mock_cratedb_connection
+        )
+
+        assert [sorted(call.args[2]) for call in deallocate.await_args_list] == [
+            ["data-hot-1", "data-hot-2"],
+            ["data-cold-1", "data-cold-2"],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_single_group_is_unchanged(self, mock_cratedb_connection):
+        _, reset = await self._run(["hot"], [(3, 1)], mock_cratedb_connection)
+
+        reset.assert_awaited_once()
+        assert sorted(reset.await_args.args[1]) == ["data-hot-1", "data-hot-2"]
 
 
 @pytest.mark.k8s

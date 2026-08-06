@@ -581,9 +581,14 @@ async def scale_cluster(
                 node_spec = spec["nodes"]["data"][index]
                 node_name = node_spec["name"]
                 sts_name = f"crate-data-{node_name}-{name}"
-                excess_nodes = [
+                group_excess_nodes = [
                     f"data-{node_name}-{i}" for i in range(new_replicas, old_replicas)
                 ]
+                # Accumulated because ``reset_allocation`` below runs once and has
+                # to clear every node it excluded. Anything left behind stays
+                # excluded in the persistent cluster state, so a later scale-up
+                # returns those nodes holding no shards (crate/cloud#3038).
+                excess_nodes += group_excess_nodes
                 statefulset = await apps.read_namespaced_stateful_set(
                     namespace=namespace, name=sts_name
                 )
@@ -598,7 +603,7 @@ async def scale_cluster(
                     await deallocate_nodes(
                         conn_factory,
                         new_num_data_nodes,
-                        excess_nodes,
+                        group_excess_nodes,
                         logger,
                     )
 
