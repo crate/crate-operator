@@ -1145,68 +1145,84 @@ async def suspend_or_start_cluster(
                     f"data-{node_name}",
                     logger,
                 )
-            elif old_replicas > new_replicas:
-                # suspend the cluster -> scale down to 0 replicas
-                index_path, *_ = field_path
-                index = int(index_path)
-                node_spec = old["spec"]["nodes"]["data"][index]
-                node_name = node_spec["name"]
-                sts_name = f"crate-data-{node_name}-{name}"
-                statefulset = await apps.read_namespaced_stateful_set(
-                    namespace=namespace, name=sts_name
-                )
-                current_replicas = statefulset.spec.replicas
-                if current_replicas != new_replicas:
-                    # Only gate on health while data nodes remain - a
-                    # masters-only remainder always reports unhealthy and would
-                    # deadlock the suspend.
-                    conn_factory = await _get_connection_factory(core, namespace, name)
-                    await check_cluster_healthy(
-                        name, namespace, apps, conn_factory, logger
-                    )
-                    await update_statefulset_replicas(
-                        apps, namespace, sts_name, statefulset, new_replicas
-                    )
-                    if scale_backup_metrics:
-                        # scale backup-metrics deployment down (no-op when the
-                        # cluster has no backups configured and thus no deployment)
-                        await scale_backup_metrics_deployment_if_present(
-                            apps, namespace, name, 0, logger
-                        )
-                    # scale grand central deployment down if it exists
-                    await suspend_or_start_grand_central(
-                        apps, namespace, name, suspend=True, logger=logger
-                    )
-                await send_operation_progress_notification(
-                    namespace=namespace,
-                    name=name,
-                    message="Suspending cluster.",
-                    logger=logger,
-                    status=WebhookStatus.IN_PROGRESS,
-                    operation=WebhookOperation.UPDATE,
-                    action=(
-                        WebhookAction.SUSPEND
-                        if new_replicas == 0
-                        else WebhookAction.SCALE
-                    ),
-                )
-                if scale_backup_metrics:
-                    await check_backup_metrics_pod_gone(
-                        core,
-                        namespace,
-                        name,
-                    )
-                await check_all_data_nodes_gone(core, namespace, name, old)
 
-                # Delete the service and Traefik resources (if any) when suspending
-                if use_traefik:
-                    # Delete Traefik resources (IngressRouteTCPs and MiddlewareTCP)
-                    await delete_traefik_resources(namespace, name)
-                    # Also delete the ClusterIP service
-                    await delete_clusterip_service(core, namespace, name)
-                else:
-                    # Delete the LoadBalancer service
-                    await delete_lb_service(core, namespace, name)
+        # Collected up front so the cluster-wide steps - the health gate, the wait
+        # for pods, the service teardown - run once around every group. Per group
+        # both waits deadlock: a half-suspended cluster is never healthy, and all
+        # data pods cannot be gone while later groups still run (crate/cloud#3038).
+        targets: List[Tuple[str, V1StatefulSet, int]] = []
+        for _, group_path, group_old, group_new in data_diff_items:
+            if group_old > group_new:
+                group_index, *_ = group_path
+                group_name = old["spec"]["nodes"]["data"][int(group_index)]["name"]
+                group_sts_name = f"crate-data-{group_name}-{name}"
+                targets.append(
+                    (
+                        group_sts_name,
+                        await apps.read_namespaced_stateful_set(
+                            namespace=namespace, name=group_sts_name
+                        ),
+                        group_new,
+                    )
+                )
+
+        if targets:
+            pending = [t for t in targets if t[1].spec.replicas != t[2]]
+            if len(pending) == len(targets):
+                # Nothing is down yet, so the cluster can still be healthy.
+                # Skipping once anything is down is what keeps a retry of the wait
+                # below from deadlocking here instead - though it cannot tell a
+                # retry from a StatefulSet scaled down out of band.
+                conn_factory = await _get_connection_factory(core, namespace, name)
+                await check_cluster_healthy(name, namespace, apps, conn_factory, logger)
+
+            for sts_name, statefulset, new_replicas in pending:
+                await update_statefulset_replicas(
+                    apps, namespace, sts_name, statefulset, new_replicas
+                )
+
+            if pending:
+                if scale_backup_metrics:
+                    # scale backup-metrics deployment down (no-op when the
+                    # cluster has no backups configured and thus no deployment)
+                    await scale_backup_metrics_deployment_if_present(
+                        apps, namespace, name, 0, logger
+                    )
+                # scale grand central deployment down if it exists
+                await suspend_or_start_grand_central(
+                    apps, namespace, name, suspend=True, logger=logger
+                )
+
+            await send_operation_progress_notification(
+                namespace=namespace,
+                name=name,
+                message="Suspending cluster.",
+                logger=logger,
+                status=WebhookStatus.IN_PROGRESS,
+                operation=WebhookOperation.UPDATE,
+                action=(
+                    WebhookAction.SUSPEND
+                    if all(replicas == 0 for _, _, replicas in targets)
+                    else WebhookAction.SCALE
+                ),
+            )
+            if scale_backup_metrics:
+                await check_backup_metrics_pod_gone(
+                    core,
+                    namespace,
+                    name,
+                )
+            await check_all_data_nodes_gone(core, namespace, name, old)
+
+            # Delete the service and Traefik resources (if any) when suspending
+            if use_traefik:
+                # Delete Traefik resources (IngressRouteTCPs and MiddlewareTCP)
+                await delete_traefik_resources(namespace, name)
+                # Also delete the ClusterIP service
+                await delete_clusterip_service(core, namespace, name)
+            else:
+                # Delete the LoadBalancer service
+                await delete_lb_service(core, namespace, name)
 
     if has_dedicated_masters and is_suspend:
         await scale_master_statefulset(apps, namespace, name, 0, logger)

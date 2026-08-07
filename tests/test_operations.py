@@ -27,7 +27,7 @@ import pytest
 from kubernetes_asyncio.client import ApiException
 
 from crate.operator.constants import BACKUP_METRICS_DEPLOYMENT_NAME
-from crate.operator.handlers.handle_update_cratedb import _data_nodes_cross_zero
+from crate.operator.handlers.handle_update_cratedb import _classify_data_scaling
 from crate.operator.operations import (
     check_all_master_nodes_gone,
     check_all_master_nodes_present,
@@ -101,15 +101,42 @@ class TestIterNodeGroups:
         assert "name" not in groups[0].spec
 
 
-class TestDataNodesCrossZero:
+def _multi_group_data_diff(old_replicas, new_replicas):
+    """A ``spec.nodes.data`` diff over several groups, ``(old, new)`` per group."""
+    names = ["hot", "cold", "frozen"]
+    return kopf.Diff(
+        [
+            kopf.DiffItem(
+                kopf.DiffOperation.CHANGE,
+                ("spec", "nodes", "data"),
+                [
+                    {"name": name, "replicas": replicas}
+                    for name, replicas in zip(names, old_replicas)
+                ],
+                [
+                    {"name": name, "replicas": replicas}
+                    for name, replicas in zip(names, new_replicas)
+                ],
+            )
+        ]
+    )
+
+
+class TestClassifyDataScaling:
+    """
+    Must agree with ``scale.classify_data_scaling``: suspend and resume are
+    cluster-wide, and this decision gates a ``master.replicas`` change to zero
+    (crate/cloud#3038).
+    """
+
     def test_suspend_is_detected(self):
-        assert _data_nodes_cross_zero(_data_diff(3, 0)) is True
+        assert _classify_data_scaling(_data_diff(3, 0)) == (False, True)
 
     def test_resume_is_detected(self):
-        assert _data_nodes_cross_zero(_data_diff(0, 3)) is True
+        assert _classify_data_scaling(_data_diff(0, 3)) == (True, False)
 
     def test_plain_scale_is_not_suspend_or_resume(self):
-        assert _data_nodes_cross_zero(_data_diff(3, 2)) is False
+        assert _classify_data_scaling(_data_diff(3, 2)) == (False, False)
 
     def test_master_only_diff_is_not_detected(self):
         # A standalone master.replicas change with no data transition: this is
@@ -124,7 +151,35 @@ class TestDataNodesCrossZero:
                 )
             ]
         )
-        assert _data_nodes_cross_zero(diff) is False
+        assert _classify_data_scaling(diff) == (False, False)
+
+    def test_all_groups_to_zero_is_a_suspend(self):
+        assert _classify_data_scaling(_multi_group_data_diff([3, 2], [0, 0])) == (
+            False,
+            True,
+        )
+
+    def test_all_groups_from_zero_is_a_resume(self):
+        assert _classify_data_scaling(_multi_group_data_diff([0, 0], [3, 2])) == (
+            True,
+            False,
+        )
+
+    def test_one_group_of_several_reaching_zero_is_neither(self):
+        # The dangerous case: with per-group ("any group touches zero") semantics
+        # this read as a suspend, which waves a master scale to zero past the
+        # guard -- and the scale handler then takes the masters down while the
+        # remaining group is still serving.
+        assert _classify_data_scaling(_multi_group_data_diff([3, 2], [3, 0])) == (
+            False,
+            False,
+        )
+
+    def test_one_group_of_several_leaving_zero_is_neither(self):
+        assert _classify_data_scaling(_multi_group_data_diff([3, 0], [3, 2])) == (
+            False,
+            False,
+        )
 
 
 def _statefulset(spec_replicas=None, ready_replicas=None):
@@ -441,6 +496,31 @@ def _data_scaling_diff(old_replicas, new_replicas):
     )
 
 
+def _multi_data_scaling_diff(pairs):
+    """
+    A scaling diff over several data groups: one ``(old, new)`` pair per group,
+    in spec order.
+    """
+    return kopf.Diff(
+        [
+            kopf.DiffItem(kopf.DiffOperation.CHANGE, (str(index), "replicas"), old, new)
+            for index, (old, new) in enumerate(pairs)
+        ]
+    )
+
+
+def _statefulsets_by_replicas(replicas_by_sts_name):
+    """
+    An ``apps.read_namespaced_stateful_set`` stub returning a distinct
+    StatefulSet per name, so a multi-group cluster can be modelled.
+    """
+
+    async def _read(namespace, name):
+        return _statefulset(spec_replicas=replicas_by_sts_name[name])
+
+    return mock.AsyncMock(side_effect=_read)
+
+
 class TestSuspendResumeOrdering:
     @pytest.mark.asyncio
     async def test_resume_brings_masters_up_before_data(self):
@@ -500,6 +580,133 @@ class TestSuspendResumeOrdering:
         assert order.index("data_scale:0") < order.index("master_scale:0")
         assert order.index("data_gone") < order.index("master_scale:0")
         assert order.index("master_scale:0") < order.index("masters_gone")
+
+
+class TestSuspendWithSeveralDataGroups:
+    """
+    Suspending is cluster-wide, so the steps that concern the whole cluster have
+    to run once around every data group rather than once per group
+    (crate/cloud#3038).
+    """
+
+    OLD = {
+        "spec": {
+            "nodes": {
+                "data": [
+                    {"name": "hot", "replicas": 3},
+                    {"name": "cold", "replicas": 2},
+                ]
+            }
+        }
+    }
+    SUSPENDED_GROUPS = [
+        {"name": "hot", "replicas": 0},
+        {"name": "cold", "replicas": 0},
+    ]
+
+    @pytest.mark.asyncio
+    async def test_every_group_is_scaled_down_before_waiting_for_pods(self):
+        # Waiting for *all* data pods to be gone after the first group could
+        # never succeed while the second group is still running, so the wait has
+        # to come after both groups are down.
+        order: list = []
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = _statefulsets_by_replicas(
+            {"crate-data-hot-c": 3, "crate-data-cold-c": 2}
+        )
+
+        with _suspend_resume_patches(order, data_groups=self.SUSPENDED_GROUPS):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                self.OLD,
+                _multi_data_scaling_diff([(3, 0), (2, 0)]),
+                False,
+                mock.Mock(),
+            )
+
+        assert order.count("data_scale:0") == 2
+        assert order.count("data_gone") == 1
+        last_scale = max(i for i, step in enumerate(order) if step == "data_scale:0")
+        assert last_scale < order.index("data_gone")
+
+    @pytest.mark.asyncio
+    async def test_health_is_gated_once_before_the_first_group_goes_down(self):
+        # A half-suspended cluster never reports healthy, so gating per group
+        # would deadlock on the second group.
+        order: list = []
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = _statefulsets_by_replicas(
+            {"crate-data-hot-c": 3, "crate-data-cold-c": 2}
+        )
+
+        with _suspend_resume_patches(order, data_groups=self.SUSPENDED_GROUPS):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                self.OLD,
+                _multi_data_scaling_diff([(3, 0), (2, 0)]),
+                False,
+                mock.Mock(),
+            )
+
+        assert order.count("health_check") == 1
+        assert order.index("health_check") < order.index("data_scale:0")
+
+    @pytest.mark.asyncio
+    async def test_health_is_not_rechecked_once_a_group_is_already_down(self):
+        # The retry after the wait for pods: ``hot`` is already at zero, so the
+        # cluster cannot be healthy and the gate must be skipped rather than
+        # deadlock the rest of the suspend.
+        order: list = []
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = _statefulsets_by_replicas(
+            {"crate-data-hot-c": 0, "crate-data-cold-c": 2}
+        )
+
+        with _suspend_resume_patches(order, data_groups=self.SUSPENDED_GROUPS):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                self.OLD,
+                _multi_data_scaling_diff([(3, 0), (2, 0)]),
+                False,
+                mock.Mock(),
+            )
+
+        assert "health_check" not in order
+        assert order.count("data_scale:0") == 1
+        assert "data_gone" in order
+
+    @pytest.mark.asyncio
+    async def test_masters_go_down_after_every_data_group(self):
+        order: list = []
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = _statefulsets_by_replicas(
+            {"crate-data-hot-c": 3, "crate-data-cold-c": 2}
+        )
+
+        with _suspend_resume_patches(order, data_groups=self.SUSPENDED_GROUPS):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                self.OLD,
+                _multi_data_scaling_diff([(3, 0), (2, 0)]),
+                False,
+                mock.Mock(),
+            )
+
+        last_scale = max(i for i, step in enumerate(order) if step == "data_scale:0")
+        assert last_scale < order.index("master_scale:0")
+        assert order.index("data_gone") < order.index("master_scale:0")
 
 
 class TestScaleBackupMetricsIfPresent:

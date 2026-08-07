@@ -13,6 +13,12 @@ Unreleased
 
 * Fixed rolling restart progress restarting from 1 for every node group.
 
+* Fixed every update failing on clusters with more than one data node group.
+
+* Fixed suspending a cluster with more than one data node group getting stuck.
+
+* Fixed stale shard allocation exclusions after scaling down several data node groups.
+
 2.62.2 (2026-07-22)
 -------------------
 
