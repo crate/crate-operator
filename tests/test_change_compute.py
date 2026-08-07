@@ -180,7 +180,7 @@ async def test_change_compute_from_request_to_limit(
         True,
         cluster_routing_allocation_enable_equals,
         connection_factory(*require_connection(host, password)),
-        "new_primaries",
+        "primaries",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
     )

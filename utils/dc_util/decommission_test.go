@@ -946,10 +946,15 @@ func TestGetPreStopRoutingAllocationFromLabels(t *testing.T) {
 		{
 			name:     "No label present - use default",
 			labels:   map[string]string{},
-			expected: "new_primaries",
+			expected: "primaries",
 		},
 		{
-			name:     "Valid new_primaries value",
+			name:     "Valid primaries value",
+			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "primaries"},
+			expected: "primaries",
+		},
+		{
+			name:     "Valid new_primaries value - still accepted",
 			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "new_primaries"},
 			expected: "new_primaries",
 		},
@@ -961,7 +966,7 @@ func TestGetPreStopRoutingAllocationFromLabels(t *testing.T) {
 		{
 			name:     "Invalid value - use default",
 			labels:   map[string]string{"dc-util-pre-stop-routing-allocation": "invalid"},
-			expected: "new_primaries",
+			expected: "primaries",
 		},
 	}
 
@@ -1023,7 +1028,7 @@ func TestResetRoutingIntegration(t *testing.T) {
 			labels:                    map[string]string{},
 			dryRun:                    false,
 			expectedNoPreStart:        false,
-			expectedRoutingAllocation: "new_primaries",
+			expectedRoutingAllocation: "primaries",
 			description:               "Default behavior",
 		},
 		{
@@ -1033,7 +1038,7 @@ func TestResetRoutingIntegration(t *testing.T) {
 			},
 			dryRun:                    false,
 			expectedNoPreStart:        true,
-			expectedRoutingAllocation: "new_primaries",
+			expectedRoutingAllocation: "primaries",
 			description:               "PostStart should be skipped",
 		},
 		{

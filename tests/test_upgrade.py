@@ -126,7 +126,7 @@ async def test_upgrade_cluster(
         True,
         cluster_routing_allocation_enable_equals,
         connection_factory(*require_connection(host, password)),
-        "new_primaries",
+        "primaries",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
     )
@@ -390,7 +390,7 @@ async def test_upgrade_rollback_on_failure(
         True,
         cluster_routing_allocation_enable_equals,
         connection_factory(*require_connection(host, password)),
-        "new_primaries",
+        "primaries",
         err_msg="Cluster routing allocation setting has not been updated",
         timeout=DEFAULT_TIMEOUT * 5,
     )
