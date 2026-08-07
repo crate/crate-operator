@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Default PreStop Routing Allocation**: `new_primaries` -> `primaries`
+  - `new_primaries` also blocks a returning node from recovering its own primaries from disk, so
+    the cluster stays yellow until the PostStart reset lands
+  - Matches the CrateDB rolling-upgrade recommendation (crate/crate#19751)
+  - `new_primaries` remains a valid `dc-util-pre-stop-routing-allocation` value
+
 - **Routing Allocation Logic**: Enhanced PreStop process with PostStart hook detection
   - Routing allocation changes now only occur when corresponding PostStart hook exists
   - Prevents permanent cluster misconfiguration in deployments without PostStart hooks
