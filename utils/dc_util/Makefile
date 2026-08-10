@@ -8,6 +8,9 @@ REGISTRY = cloud.registry.cr8.net
 IMAGE_NAME = dc-util-fileserver
 TAG ?= latest
 VERSIONS ?= latest
+# The fileserver runs on amd64 nodes; without this an arm64 build host produces
+# an image that cannot exec there.
+PLATFORM ?= linux/amd64
 FULL_IMAGE = $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 
 # Default target
@@ -43,13 +46,14 @@ docker-build: build-binaries
 	cp $(BINARY_NAME)-linux-amd64 deploy/
 	cp $(BINARY_NAME)-linux-arm64 deploy/
 	@echo "Building container image..."
-	cd deploy && docker build -t $(FULL_IMAGE) .
+	cd deploy && docker build --platform $(PLATFORM) -t $(FULL_IMAGE) .
 
 # Multi-version Docker build
 .PHONY: docker-build-multi
 docker-build-multi:
 	@echo "Building multi-version container with versions: $(VERSIONS)"
 	docker build \
+		--platform $(PLATFORM) \
 		--no-cache \
 		--build-arg VERSIONS="$(VERSIONS)" \
 		--build-arg GITHUB_REPO="https://github.com/crate/crate-operator.git" \

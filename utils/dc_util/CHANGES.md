@@ -65,6 +65,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Eliminates need for separate configuration files for different node architectures
   - Graceful error handling for unsupported architectures
 
+### Fixed
+
+- **Build produced no binaries and reported success**
+  - `go.mod` moved to `go 1.25.0` on 2026-07-28; `deploy/Dockerfile.multi` still pinned
+    `golang:1.23-alpine`, and the official images set `GOTOOLCHAIN=local`, so the compile failed
+  - `compile-binaries.sh` logged the error, continued, wrote the version index and exited 0, so the
+    fileserver image built and pushed cleanly with an empty binary directory
+  - Every pod's preStop hook would then 404 on the download and skip decommission silently, since
+    the hook ends in `|| true`
+  - The script now exits non-zero when any version fails, and the build summary reports `MISSING`
+    instead of a blank size
+- **Builder stage pinned to `$BUILDPLATFORM`** - the binaries are cross-compiled with `GOOS`/`GOARCH`,
+  so forcing the whole build to the target platform put the Go toolchain under emulation, where it
+  segfaults on an arm64 host
+- **`--platform` on the Makefile's docker targets** (default `linux/amd64`) - the fileserver runs on
+  amd64 nodes, and an arm64 build host silently produced an image that cannot exec there
+
 ### Changed
 
 - **Default PreStop Routing Allocation**: `new_primaries` -> `primaries`
