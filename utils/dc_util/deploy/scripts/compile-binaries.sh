@@ -10,6 +10,11 @@ set -e
 VERSIONS=${VERSIONS:-"latest"}
 GITHUB_REPO=${GITHUB_REPO:-"https://github.com/crate/crate-operator.git"}
 
+# Versions that failed to build. Collected rather than aborted on, so a
+# multi-version build still produces the ones that work - but the script must
+# exit non-zero at the end, or the image ships with binaries missing.
+failed_versions=""
+
 echo "=== DC Util Binary Compiler ==="
 echo "Versions: $VERSIONS"
 echo "Repository: $GITHUB_REPO"
@@ -51,6 +56,7 @@ for version_spec in $VERSIONS; do
         echo "Cloning repository..."
         if ! git clone --depth 1 --branch "$git_tag" "$GITHUB_REPO" "crate-operator-$git_tag"; then
             echo "ERROR: Failed to clone git tag '$git_tag'"
+            failed_versions="$failed_versions $user_version"
             continue
         fi
 
@@ -65,6 +71,7 @@ for version_spec in $VERSIONS; do
                 echo "ERROR: dc_util.go not found in $git_tag"
                 echo "Available files:"
                 ls -la
+                failed_versions="$failed_versions $user_version"
                 continue
             fi
         fi
@@ -76,6 +83,7 @@ for version_spec in $VERSIONS; do
         echo "Current directory: $(pwd)"
         echo "Available files:"
         ls -la
+        failed_versions="$failed_versions $user_version"
         continue
     fi
 
@@ -85,6 +93,7 @@ for version_spec in $VERSIONS; do
     echo "Building AMD64 binary..."
     if ! GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "/binaries/$user_version/dc_util-linux-amd64" dc_util.go; then
         echo "ERROR: Failed to build AMD64 binary for $user_version"
+        failed_versions="$failed_versions $user_version"
         continue
     fi
 
@@ -92,6 +101,7 @@ for version_spec in $VERSIONS; do
     echo "Building ARM64 binary..."
     if ! GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o "/binaries/$user_version/dc_util-linux-arm64" dc_util.go; then
         echo "ERROR: Failed to build ARM64 binary for $user_version"
+        failed_versions="$failed_versions $user_version"
         continue
     fi
 
@@ -175,10 +185,25 @@ for dir in */; do
     if [ -d "$dir" ] && [ "$dir" != "./" ]; then
         version=${dir%/}
         echo "  📦 $version"
-        echo "     - AMD64: $(ls -lh "$version/dc_util-linux-amd64" 2>/dev/null | awk '{print $5}' || echo 'missing')"
-        echo "     - ARM64: $(ls -lh "$version/dc_util-linux-arm64" 2>/dev/null | awk '{print $5}' || echo 'missing')"
+        for arch in amd64 arm64; do
+            binary="$version/dc_util-linux-$arch"
+            # Tested with -f rather than relying on ls failing: the old form piped
+            # into awk, which succeeds on empty input, so a missing binary printed
+            # as blank instead of 'missing'.
+            if [ -f "$binary" ]; then
+                echo "     - $arch: $(ls -lh "$binary" | awk '{print $5}')"
+            else
+                echo "     - $arch: MISSING"
+            fi
+        done
     fi
 done
+
+if [ -n "$failed_versions" ]; then
+    echo
+    echo "❌ Binary compilation FAILED for:$failed_versions"
+    exit 1
+fi
 
 echo
 echo "🎉 Binary compilation completed successfully!"

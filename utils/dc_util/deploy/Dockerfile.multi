@@ -1,4 +1,8 @@
-FROM golang:1.23-alpine AS builder
+# Pinned to BUILDPLATFORM so the toolchain runs natively: the binaries are
+# cross-compiled with GOOS/GOARCH below, and an emulated Go compiler segfaults.
+# The version must satisfy the `go` directive in go.mod; the official images set
+# GOTOOLCHAIN=local, so a lower version fails the build instead of upgrading.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 # Install required tools
 RUN apk add --no-cache git curl
