@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import contextlib
+import time
 from unittest import mock
 
 import kopf
@@ -29,11 +30,19 @@ from kubernetes_asyncio.client import ApiException
 from crate.operator.constants import BACKUP_METRICS_DEPLOYMENT_NAME
 from crate.operator.handlers.handle_update_cratedb import _classify_data_scaling
 from crate.operator.operations import (
+    ROUTING_ALLOCATION_DURING_RESTART,
+    ROUTING_OWNER_LABEL,
+    ROUTING_OWNER_OPERATOR,
+    AfterClusterUpdateSubHandler,
+    BeforeClusterUpdateSubHandler,
     check_all_master_nodes_gone,
     check_all_master_nodes_present,
+    clear_routing_allocation_owner,
+    hold_routing_allocation,
     iter_node_groups,
     scale_backup_metrics_deployment_if_present,
     scale_master_statefulset,
+    set_routing_allocation_owner,
     suspend_or_start_cluster,
     validate_node_spec,
 )
@@ -777,3 +786,145 @@ class TestSuspendResumeWithoutBackups:
                 )
 
         assert "data_scale:3" in order
+
+
+@contextlib.contextmanager
+def _apps_api(sts_names, list_error=None):
+    """
+    Mock the AppsV1Api that the routing-ownership helpers use, and give back the
+    mock so a test can read the patch calls.
+    """
+    apps = mock.Mock()
+    apps.list_namespaced_stateful_set = mock.AsyncMock(
+        side_effect=list_error,
+        return_value=mock.Mock(
+            items=[mock.Mock(metadata=mock.Mock(name=n)) for n in sts_names]
+        ),
+    )
+    # Mock(name=...) sets the mock's own name, so set the attribute after.
+    if list_error is None:
+        for item, sts_name in zip(
+            apps.list_namespaced_stateful_set.return_value.items, sts_names
+        ):
+            item.metadata.name = sts_name
+    apps.patch_namespaced_stateful_set = mock.AsyncMock()
+    with mock.patch("crate.operator.operations.GlobalApiClient"):
+        with mock.patch("crate.operator.operations.AppsV1Api", return_value=apps):
+            yield apps
+
+
+class TestRoutingAllocationOwner:
+    @pytest.mark.asyncio
+    async def test_claim_labels_every_statefulset(self):
+        with _apps_api(["crate-master-c", "crate-data-hot-c"]) as apps:
+            await set_routing_allocation_owner("ns", "c", mock.Mock())
+
+        assert apps.patch_namespaced_stateful_set.await_count == 2
+        labelled = set()
+        for call in apps.patch_namespaced_stateful_set.await_args_list:
+            labelled.add(call.kwargs["name"])
+            value = call.kwargs["body"]["metadata"]["labels"][ROUTING_OWNER_LABEL]
+            owner, _, timestamp = value.rpartition("-")
+            assert owner == ROUTING_OWNER_OPERATOR
+            # The timestamp must be readable for dc_util, which drops the label
+            # when it cannot parse it.
+            assert abs(int(timestamp) - time.time()) < 60
+        assert labelled == {"crate-master-c", "crate-data-hot-c"}
+
+    @pytest.mark.asyncio
+    async def test_release_removes_the_label(self):
+        with _apps_api(["crate-data-hot-c"]) as apps:
+            await clear_routing_allocation_owner("ns", "c", mock.Mock())
+
+        apps.patch_namespaced_stateful_set.assert_awaited_once_with(
+            namespace="ns",
+            name="crate-data-hot-c",
+            body={"metadata": {"labels": {ROUTING_OWNER_LABEL: None}}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_api_failure_does_not_stop_the_restart(self):
+        logger = mock.Mock()
+        with _apps_api([], list_error=ApiException(status=403)):
+            # Must not raise. The label is only advice for dc_util.
+            await set_routing_allocation_owner("ns", "c", logger)
+
+        assert logger.info.called
+
+
+class TestRoutingAllocationOwnershipHandlers:
+    @pytest.mark.asyncio
+    async def test_before_update_claims_before_it_writes_the_setting(self):
+        order: list = []
+        with mock.patch(
+            "crate.operator.operations.set_routing_allocation_owner",
+            new=mock.AsyncMock(side_effect=lambda *a: order.append("claim")),
+        ):
+            with mock.patch("crate.operator.operations.GlobalApiClient"):
+                with mock.patch(
+                    "crate.operator.operations._get_connection_factory",
+                    new=mock.AsyncMock(),
+                ):
+                    with mock.patch(
+                        "crate.operator.operations.hold_routing_allocation",
+                        new=mock.AsyncMock(
+                            side_effect=lambda *a, **kw: order.append("set")
+                        ),
+                    ):
+                        await BeforeClusterUpdateSubHandler._set_cluster_routing_allocation_setting(  # noqa: E501
+                            mock.Mock(), "ns", "c", mock.Mock()
+                        )
+
+        assert order == ["claim", "set"]
+
+    @pytest.mark.asyncio
+    async def test_after_update_releases_after_it_resets_the_setting(self):
+        order: list = []
+        with mock.patch(
+            "crate.operator.operations.clear_routing_allocation_owner",
+            new=mock.AsyncMock(side_effect=lambda *a: order.append("release")),
+        ):
+            with mock.patch("crate.operator.operations.GlobalApiClient"):
+                with mock.patch(
+                    "crate.operator.operations._get_connection_factory",
+                    new=mock.AsyncMock(),
+                ):
+                    with mock.patch(
+                        "crate.operator.operations.reset_cluster_setting",
+                        new=mock.AsyncMock(
+                            side_effect=lambda *a, **kw: order.append("reset")
+                        ),
+                    ):
+                        await AfterClusterUpdateSubHandler._reset_cluster_routing_allocation_setting(  # noqa: E501
+                            mock.Mock(), "ns", "c", mock.Mock()
+                        )
+
+        assert order == ["reset", "release"]
+
+
+class TestHoldRoutingAllocation:
+    @pytest.mark.asyncio
+    async def test_clears_a_stale_transient_value_first(self):
+        # A transient value has precedence over a persistent value, so the reset
+        # must come first (crate/cloud#3054).
+        order: list = []
+        with mock.patch(
+            "crate.operator.operations.reset_cluster_setting",
+            new=mock.AsyncMock(
+                side_effect=lambda *a, **kw: order.append(("reset", kw))
+            ),
+        ):
+            with mock.patch(
+                "crate.operator.operations.set_cluster_setting",
+                new=mock.AsyncMock(
+                    side_effect=lambda *a, **kw: order.append(("set", kw))
+                ),
+            ):
+                await hold_routing_allocation(mock.Mock(), mock.Mock())
+
+        assert [step for step, _ in order] == ["reset", "set"]
+        assert order[1][1] == {
+            "setting": "cluster.routing.allocation.enable",
+            "value": ROUTING_ALLOCATION_DURING_RESTART,
+            "mode": "PERSISTENT",
+        }

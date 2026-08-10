@@ -24,6 +24,9 @@ Unreleased
 
 * Changed ``cluster.routing.allocation.enable`` during restarts to ``primaries``.
 
+* Added a StatefulSet label that stops dc_util also writing
+  ``cluster.routing.allocation.enable`` during an operator-driven restart.
+
 2.62.2 (2026-07-22)
 -------------------
 

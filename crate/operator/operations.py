@@ -24,6 +24,7 @@ import datetime
 import logging
 import pkgutil
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, cast
 
@@ -165,10 +166,22 @@ DATA_NODE_GROUP_NAME_MAX_LENGTH = 63
 #: name would share its selector and the two would fight over each other's pods.
 RESERVED_NODE_GROUP_NAMES = frozenset({"master"})
 
-#: Held while nodes are down so replicas are not re-allocated; not
-#: ``new_primaries``, which also blocks a returning node's own primaries from
-#: recovering (crate/crate-operator#863). dc_util writes this too, and wins.
+#: The value of ``cluster.routing.allocation.enable`` while nodes are down. It
+#: prevents the allocation of replicas. Do not use ``new_primaries``: it also
+#: prevents the recovery of a returned node's own primaries
+#: (crate/crate-operator#863).
 ROUTING_ALLOCATION_DURING_RESTART = "primaries"
+
+#: The StatefulSet label that shows which component owns
+#: ``cluster.routing.allocation.enable`` during a restart. dc_util reads the
+#: label in its preStop hook. If the operator owns the setting, dc_util does not
+#: change it (crate/cloud#3054).
+ROUTING_OWNER_LABEL = "dc-util-routing-owner"
+
+#: The owner part of the label value. The full value is
+#: ``<owner>-<unix timestamp>``. dc_util uses the timestamp to take the setting
+#: again if the operator stops before it removes the label.
+ROUTING_OWNER_OPERATOR = "operator"
 
 
 def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
@@ -761,6 +774,109 @@ async def scale_backup_metrics_deployment_if_present(
         raise
 
 
+async def hold_routing_allocation(conn_factory, logger: logging.Logger) -> None:
+    """
+    Set ``cluster.routing.allocation.enable`` to
+    :data:`ROUTING_ALLOCATION_DURING_RESTART`, at the ``PERSISTENT`` level, so
+    the value also survives a restart of the whole cluster.
+
+    The reset comes first, because a transient value has precedence over a
+    persistent value. Old versions of dc_util wrote a transient value and did not
+    remove it, and such a value hides the value that the operator writes here
+    (crate/cloud#3054).
+
+    :param conn_factory: The connection factory to connect to CrateDB.
+    :param logger: The logger on which we're logging.
+    """
+    await reset_cluster_setting(
+        conn_factory, logger, setting="cluster.routing.allocation.enable"
+    )
+    await set_cluster_setting(
+        conn_factory,
+        logger,
+        setting="cluster.routing.allocation.enable",
+        value=ROUTING_ALLOCATION_DURING_RESTART,
+        mode="PERSISTENT",
+    )
+
+
+async def _patch_routing_owner_label(
+    namespace: str, name: str, value: Optional[str], logger: logging.Logger
+) -> None:
+    """
+    Write the ownership label on each StatefulSet of the cluster. Use ``None``
+    as the value to remove the label.
+
+    Each StatefulSet gets the label, because the operator can restart the pods
+    of any of them. If the Kubernetes API fails, this function writes a log
+    message and continues. The label only tells dc_util to not write the
+    setting. A failure must not stop the restart.
+
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param value: The label value, or ``None`` to remove the label.
+    :param logger: The logger on which we're logging.
+    """
+    label_selector = ",".join(
+        f"{k}={v}"
+        for k, v in {
+            LABEL_COMPONENT: "cratedb",
+            LABEL_MANAGED_BY: "crate-operator",
+            LABEL_NAME: name,
+            LABEL_PART_OF: "cratedb",
+        }.items()
+    )
+    body = {"metadata": {"labels": {ROUTING_OWNER_LABEL: value}}}
+    try:
+        async with GlobalApiClient() as api_client:
+            apps = AppsV1Api(api_client)
+            all_sts: V1StatefulSetList = await apps.list_namespaced_stateful_set(
+                namespace=namespace, label_selector=label_selector
+            )
+            for sts in all_sts.items:
+                await apps.patch_namespaced_stateful_set(
+                    namespace=namespace, name=sts.metadata.name, body=body
+                )
+    except Exception as e:
+        logger.info(
+            "Patching the %s label to '%s' failed: %s", ROUTING_OWNER_LABEL, value, e
+        )
+
+
+async def set_routing_allocation_owner(
+    namespace: str, name: str, logger: logging.Logger
+) -> None:
+    """
+    Give the operator the ownership of ``cluster.routing.allocation.enable``.
+    The preStop hook of dc_util then does not write the setting
+    (crate/cloud#3054).
+
+    The operator writes the label again before each pod that it restarts.
+    Therefore the timestamp must only cover the downtime of one pod.
+
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param logger: The logger on which we're logging.
+    """
+    await _patch_routing_owner_label(
+        namespace, name, f"{ROUTING_OWNER_OPERATOR}-{int(time.time())}", logger
+    )
+
+
+async def clear_routing_allocation_owner(
+    namespace: str, name: str, logger: logging.Logger
+) -> None:
+    """
+    Remove the ownership of the operator. dc_util then controls
+    ``cluster.routing.allocation.enable`` again for pod-level restarts.
+
+    :param namespace: The Kubernetes namespace of the CrateDB cluster.
+    :param name: The CrateDB custom resource name defining the CrateDB cluster.
+    :param logger: The logger on which we're logging.
+    """
+    await _patch_routing_owner_label(namespace, name, None, logger)
+
+
 def _node_groups_to_restart(
     old: kopf.Body, body: kopf.Body, action: WebhookAction
 ) -> List[NodeGroup]:
@@ -852,16 +968,14 @@ async def restart_cluster(
             operation=WebhookOperation.UPDATE,
             action=action,
         )
+        # Write the label before the pod stops. The preStop hook of dc_util can
+        # then read it.
+        await set_routing_allocation_owner(namespace, name, logger)
+
         try:
             conn_factory = await _get_connection_factory(core, namespace, name)
 
-            await set_cluster_setting(
-                conn_factory,
-                logger,
-                setting="cluster.routing.allocation.enable",
-                value=ROUTING_ALLOCATION_DURING_RESTART,
-                mode="PERSISTENT",
-            )
+            await hold_routing_allocation(conn_factory, logger)
         except Exception as e:
             logger.info(
                 "Setting cluster allocation to '%s' failed: %s",
@@ -1593,18 +1707,14 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
     async def _set_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger
     ):
+        await set_routing_allocation_owner(namespace, name, logger)
+
         async with GlobalApiClient() as api_client:
             core = CoreV1Api(api_client)
 
             conn_factory = await _get_connection_factory(core, namespace, name)
 
-            await set_cluster_setting(
-                conn_factory,
-                logger,
-                setting="cluster.routing.allocation.enable",
-                value=ROUTING_ALLOCATION_DURING_RESTART,
-                mode="PERSISTENT",
-            )
+            await hold_routing_allocation(conn_factory, logger)
 
 
 class AfterClusterUpdateSubHandler(StateBasedSubHandler):
@@ -1649,6 +1759,10 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
                 logger,
                 setting="cluster.routing.allocation.enable",
             )
+
+        # Remove the label after the reset. If you remove it before the reset,
+        # dc_util can write the setting again, and the reset then removes it.
+        await clear_routing_allocation_owner(namespace, name, logger)
 
 
 async def ensure_cronjob_reenabled(

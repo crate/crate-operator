@@ -9,6 +9,7 @@ from crate.operator.webhooks import WebhookAction
 
 
 @pytest.mark.asyncio
+@patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
 @patch("crate.operator.operations.reset_cluster_setting", new_callable=AsyncMock)
 @patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
 @patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
@@ -33,6 +34,7 @@ async def test_restart_cluster_calls_set_cluster_setting(
     mock_get_connection_factory,
     mock_set_cluster_setting,
     mock_reset_cluster_setting,
+    _mock_set_routing_owner,
 ):
     # mock 2 pods in statefulset
     mock_get_pods_in_statefulset.return_value = [
@@ -116,11 +118,14 @@ async def test_restart_cluster_calls_set_cluster_setting(
         value="primaries",
         mode="PERSISTENT",
     )
-    mock_reset_cluster_setting.assert_awaited_once_with(
+    mock_reset_cluster_setting.assert_any_await(
         mock_get_connection_factory.return_value,
         logger,
         setting="cluster.routing.allocation.enable",
     )
+    # Two resets: one clears a stale transient value before the persistent write,
+    # one is the unhealthy-cluster path above (crate/cloud#3054).
+    assert mock_reset_cluster_setting.await_count == 2
 
 
 def _res(cpu):
@@ -191,6 +196,7 @@ def _progress_messages(mock_send_notification):
 
 
 @pytest.mark.asyncio
+@patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
 @patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
 @patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
 @patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
@@ -205,6 +211,7 @@ async def test_restart_progress_counts_across_node_groups(
     mock_get_pods_in_statefulset,
     _mock_set_cluster_setting,
     _mock_get_connection_factory,
+    _mock_set_routing_owner,
 ):
     # Pod ordinals restart at 0 in every StatefulSet, so a masters + data restart
     # used to report 1/6, 2/6, 3/6, 1/6, 2/6, 3/6 (crate/cloud#3039). Progress
@@ -253,6 +260,7 @@ async def test_restart_progress_counts_across_node_groups(
 
 
 @pytest.mark.asyncio
+@patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
 @patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
 @patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
 @patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
@@ -267,6 +275,7 @@ async def test_restart_progress_total_is_the_pods_this_run_restarts(
     mock_get_pods_in_statefulset,
     _mock_set_cluster_setting,
     _mock_get_connection_factory,
+    _mock_set_routing_owner,
 ):
     # A compute change restarts only the changed groups, so the denominator is
     # that group's pods -- not every pod in the cluster.
@@ -306,6 +315,7 @@ async def test_restart_progress_total_is_the_pods_this_run_restarts(
 
 
 @pytest.mark.asyncio
+@patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
 @patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
 @patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
 @patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
@@ -320,6 +330,7 @@ async def test_restart_progress_seeds_a_total_for_a_restart_already_in_flight(
     mock_get_pods_in_statefulset,
     _mock_set_cluster_setting,
     _mock_get_connection_factory,
+    _mock_set_routing_owner,
 ):
     # A restart that was already running when pendingPodsTotal was introduced has
     # a queue but no total. Seeding it from what is left and persisting it keeps
@@ -361,3 +372,52 @@ async def test_restart_progress_seeds_a_total_for_a_restart_already_in_flight(
     assert reported == ["1/3", "2/3", "3/3"]
     # The queue was never rebuilt, so no StatefulSet lookup was needed.
     mock_get_pods_in_statefulset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
+@patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
+@patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
+@patch("crate.operator.operations.get_pods_in_cluster", new_callable=AsyncMock)
+@patch(
+    "crate.operator.operations.send_operation_progress_notification",
+    new_callable=AsyncMock,
+)
+async def test_restart_claims_routing_ownership_before_the_pod_stops(
+    _mock_send_notification,
+    mock_get_pods_in_cluster,
+    mock_get_pods_in_statefulset,
+    _mock_get_connection_factory,
+    _mock_set_cluster_setting,
+    mock_set_routing_owner,
+):
+    # The preStop hook of dc_util reads the label. The operator must write it
+    # before it deletes the pod (crate/cloud#3054).
+    hot = [{"uid": "h0", "name": "crate-data-hot-c-0"}]
+    # The master group is empty here, so the queue holds one pod only.
+    mock_get_pods_in_statefulset.side_effect = [[], hot]
+    mock_get_pods_in_cluster.return_value = (["h0"], ["crate-data-hot-c-0"])
+
+    order: list = []
+    mock_set_routing_owner.side_effect = lambda *a, **kw: order.append("claim")
+    core = MagicMock()
+    core.delete_namespaced_pod = AsyncMock(
+        side_effect=lambda *a, **kw: order.append("delete")
+    )
+    old = _spec()
+
+    with pytest.raises(kopf.TemporaryError, match="Waiting for pod"):
+        await restart_cluster(
+            core=core,
+            namespace="ns",
+            name="c",
+            old=old,
+            body=old,
+            logger=MagicMock(),
+            patch=kopf.Patch(),
+            status={},
+            action=WebhookAction.UPGRADE,
+        )
+
+    assert order == ["claim", "delete"]

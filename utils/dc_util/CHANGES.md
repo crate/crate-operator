@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Routing Ownership Label**: `dc-util-routing-owner`, written by crate-operator
+  - Value is `operator-<unix seconds>`; crate-operator writes it before each pod it restarts
+  - While the label is present and fresh, dc_util does not write
+    `cluster.routing.allocation.enable`, does not create the lock file, and does not reset the
+    setting in postStart
+  - dc_util ignores the label after 2 hours, so an operator that stops mid-restart cannot keep the
+    allocation of replicas disabled
+  - Gives one owner per restart: dc_util owns pod-level restarts, the operator owns the restarts it
+    drives itself (crate/cloud#3054)
+
 - **Persistent Logging**: Dual logging to both STDOUT and persistent file with automatic rotation
   - New `--log-file` CLI flag (default: `/resource/heapdump/dc_util.log`)
   - Automatic file rotation when approaching 1MB to prevent disk space issues
@@ -67,6 +77,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PostStart reset left a transient value behind**
+  - The reset was `SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = 'all'`, which is a
+    write and not a reset, so a transient entry stayed after the restart
+  - A transient value has precedence over a persistent value, so the entry hid the persistent value
+    that crate-operator writes for its own restarts, and the operator's protection did not apply
+  - The reset is now `RESET GLOBAL cluster.routing.allocation.enable`, which clears both levels
+  - Safe only together with the ownership label below: without it, a reset in one pod's postStart
+    would clear the value the operator holds for the pods that come after (crate/cloud#3054)
+
 - **Build produced no binaries and reported success**
   - `go.mod` moved to `go 1.25.0` on 2026-07-28; `deploy/Dockerfile.multi` still pinned
     `golang:1.23-alpine`, and the official images set `GOTOOLCHAIN=local`, so the compile failed
@@ -94,6 +113,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Routing allocation changes now only occur when corresponding PostStart hook exists
   - Prevents permanent cluster misconfiguration in deployments without PostStart hooks
   - More intelligent decision making based on actual StatefulSet configuration
+
+- **Lock File Creation**: Now conditional on dc_util changing the routing allocation
+  - Was created on every preStop, also when the routing allocation was not changed
+  - The lock file is the only signal that makes postStart reset the setting, so one without a
+    change made postStart clear a value from a different owner (crate/cloud#3054)
 
 - **Replica Count Handling**: Early replica count check moved to beginning of decommission process
   - Zero replicas (scaled down): Immediately skips all operations including SQL and lock file creation

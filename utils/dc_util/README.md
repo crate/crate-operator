@@ -213,6 +213,7 @@ As already mentioned `terminationGracePeriodSeconds` MUST be set larger then `--
 - **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
 - **`dc-util-no-poststart`**: Disables PostStart reset-routing behavior (values: `true`, `false`, default: `false`)
 - **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `primaries`, `new_primaries`, `all`, default: `primaries`)
+- **`dc-util-routing-owner`**: Written by crate-operator, not by an operator of the cluster. It shows that the operator controls `cluster.routing.allocation.enable` for the current restart (value: `operator-<unix seconds>`). dc_util then does not change the setting, and does not create the lock file. dc_util ignores the label after 2 hours, in case the operator stopped before it removed the label.
 
 ## Example StatefulSet with labels:
 
@@ -239,6 +240,7 @@ spec:
 - **Label precedence**: StatefulSet labels override CLI parameters
 - **When disabled=true**: dc_util logs a message and exits without performing any decommission work
 - **When no-poststart=true**: PostStart reset-routing behavior is skipped
+- **When the operator owns the routing allocation**: dc_util skips the preStop change, skips the lock file, and skips the PostStart reset. The decommission itself continues.
 
 ## Sample Logs
 
