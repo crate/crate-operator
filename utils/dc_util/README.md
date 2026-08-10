@@ -212,7 +212,7 @@ As already mentioned `terminationGracePeriodSeconds` MUST be set larger then `--
 - **`dc-util-graceful-stop`**: Controls graceful stop force setting (values: `true`, `false`, default: `true`)
 - **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
 - **`dc-util-no-poststart`**: Disables PostStart reset-routing behavior (values: `true`, `false`, default: `false`)
-- **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `new_primaries`, `all`, default: `new_primaries`)
+- **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `primaries`, `new_primaries`, `all`, default: `primaries`)
 
 ## Example StatefulSet with labels:
 
@@ -226,7 +226,7 @@ metadata:
     dc-util-graceful-stop: "false"
     dc-util-disabled: "false"
     dc-util-no-poststart: "false"
-    dc-util-pre-stop-routing-allocation: "new_primaries"
+    dc-util-pre-stop-routing-allocation: "primaries"
 spec:
   # ... rest of StatefulSet spec
 ```
@@ -380,7 +380,7 @@ For production deployments, consider embedding dc_util in your container image t
 **preStop Process (Enhanced)**:
 
 1. **Checks for postStart hook** with dc_util reset-routing capability
-2. Sets routing allocation to restricted value (`new_primaries` by default) **only if postStart hook exists**
+2. Sets routing allocation to restricted value (`primaries` by default) **only if postStart hook exists**
 3. Creates lock file (configurable via `--lock-file`)
 4. Continues with normal decommission process
 

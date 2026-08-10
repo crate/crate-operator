@@ -46,8 +46,10 @@ const (
 	// Default log file path
 	defaultLogFile = "/resource/heapdump/dc_util.log"
 
-	// Default routing allocation value for preStop
-	defaultPreStopRoutingAllocation = "new_primaries"
+	// Default routing allocation value for preStop. Not "new_primaries", which
+	// also blocks a returning node's own primaries from recovering
+	// (crate/crate-operator#863).
+	defaultPreStopRoutingAllocation = "primaries"
 
 	// PostStart readiness timeout (10 minutes)
 	postStartTimeout = 10 * time.Minute
@@ -221,7 +223,9 @@ func getNoPostStartFromLabels(labels map[string]string) bool {
 func getPreStopRoutingAllocationFromLabels(labels map[string]string) string {
 	if value, exists := labels[labelPreStopRoutingAllocation]; exists {
 		switch value {
-		case "new_primaries", "all":
+		// "new_primaries" stays accepted so existing labels keep their meaning
+		// now that it is no longer the default (crate/crate-operator#863).
+		case "primaries", "new_primaries", "all":
 			log.Printf("Using pre-stop routing allocation from StatefulSet label: %s", value)
 			return value
 		default:

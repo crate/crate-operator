@@ -79,7 +79,7 @@ async def test_restart_cluster_calls_set_cluster_setting(
         }
     }
 
-    # simulate a first restart (new_primaries)
+    # simulate a first restart (primaries)
     with pytest.raises(kopf.TemporaryError, match="Waiting for pod"):
         await restart_cluster(
             core=core,
@@ -113,7 +113,7 @@ async def test_restart_cluster_calls_set_cluster_setting(
         mock_get_connection_factory.return_value,
         logger,
         setting="cluster.routing.allocation.enable",
-        value="new_primaries",
+        value="primaries",
         mode="PERSISTENT",
     )
     mock_reset_cluster_setting.assert_awaited_once_with(

@@ -22,6 +22,8 @@ Unreleased
 
 * Fixed stale shard allocation exclusions after scaling down several data node groups.
 
+* Changed ``cluster.routing.allocation.enable`` during restarts to ``primaries``.
+
 2.62.2 (2026-07-22)
 -------------------
 

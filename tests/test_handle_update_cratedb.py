@@ -145,7 +145,7 @@ class TestSuspendResumeIsClusterWide:
     decides the same way (``scale.classify_data_scaling``); if this dispatch
     disagreed it would skip ``after_cluster_update`` on what is then carried out
     as an ordinary scale, leaving ``cluster.routing.allocation.enable`` pinned to
-    ``new_primaries``.
+    ``primaries``.
     """
 
     @pytest.mark.asyncio

@@ -165,6 +165,11 @@ DATA_NODE_GROUP_NAME_MAX_LENGTH = 63
 #: name would share its selector and the two would fight over each other's pods.
 RESERVED_NODE_GROUP_NAMES = frozenset({"master"})
 
+#: Held while nodes are down so replicas are not re-allocated; not
+#: ``new_primaries``, which also blocks a returning node's own primaries from
+#: recovering (crate/crate-operator#863). dc_util writes this too, and wins.
+ROUTING_ALLOCATION_DURING_RESTART = "primaries"
+
 
 def validate_node_spec(nodes: Dict[str, Any], logger: logging.Logger) -> None:
     """
@@ -854,12 +859,13 @@ async def restart_cluster(
                 conn_factory,
                 logger,
                 setting="cluster.routing.allocation.enable",
-                value="new_primaries",
+                value=ROUTING_ALLOCATION_DURING_RESTART,
                 mode="PERSISTENT",
             )
         except Exception as e:
             logger.info(
-                "Setting cluster allocation to 'new_primaries' failed: %s",
+                "Setting cluster allocation to '%s' failed: %s",
+                ROUTING_ALLOCATION_DURING_RESTART,
                 str(e),
             )
 
@@ -1596,7 +1602,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
                 conn_factory,
                 logger,
                 setting="cluster.routing.allocation.enable",
-                value="new_primaries",
+                value=ROUTING_ALLOCATION_DURING_RESTART,
                 mode="PERSISTENT",
             )
 
