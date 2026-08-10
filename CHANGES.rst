@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Removed pip's bundled SBOM from the Docker image to avoid false-positive
+  Trivy findings for libraries vendored inside pip.
+
 * Fixed only the first node group of a cluster getting a ``PodDisruptionBudget``.
 
 * Added support for STACKIT Kubernetes Engine via ``CLOUD_PROVIDER=stackit``.
