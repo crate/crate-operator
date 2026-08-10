@@ -240,7 +240,7 @@ spec:
 - **Label precedence**: StatefulSet labels override CLI parameters
 - **When disabled=true**: dc_util logs a message and exits without performing any decommission work
 - **When no-poststart=true**: PostStart reset-routing behavior is skipped
-- **When the operator owns the routing allocation**: dc_util skips the preStop change, skips the lock file, and skips the PostStart reset. The decommission itself continues.
+- **When the operator owns the routing allocation**: dc_util skips the preStop change, skips the lock file, and skips the PostStart reset. It keeps an existing lock file, so a later PostStart can still do the reset. The decommission itself continues.
 
 ## Sample Logs
 

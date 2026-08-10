@@ -118,14 +118,11 @@ async def test_restart_cluster_calls_set_cluster_setting(
         value="primaries",
         mode="PERSISTENT",
     )
-    mock_reset_cluster_setting.assert_any_await(
+    mock_reset_cluster_setting.assert_awaited_once_with(
         mock_get_connection_factory.return_value,
         logger,
         setting="cluster.routing.allocation.enable",
     )
-    # Two resets: one clears a stale transient value before the persistent write,
-    # one is the unhealthy-cluster path above (crate/cloud#3054).
-    assert mock_reset_cluster_setting.await_count == 2
 
 
 def _res(cpu):
@@ -376,7 +373,7 @@ async def test_restart_progress_seeds_a_total_for_a_restart_already_in_flight(
 
 @pytest.mark.asyncio
 @patch("crate.operator.operations.set_routing_allocation_owner", new_callable=AsyncMock)
-@patch("crate.operator.operations.set_cluster_setting", new_callable=AsyncMock)
+@patch("crate.operator.operations.hold_routing_allocation", new_callable=AsyncMock)
 @patch("crate.operator.operations._get_connection_factory", new_callable=AsyncMock)
 @patch("crate.operator.operations.get_pods_in_statefulset", new_callable=AsyncMock)
 @patch("crate.operator.operations.get_pods_in_cluster", new_callable=AsyncMock)
@@ -389,7 +386,7 @@ async def test_restart_claims_routing_ownership_before_the_pod_stops(
     mock_get_pods_in_cluster,
     mock_get_pods_in_statefulset,
     _mock_get_connection_factory,
-    _mock_set_cluster_setting,
+    mock_hold_routing_allocation,
     mock_set_routing_owner,
 ):
     # The preStop hook of dc_util reads the label. The operator must write it
@@ -401,6 +398,7 @@ async def test_restart_claims_routing_ownership_before_the_pod_stops(
 
     order: list = []
     mock_set_routing_owner.side_effect = lambda *a, **kw: order.append("claim")
+    mock_hold_routing_allocation.side_effect = lambda *a, **kw: order.append("hold")
     core = MagicMock()
     core.delete_namespaced_pod = AsyncMock(
         side_effect=lambda *a, **kw: order.append("delete")
@@ -420,4 +418,4 @@ async def test_restart_claims_routing_ownership_before_the_pod_stops(
             action=WebhookAction.UPGRADE,
         )
 
-    assert order == ["claim", "delete"]
+    assert order == ["claim", "hold", "delete"]

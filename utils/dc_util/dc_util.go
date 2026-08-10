@@ -502,13 +502,14 @@ func handleResetRouting(hostname string, dryRun bool, lockFile string) error {
 		return nil
 	}
 
-	// 2. SECOND: Do not touch the setting if the operator owns it. This is only
-	// possible with a lock file from an earlier restart. A reset can remove the
-	// value that the operator needs for the pods that come after. Remove the
-	// lock file instead (crate/cloud#3054).
+	// 2. SECOND: Do not touch the setting if the operator owns it. A reset can
+	// remove the value that the operator needs for the pods that come after.
+	// Keep the lock file: this pod's preStop wrote a value before the operator
+	// took the setting, and the next postStart that owns it must still reset
+	// that value (crate/cloud#3054).
 	if operatorOwnsRoutingAllocation(statefulSet.Labels, time.Now()) {
-		log.Println("Operator owns the routing allocation setting, skipping reset")
-		return removeLockFile(dryRun, lockFile)
+		log.Println("Operator owns the routing allocation setting, skipping reset and keeping the lock file")
+		return nil
 	}
 
 	// 3. THIRD: Early exit if not a multi-node cluster
@@ -771,12 +772,15 @@ func run(crateNodePrefix, decommissionTimeout string, pid int, proto, hostname, 
 		preStopRoutingAllocation := getPreStopRoutingAllocationFromLabels(statefulSet.Labels)
 		preStopRoutingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRoutingAllocation)
 
+		// Set the flag before the statement. An error can also come from the
+		// response and not from the statement, and a value that is set without a
+		// lock file stays after the restart.
+		routingAllocationSet = true
+
 		log.Printf("Setting pre-stop routing allocation to: %s", preStopRoutingAllocation)
 		if err := sendSQLStatement(proto, preStopRoutingStmt, dryRun); err != nil {
 			log.Printf("Warning: Failed to set pre-stop routing allocation: %v", err)
 			// Continue with decommission process even if this fails
-		} else {
-			routingAllocationSet = true
 		}
 	}
 

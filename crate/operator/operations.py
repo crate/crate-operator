@@ -777,27 +777,28 @@ async def scale_backup_metrics_deployment_if_present(
 async def hold_routing_allocation(conn_factory, logger: logging.Logger) -> None:
     """
     Set ``cluster.routing.allocation.enable`` to
-    :data:`ROUTING_ALLOCATION_DURING_RESTART`, at the ``PERSISTENT`` level, so
-    the value also survives a restart of the whole cluster.
+    :data:`ROUTING_ALLOCATION_DURING_RESTART` at both persistence levels.
 
-    The reset comes first, because a transient value has precedence over a
-    persistent value. Old versions of dc_util wrote a transient value and did not
-    remove it, and such a value hides the value that the operator writes here
-    (crate/cloud#3054).
+    The persistent value survives a restart of the whole cluster. The transient
+    value comes first, because a transient value has precedence, and old versions
+    of dc_util left one behind. Do not use ``RESET GLOBAL`` for that transient
+    value: this function also runs while a node is down, and a reset makes the
+    default ``all`` effective for a moment (crate/cloud#3054).
+
+    ``AfterClusterUpdateSubHandler`` removes both values at the end of the
+    update.
 
     :param conn_factory: The connection factory to connect to CrateDB.
     :param logger: The logger on which we're logging.
     """
-    await reset_cluster_setting(
-        conn_factory, logger, setting="cluster.routing.allocation.enable"
-    )
-    await set_cluster_setting(
-        conn_factory,
-        logger,
-        setting="cluster.routing.allocation.enable",
-        value=ROUTING_ALLOCATION_DURING_RESTART,
-        mode="PERSISTENT",
-    )
+    for mode in ("TRANSIENT", "PERSISTENT"):
+        await set_cluster_setting(
+            conn_factory,
+            logger,
+            setting="cluster.routing.allocation.enable",
+            value=ROUTING_ALLOCATION_DURING_RESTART,
+            mode=mode,
+        )
 
 
 async def _patch_routing_owner_label(
@@ -834,12 +835,25 @@ async def _patch_routing_owner_label(
                 namespace=namespace, label_selector=label_selector
             )
             for sts in all_sts.items:
-                await apps.patch_namespaced_stateful_set(
-                    namespace=namespace, name=sts.metadata.name, body=body
-                )
+                # One try per StatefulSet. A cluster with dedicated master nodes
+                # has more than one, and a partly labelled cluster is worse than
+                # an unlabelled one: dc_util then writes the setting for one node
+                # group only.
+                try:
+                    await apps.patch_namespaced_stateful_set(
+                        namespace=namespace, name=sts.metadata.name, body=body
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to patch the %s label of %s to '%s': %s",
+                        ROUTING_OWNER_LABEL,
+                        sts.metadata.name,
+                        value,
+                        e,
+                    )
     except Exception as e:
-        logger.info(
-            "Patching the %s label to '%s' failed: %s", ROUTING_OWNER_LABEL, value, e
+        logger.warning(
+            "Failed to patch the %s label to '%s': %s", ROUTING_OWNER_LABEL, value, e
         )
 
 
@@ -1749,20 +1763,23 @@ class AfterClusterUpdateSubHandler(StateBasedSubHandler):
     async def _reset_cluster_routing_allocation_setting(
         self, namespace: str, name: str, logger: logging.Logger
     ):
-        async with GlobalApiClient() as api_client:
-            core = CoreV1Api(api_client)
-
-            conn_factory = await _get_connection_factory(core, namespace, name)
-
-            await reset_cluster_setting(
-                conn_factory,
-                logger,
-                setting="cluster.routing.allocation.enable",
-            )
-
         # Remove the label after the reset. If you remove it before the reset,
         # dc_util can write the setting again, and the reset then removes it.
-        await clear_routing_allocation_owner(namespace, name, logger)
+        # The label must go also if the reset fails: while it is present, dc_util
+        # does not protect a pod-level restart (crate/cloud#3054).
+        try:
+            async with GlobalApiClient() as api_client:
+                core = CoreV1Api(api_client)
+
+                conn_factory = await _get_connection_factory(core, namespace, name)
+
+                await reset_cluster_setting(
+                    conn_factory,
+                    logger,
+                    setting="cluster.routing.allocation.enable",
+                )
+        finally:
+            await clear_routing_allocation_owner(namespace, name, logger)
 
 
 async def ensure_cronjob_reenabled(

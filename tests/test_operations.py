@@ -849,7 +849,7 @@ class TestRoutingAllocationOwner:
             # Must not raise. The label is only advice for dc_util.
             await set_routing_allocation_owner("ns", "c", logger)
 
-        assert logger.info.called
+        assert logger.warning.called
 
 
 class TestRoutingAllocationOwnershipHandlers:
@@ -904,27 +904,28 @@ class TestRoutingAllocationOwnershipHandlers:
 
 class TestHoldRoutingAllocation:
     @pytest.mark.asyncio
-    async def test_clears_a_stale_transient_value_first(self):
-        # A transient value has precedence over a persistent value, so the reset
-        # must come first (crate/cloud#3054).
-        order: list = []
+    async def test_writes_the_transient_value_first(self):
+        # A transient value has precedence, and old versions of dc_util left one
+        # behind. The transient write removes such a value without a reset: this
+        # also runs while a node is down, and a reset makes the default "all"
+        # effective for a moment (crate/cloud#3054).
+        writes: list = []
         with mock.patch(
-            "crate.operator.operations.reset_cluster_setting",
-            new=mock.AsyncMock(
-                side_effect=lambda *a, **kw: order.append(("reset", kw))
-            ),
+            "crate.operator.operations.set_cluster_setting",
+            new=mock.AsyncMock(side_effect=lambda *a, **kw: writes.append(kw)),
         ):
             with mock.patch(
-                "crate.operator.operations.set_cluster_setting",
-                new=mock.AsyncMock(
-                    side_effect=lambda *a, **kw: order.append(("set", kw))
-                ),
-            ):
+                "crate.operator.operations.reset_cluster_setting",
+                new=mock.AsyncMock(),
+            ) as mock_reset:
                 await hold_routing_allocation(mock.Mock(), mock.Mock())
 
-        assert [step for step, _ in order] == ["reset", "set"]
-        assert order[1][1] == {
-            "setting": "cluster.routing.allocation.enable",
-            "value": ROUTING_ALLOCATION_DURING_RESTART,
-            "mode": "PERSISTENT",
-        }
+        assert writes == [
+            {
+                "setting": "cluster.routing.allocation.enable",
+                "value": ROUTING_ALLOCATION_DURING_RESTART,
+                "mode": mode,
+            }
+            for mode in ("TRANSIENT", "PERSISTENT")
+        ]
+        mock_reset.assert_not_awaited()

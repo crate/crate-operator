@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - While the label is present and fresh, dc_util does not write
     `cluster.routing.allocation.enable`, does not create the lock file, and does not reset the
     setting in postStart
+  - postStart keeps an existing lock file in that case: the value behind it comes from a preStop
+    that ran before the operator took the setting, and a later postStart must still reset it
   - dc_util ignores the label after 2 hours, so an operator that stops mid-restart cannot keep the
     allocation of replicas disabled
   - Gives one owner per restart: dc_util owns pod-level restarts, the operator owns the restarts it
@@ -114,10 +116,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents permanent cluster misconfiguration in deployments without PostStart hooks
   - More intelligent decision making based on actual StatefulSet configuration
 
-- **Lock File Creation**: Now conditional on dc_util changing the routing allocation
+- **Lock File Creation**: Now conditional on dc_util sending the routing allocation statement
   - Was created on every preStop, also when the routing allocation was not changed
   - The lock file is the only signal that makes postStart reset the setting, so one without a
     change made postStart clear a value from a different owner (crate/cloud#3054)
+  - Created before the statement, not after a successful response: an error can also come from the
+    response, and a value that is set without a lock file stays after the restart
 
 - **Replica Count Handling**: Early replica count check moved to beginning of decommission process
   - Zero replicas (scaled down): Immediately skips all operations including SQL and lock file creation
