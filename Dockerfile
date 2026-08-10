@@ -41,6 +41,7 @@ COPY --from=build /src/dist /wheels
 RUN pip install --no-cache-dir -U pip wheel setuptools==${SETUPTOOLS_VERSION} && \
     pip install --no-cache-dir /wheels/*.whl && \
     rm -rf /wheels && \
+    rm -f /usr/local/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json && \
     ln -s "$(python -c "import pkgutil; main = pkgutil.get_loader('crate.operator.main'); print(main.path)")"
 
 USER crate-operator
