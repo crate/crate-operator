@@ -540,12 +540,24 @@ async def is_kopf_handler_finished(
     return handler_status is None
 
 
+def _handler_ran(cratedb: dict, handler_name: str) -> bool:
+    """Whether the resource still records that ``handler_name`` ran.
+
+    kopf deletes the progress annotations, but the sub-handler records it
+    leaves in ``status`` survive. They tell an already-finished handler apart
+    from one that has not started yet, which the annotation alone cannot.
+    """
+    handler_id = handler_name.rsplit("/", 1)[-1]
+    status = cratedb.get("status") or {}
+    return any(key == handler_id or key.startswith(f"{handler_id}/") for key in status)
+
+
 async def _check_kopf_handler_status(
     coapi: CustomObjectsApi, name, namespace: str, handler_name: str
 ):
     """
-    Returns True if handler succeeded, False if still running, None if not yet seen.
-    Raises AssertionError if handler failed permanently.
+    Returns True if the handler finished, False if still running, None if it has
+    not started yet. Raises AssertionError if the handler failed permanently.
     """
     cratedb = await coapi.get_namespaced_custom_object(
         group=API_GROUP,
@@ -558,7 +570,10 @@ async def _check_kopf_handler_status(
     raw = annotations.get(handler_name)
 
     if raw is None:
-        return None
+        # kopf purges every progress annotation of a handling cycle in one
+        # patch and never persists a terminal ``success`` there, so an absent
+        # annotation means "done" only if the resource kept a status record.
+        return True if _handler_ran(cratedb, handler_name) else None
 
     try:
         status = json.loads(raw)
@@ -631,11 +646,14 @@ async def wait_for_kopf_handler(
     name: str,
     namespace: str,
     handler_name: str,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float = CLUSTER_CREATE_TIMEOUT,
     delay: float = 2,
 ):
     """
-    Wait for a kopf handler to complete, handling kopf's annotation cleanup lifecycle.
+    Wait for a kopf handler to complete, handling kopf's annotation cleanup
+    lifecycle. The wait does not have to observe the handler while it runs: a
+    handler that already finished before the first poll is detected from the
+    status records it left behind.
     """
     deadline = asyncio.get_running_loop().time() + timeout
     seen = False
@@ -643,7 +661,7 @@ async def wait_for_kopf_handler(
     while asyncio.get_running_loop().time() < deadline:
         result = await _check_kopf_handler_status(coapi, name, namespace, handler_name)
         if result is True:
-            logger.info("Handler '%s' finished (success=True)", handler_name)
+            logger.info("Handler '%s' finished", handler_name)
             return
         if result is None and seen:
             logger.info("Handler '%s' finished (annotation cleaned up)", handler_name)

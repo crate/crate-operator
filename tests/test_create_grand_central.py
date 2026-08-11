@@ -499,6 +499,10 @@ async def test_gc_change_exposure_loadbalancer_to_traefik(
         coapi,
         1,
         wait_for_healthy=False,
+        # The test only looks at the Ingress and the HTTPRoute, so it does not
+        # need the load balancer address. Waiting for one costs minutes on a
+        # cloud provider and delays the handler wait below.
+        wait_for_lb=False,
         additional_cluster_spec={
             "externalDNS": f"{name}.example.com",
         },
@@ -508,7 +512,6 @@ async def test_gc_change_exposure_loadbalancer_to_traefik(
         name,
         namespace.metadata.name,
         f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
-        timeout=DEFAULT_TIMEOUT * 5,
     )
     await _start_gc_on_cluster(coapi, name, namespace.metadata.name)
 
