@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.63.0 (2026-08-12)
+-------------------
+
 * Removed pip's bundled SBOM from the Docker image to avoid false-positive
   Trivy findings for libraries vendored inside pip.
 
