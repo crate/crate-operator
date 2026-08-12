@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -39,6 +40,7 @@ const (
 	labelDisabled                 = "dc-util-disabled"
 	labelNoPostStart              = "dc-util-no-poststart"
 	labelPreStopRoutingAllocation = "dc-util-pre-stop-routing-allocation"
+	labelRoutingOwner             = "dc-util-routing-owner"
 
 	// Default lock file path for tracking dc_util shutdowns
 	defaultDcUtilLockFile = "/resource/heapdump/dc_util.lock"
@@ -50,6 +52,16 @@ const (
 	// also blocks a returning node's own primaries from recovering
 	// (crate/crate-operator#863).
 	defaultPreStopRoutingAllocation = "primaries"
+
+	// The owner that crate-operator writes in the labelRoutingOwner label. The
+	// full value is "operator-<unix seconds>" (crate/cloud#3054).
+	routingOwnerOperator = "operator"
+
+	// How long dc_util obeys the label. The operator writes the label again
+	// before each pod that it restarts, so this must only cover the downtime of
+	// one pod. After this time dc_util takes the setting again. A stopped
+	// operator can then not keep the allocation of replicas disabled.
+	routingOwnerTTL = 2 * time.Hour
 
 	// PostStart readiness timeout (10 minutes)
 	postStartTimeout = 10 * time.Minute
@@ -234,6 +246,67 @@ func getPreStopRoutingAllocationFromLabels(labels map[string]string) string {
 		}
 	}
 	return defaultPreStopRoutingAllocation // default behavior
+}
+
+// operatorOwnsRoutingAllocation returns true when crate-operator owns
+// cluster.routing.allocation.enable. The operator writes a label on the
+// StatefulSet while it does a restart itself (crate/cloud#3054). A label that is
+// absent, unknown or too old gives false. dc_util then writes the setting, as it
+// did before this change.
+func operatorOwnsRoutingAllocation(labels map[string]string, now time.Time) bool {
+	value, exists := labels[labelRoutingOwner]
+	if !exists {
+		return false
+	}
+
+	owner, timestamp, found := strings.Cut(value, "-")
+	if !found || owner != routingOwnerOperator {
+		log.Printf("Unrecognised owner in StatefulSet label '%s': %s, ignoring it",
+			labelRoutingOwner, value)
+		return false
+	}
+
+	seconds, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		log.Printf("Malformed timestamp in StatefulSet label '%s': %s, ignoring it",
+			labelRoutingOwner, value)
+		return false
+	}
+
+	// Use the same limit for a timestamp in the future. A clock error can make
+	// such a timestamp, and without a limit it holds the setting forever.
+	age := now.Sub(time.Unix(seconds, 0))
+	if age < 0 {
+		age = -age
+	}
+	if age > routingOwnerTTL {
+		log.Printf("StatefulSet label '%s' is stale (%s off), reclaiming the routing allocation setting",
+			labelRoutingOwner, age.Round(time.Second))
+		return false
+	}
+
+	log.Printf("Operator owns the routing allocation setting (StatefulSet label %s=%s)",
+		labelRoutingOwner, value)
+	return true
+}
+
+// shouldSetPreStopRoutingAllocation returns true when dc_util must write
+// cluster.routing.allocation.enable before the pod stops. It returns false when
+// the operator owns the setting, and when no postStart hook can undo the change.
+// It writes a log message for each case. A skipped write is not visible in the
+// output of the hook.
+func shouldSetPreStopRoutingAllocation(statefulSet *appsv1.StatefulSet, now time.Time) bool {
+	if operatorOwnsRoutingAllocation(statefulSet.Labels, now) {
+		log.Println("Operator-driven restart, leaving the routing allocation setting to the operator")
+		return false
+	}
+
+	if !hasPostStartHookWithResetRouting(statefulSet) {
+		log.Println("No postStart hook with dc_util --reset-routing or -reset-routing found, skipping pre-stop routing allocation change")
+		return false
+	}
+
+	return true
 }
 
 // hasPostStartHookWithResetRouting checks if the StatefulSet has a postStart hook
@@ -429,7 +502,17 @@ func handleResetRouting(hostname string, dryRun bool, lockFile string) error {
 		return nil
 	}
 
-	// 2. SECOND: Early exit if not a multi-node cluster
+	// 2. SECOND: Do not touch the setting if the operator owns it. A reset can
+	// remove the value that the operator needs for the pods that come after.
+	// Keep the lock file: this pod's preStop wrote a value before the operator
+	// took the setting, and the next postStart that owns it must still reset
+	// that value (crate/cloud#3054).
+	if operatorOwnsRoutingAllocation(statefulSet.Labels, time.Now()) {
+		log.Println("Operator owns the routing allocation setting, skipping reset and keeping the lock file")
+		return nil
+	}
+
+	// 3. THIRD: Early exit if not a multi-node cluster
 	if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas <= 1 {
 		replicaCount := int32(0)
 		if statefulSet.Spec.Replicas != nil {
@@ -444,7 +527,7 @@ func handleResetRouting(hostname string, dryRun bool, lockFile string) error {
 		return removeLockFile(dryRun, lockFile)
 	}
 
-	// 3. THIRD: Check if poststart is disabled
+	// 4. FOURTH: Check if poststart is disabled
 	noPostStart := getNoPostStartFromLabels(statefulSet.Labels)
 	if noPostStart {
 		log.Println("PostStart is disabled via StatefulSet label, exiting")
@@ -465,7 +548,10 @@ func handleResetRouting(hostname string, dryRun bool, lockFile string) error {
 	}
 
 	// Execute the routing allocation reset (single attempt - no point retrying if other pods aren't running)
-	resetStmt := `SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = 'all';`
+	// Use RESET GLOBAL and not SET ... = 'all'. A transient value stays after the
+	// restart, and a transient value has precedence over a persistent value. A
+	// transient 'all' thus hides the value of the operator (crate/cloud#3054).
+	resetStmt := `RESET GLOBAL cluster.routing.allocation.enable;`
 	log.Printf("Executing routing allocation reset (single attempt)")
 	if err := sendSQLStatement(proto, resetStmt, dryRun); err != nil {
 		log.Printf("Failed to reset routing allocation: %v", err)
@@ -680,29 +766,40 @@ func run(crateNodePrefix, decommissionTimeout string, pid int, proto, hostname, 
 	}
 
 	// Handle pre-stop routing allocation (BEFORE decommissioning)
-	// Only set routing allocation if there's a postStart hook to reset it
-	if hasPostStartHookWithResetRouting(statefulSet) {
+	// Only set routing allocation if we own it and there's a postStart hook to reset it
+	routingAllocationSet := false
+	if shouldSetPreStopRoutingAllocation(statefulSet, time.Now()) {
 		preStopRoutingAllocation := getPreStopRoutingAllocationFromLabels(statefulSet.Labels)
 		preStopRoutingStmt := fmt.Sprintf(`SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = '%s';`, preStopRoutingAllocation)
+
+		// Set the flag before the statement. An error can also come from the
+		// response and not from the statement, and a value that is set without a
+		// lock file stays after the restart.
+		routingAllocationSet = true
 
 		log.Printf("Setting pre-stop routing allocation to: %s", preStopRoutingAllocation)
 		if err := sendSQLStatement(proto, preStopRoutingStmt, dryRun); err != nil {
 			log.Printf("Warning: Failed to set pre-stop routing allocation: %v", err)
 			// Continue with decommission process even if this fails
 		}
-	} else {
-		log.Println("No postStart hook with dc_util --reset-routing or -reset-routing found, skipping pre-stop routing allocation change")
 	}
 
-	// Create lock file to indicate dc_util handled this shutdown
-	if dryRun {
-		log.Printf("[DRY-RUN] Would create lock file: %s", lockFile)
+	// Create the lock file only if dc_util changed the routing allocation. The
+	// postStart hook resets the setting when it finds the lock file. A lock file
+	// without a change can thus remove the value of the operator
+	// (crate/cloud#3054).
+	if routingAllocationSet {
+		if dryRun {
+			log.Printf("[DRY-RUN] Would create lock file: %s", lockFile)
+		} else {
+			log.Printf("Creating lock file: %s", lockFile)
+		}
+		if err := createLockFile(dryRun, lockFile); err != nil {
+			log.Printf("Warning: Failed to create lock file: %v", err)
+			// Continue with decommission process even if this fails
+		}
 	} else {
-		log.Printf("Creating lock file: %s", lockFile)
-	}
-	if err := createLockFile(dryRun, lockFile); err != nil {
-		log.Printf("Warning: Failed to create lock file: %v", err)
-		// Continue with decommission process even if this fails
+		log.Printf("Routing allocation not changed by dc_util, skipping lock file: %s", lockFile)
 	}
 
 	// Calculate effective timeout based on terminationGracePeriodSeconds

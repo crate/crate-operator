@@ -213,6 +213,7 @@ As already mentioned `terminationGracePeriodSeconds` MUST be set larger then `--
 - **`dc-util-disabled`**: Disables dc_util decommissioning entirely (values: `true`, `false`, default: `false`)
 - **`dc-util-no-poststart`**: Disables PostStart reset-routing behavior (values: `true`, `false`, default: `false`)
 - **`dc-util-pre-stop-routing-allocation`**: Sets routing allocation value during preStop (values: `primaries`, `new_primaries`, `all`, default: `primaries`)
+- **`dc-util-routing-owner`**: Written by crate-operator, not by an operator of the cluster. It shows that the operator controls `cluster.routing.allocation.enable` for the current restart (value: `operator-<unix seconds>`). dc_util then does not change the setting, and does not create the lock file. dc_util ignores the label after 2 hours, in case the operator stopped before it removed the label.
 
 ## Example StatefulSet with labels:
 
@@ -239,6 +240,7 @@ spec:
 - **Label precedence**: StatefulSet labels override CLI parameters
 - **When disabled=true**: dc_util logs a message and exits without performing any decommission work
 - **When no-poststart=true**: PostStart reset-routing behavior is skipped
+- **When the operator owns the routing allocation**: dc_util skips the preStop change, skips the lock file, and skips the PostStart reset. It keeps an existing lock file, so a later PostStart can still do the reset. The decommission itself continues.
 
 ## Sample Logs
 
@@ -377,20 +379,44 @@ For production deployments, consider embedding dc_util in your container image t
 - Supports both single dash (`-reset-routing`) and double dash (`--reset-routing`) flag formats
 - Prevents false positives from similar flag names using precise word boundary matching
 
+**Ownership**: crate-operator drives restarts of its own (upgrade, change-compute, restore). It then holds `cluster.routing.allocation.enable` itself and writes the `dc-util-routing-owner` label. dc_util owns pod-level restarts only -- eviction, node drain, a manual `kubectl delete pod` -- where nothing else coordinates the cluster.
+
 **preStop Process (Enhanced)**:
 
-1. **Checks for postStart hook** with dc_util reset-routing capability
-2. Sets routing allocation to restricted value (`primaries` by default) **only if postStart hook exists**
-3. Creates lock file (configurable via `--lock-file`)
-4. Continues with normal decommission process
+1. **Checks the `dc-util-routing-owner` label**. The operator owns the setting while the label is present and younger than 2 hours
+2. **Checks for postStart hook** with dc_util reset-routing capability
+3. Sets routing allocation to restricted value (`primaries` by default) **only if the operator does not own it and a postStart hook exists**
+4. Creates lock file (configurable via `--lock-file`) **only if it sent that statement**
+5. Continues with normal decommission process
 
 **postStart Process (`--reset-routing`)**:
 
 1. Checks `dc-util-no-poststart` label (exit if `true`)
 2. Checks for lock file existence (exit if not found)
-3. Waits for cluster readiness (10-minute timeout)
-4. Executes: `SET GLOBAL TRANSIENT "cluster.routing.allocation.enable" = 'all';`
-5. Removes lock file (prevents retry loops)
+3. Checks the `dc-util-routing-owner` label. If the operator owns the setting, skips the reset and **keeps** the lock file, so a later postStart can still do it
+4. Waits for cluster readiness (10-minute timeout)
+5. Executes: `RESET GLOBAL cluster.routing.allocation.enable;`
+6. Removes lock file (prevents retry loops)
+
+A reset and not a write of `'all'`: a transient value stays after the restart, a transient value has precedence over a persistent value, and such a value hides the value that crate-operator writes for its own restarts.
+
+```mermaid
+flowchart TD
+    START["Pod stops"] --> PRE{"preStop: label present<br/>and younger than 2 h?"}
+    PRE -->|"yes, operator owns it"| SKIP["No SQL write<br/>No lock file"]
+    PRE -->|"absent, malformed<br/>or stale"| SET["SET GLOBAL TRANSIENT = primaries<br/>Create lock file"]
+    SKIP --> DECOM["alter cluster decommission"]
+    SET --> DECOM
+    DECOM --> UP["Pod starts"]
+
+    UP --> POST{"postStart:<br/>lock file present?"}
+    POST -->|"no"| EXIT["Exit, nothing to reset"]
+    POST -->|"yes"| OWN{"label still owned<br/>by the operator?"}
+    OWN -->|"yes"| KEEP["Skip the reset<br/>Keep the lock file for a later postStart"]
+    OWN -->|"no"| RESET["RESET GLOBAL<br/>Remove the lock file"]
+```
+
+The `KEEP` branch needs a pod-level restart that an operator-driven restart overlapped. A reset there removes the value that the operator needs for the pods that come after, and a removed lock file loses the information that a reset is still necessary.
 
 ### Sample postStart Logs:
 
@@ -401,7 +427,7 @@ ResetRouting: 2025/10/16 19:23:49 Lock file found at /resource/heapdump/dc_util.
 ResetRouting: 2025/10/16 19:23:50 Waiting for cluster readiness (timeout: 10m0s)...
 ResetRouting: 2025/10/16 19:23:52 Cluster is ready after 3 attempts
 ResetRouting: 2025/10/16 19:23:52 Executing routing allocation reset
-ResetRouting: 2025/10/16 19:23:52 Payload: {"stmt":"SET GLOBAL TRANSIENT \"cluster.routing.allocation.enable\" = 'all';"}
+ResetRouting: 2025/10/16 19:23:52 Payload: {"stmt":"RESET GLOBAL cluster.routing.allocation.enable;"}
 ResetRouting: 2025/10/16 19:23:52 Response from server: {"cols":[],"rows":[[]],"rowcount":1,"duration":15.234}
 ResetRouting: 2025/10/16 19:23:52 Routing allocation reset completed successfully
 ResetRouting: 2025/10/16 19:23:52 Removed lock file: /resource/heapdump/dc_util.lock

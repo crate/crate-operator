@@ -1808,6 +1808,150 @@ func TestResetRoutingReplicaCount(t *testing.T) {
 	}
 }
 
+func TestOperatorOwnsRoutingAllocation(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	stamp := func(offset time.Duration) string {
+		return fmt.Sprintf("operator-%d", now.Add(offset).Unix())
+	}
+
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected bool
+	}{
+		{
+			name:     "No label present - dc_util owns the setting",
+			labels:   map[string]string{},
+			expected: false,
+		},
+		{
+			name:     "Fresh operator marker",
+			labels:   map[string]string{"dc-util-routing-owner": stamp(0)},
+			expected: true,
+		},
+		{
+			name:     "Marker just inside the TTL",
+			labels:   map[string]string{"dc-util-routing-owner": stamp(-routingOwnerTTL + time.Minute)},
+			expected: true,
+		},
+		{
+			name:     "Stale marker - operator likely died mid-restart",
+			labels:   map[string]string{"dc-util-routing-owner": stamp(-routingOwnerTTL - time.Minute)},
+			expected: false,
+		},
+		{
+			name:     "Clock skew within the TTL is honoured",
+			labels:   map[string]string{"dc-util-routing-owner": stamp(time.Minute)},
+			expected: true,
+		},
+		{
+			name:     "Far future timestamp would pin the setting forever",
+			labels:   map[string]string{"dc-util-routing-owner": stamp(routingOwnerTTL + time.Minute)},
+			expected: false,
+		},
+		{
+			name:     "Unknown owner",
+			labels:   map[string]string{"dc-util-routing-owner": "someone-else-1786000000"},
+			expected: false,
+		},
+		{
+			name:     "No timestamp",
+			labels:   map[string]string{"dc-util-routing-owner": "operator"},
+			expected: false,
+		},
+		{
+			name:     "Malformed timestamp",
+			labels:   map[string]string{"dc-util-routing-owner": "operator-not-a-number"},
+			expected: false,
+		},
+		{
+			name:     "Empty value",
+			labels:   map[string]string{"dc-util-routing-owner": ""},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := operatorOwnsRoutingAllocation(tt.labels, now)
+			if result != tt.expected {
+				t.Errorf("operatorOwnsRoutingAllocation() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestShouldSetPreStopRoutingAllocation(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	freshMarker := fmt.Sprintf("operator-%d", now.Unix())
+	staleMarker := fmt.Sprintf("operator-%d", now.Add(-routingOwnerTTL-time.Minute).Unix())
+
+	// If dc_util does not write the setting, it does not create the lock file.
+	// The postStart hook then does not reset a value of a different owner
+	// (crate/cloud#3054).
+	sts := func(labels map[string]string, withPostStart bool) *appsv1.StatefulSet {
+		container := corev1.Container{Name: "crate"}
+		if withPostStart {
+			container.Lifecycle = &corev1.Lifecycle{
+				PostStart: &corev1.LifecycleHandler{
+					Exec: &corev1.ExecAction{
+						Command: []string{"/bin/sh", "-c", "dc_util --reset-routing"},
+					},
+				},
+			}
+		}
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels},
+			Spec: appsv1.StatefulSetSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{Containers: []corev1.Container{container}},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		sts      *appsv1.StatefulSet
+		expected bool
+	}{
+		{
+			name:     "No marker, postStart hook present - dc_util sets it",
+			sts:      sts(map[string]string{}, true),
+			expected: true,
+		},
+		{
+			name:     "Operator owns it - dc_util keeps out",
+			sts:      sts(map[string]string{"dc-util-routing-owner": freshMarker}, true),
+			expected: false,
+		},
+		{
+			name:     "Stale marker - dc_util takes the setting again",
+			sts:      sts(map[string]string{"dc-util-routing-owner": staleMarker}, true),
+			expected: true,
+		},
+		{
+			name:     "No postStart hook to undo the change",
+			sts:      sts(map[string]string{}, false),
+			expected: false,
+		},
+		{
+			name:     "Marker wins over a missing postStart hook",
+			sts:      sts(map[string]string{"dc-util-routing-owner": freshMarker}, false),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldSetPreStopRoutingAllocation(tt.sts, now)
+			if result != tt.expected {
+				t.Errorf("shouldSetPreStopRoutingAllocation() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
 // Helper function to get int32 pointer
 func int32Ptr(i int32) *int32 {
 	return &i
