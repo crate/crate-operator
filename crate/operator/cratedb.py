@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import asyncio
 import functools
 import logging
 from typing import Dict, List, Optional, Tuple, Union
@@ -164,46 +165,107 @@ async def get_healthiness(cursor: Cursor) -> int:
     return row and row[0]
 
 
-async def is_cluster_healthy(
-    conn_factory, expected_nodes: int, logger: logging.Logger
+async def _read_cluster_health(
+    conn_factory,
+    expected_nodes: int,
+    logger: logging.Logger,
+    attempt: Optional[int] = None,
+    total: Optional[int] = None,
 ) -> bool:
     """
-    Check if a cluster is healthy.
+    Take a single reading of cluster health.
 
-    The function checks for the cluster health using the `sys.health
-    <https://crate.io/docs/crate/reference/en/latest/admin/system-information.html#health>`_
-    table and the expected number of nodes in the cluster three times.
-
-    :param conn_factory: A callable that allows the operator to connect
-        to the database. We regularly need to reconnect to ensure the
-        connection wasn't closed because it was opened to a CrateDB node that
-        was shut down since the connection was opened.
-    :param expected_nodes: The number of nodes that make up a healthy cluster.
+    Returns ``True`` only when the cluster has the expected number of nodes and
+    is not in a ``YELLOW``/``RED`` state.
     """
+    prefix = ""
+    if attempt is not None and total is not None:
+        prefix = f"Health check {attempt}/{total}: "
+
     # We need to establish a new connection because the peer of a
     # previous connection could have been shut down. And by
     # re-establishing a connection for _each_ polling we can assert
     # that the connection is open
     async with conn_factory() as conn:
         async with conn.cursor() as cursor:
-            logger.debug("Checking if cluster is healthy ...")
             try:
                 num_nodes = await get_number_of_nodes(cursor)
                 healthiness = await get_healthiness(cursor)
-                if num_nodes == expected_nodes and healthiness in {1, None}:
-                    logger.info("Cluster has expected number of nodes and is healthy")
-                    return True
-                else:
-                    logger.info(
-                        "Cluster has %d of %d nodes and is in %s state.",
-                        num_nodes,
-                        expected_nodes,
-                        HEALTHINESS.get(healthiness, "UNKNOWN"),
-                    )
-                    return False
             except ProgrammingError as e:
-                logger.warning("Failed to run health check query", exc_info=e)
+                logger.warning("%sFailed to run health check query", prefix, exc_info=e)
                 return False
+
+    # ``None`` means there are no tables at all (empty cluster), which is
+    # healthy. Any real severity other than GREEN (1) is not.
+    if healthiness is None:
+        state = "GREEN (no user tables)"
+    else:
+        state = HEALTHINESS.get(healthiness, f"severity {healthiness}")
+    logger.info(
+        "%sCluster has %d/%d nodes and is %s.",
+        prefix,
+        num_nodes,
+        expected_nodes,
+        state,
+    )
+
+    if num_nodes != expected_nodes:
+        return False
+    if healthiness not in {1, None}:
+        return False
+    return True
+
+
+async def is_cluster_healthy(
+    conn_factory,
+    expected_nodes: int,
+    logger: logging.Logger,
+    stability_checks: Optional[int] = None,
+    stability_delay: Optional[int] = None,
+) -> bool:
+    """
+    Check if a cluster is healthy.
+
+    The function checks the expected number of nodes and the cluster health from
+    the ``sys.health`` table, and requires that reading to hold across several
+    consecutive polls before reporting the cluster as healthy.
+
+    The consecutive-poll requirement exists because a single reading can catch
+    a stale ``GREEN`` in the short window after a node rejoins ``sys.nodes`` but
+    before the master has recomputed cluster health.
+
+    :param conn_factory: The connection factory to connect to CrateDB.
+    :param expected_nodes: The number of nodes that make up a healthy cluster.
+    :param stability_checks: Number of consecutive positive readings required.
+        Defaults to ``config.HEALTH_CHECK_STABILITY_CHECKS``.
+    :param stability_delay: Delay in seconds between the readings. Defaults to
+        ``config.HEALTH_CHECK_STABILITY_DELAY``.
+    """
+    checks = (
+        stability_checks
+        if stability_checks is not None
+        else config.HEALTH_CHECK_STABILITY_CHECKS
+    )
+    delay = (
+        stability_delay
+        if stability_delay is not None
+        else config.HEALTH_CHECK_STABILITY_DELAY
+    )
+    assert checks is not None and delay is not None
+
+    for attempt in range(checks):
+        if not await _read_cluster_health(
+            conn_factory, expected_nodes, logger, attempt=attempt + 1, total=checks
+        ):
+            return False
+        if attempt < checks - 1:
+            await asyncio.sleep(delay)
+
+    logger.info(
+        "Cluster has expected number of nodes and is healthy across %d checks.",
+        checks,
+    )
+    return True
 
 
 async def are_snapshots_in_progress(
