@@ -22,6 +22,7 @@
 import pytest
 
 from crate.operator.grand_central import (
+    _grand_central_hostname,
     get_grand_central_exposure,
     grand_central_uses_traefik,
 )
@@ -70,3 +71,38 @@ def test_explicit_grand_central_exposure_wins_over_cluster():
 def test_grand_central_exposure_falls_back_to_cluster():
     spec = {"cluster": {"exposure": "traefik"}}
     assert get_grand_central_exposure(spec) == "traefik"
+
+
+@pytest.mark.parametrize(
+    "cluster_name, external_dns, expected",
+    [
+        # Non-colliding: cluster name appears only as the leading label.
+        (
+            "mycluster",
+            "mycluster.eks1.us-west-2.aws.cratedb.net.",
+            "mycluster.gc.eks1.us-west-2.aws.cratedb.net",
+        ),
+        # Collision with the region: 'us-west' also occurs in 'us-west-2'.
+        (
+            "us-west",
+            "us-west.eks1.us-west-2.aws.cratedb.net.",
+            "us-west.gc.eks1.us-west-2.aws.cratedb.net",
+        ),
+        # Collision with the cloud suffix: 'aws' also occurs in '.aws.'.
+        (
+            "aws",
+            "aws.eks1.us-west-2.aws.cratedb.net.",
+            "aws.gc.eks1.us-west-2.aws.cratedb.net",
+        ),
+        # Cluster literally named 'gc'.
+        (
+            "gc",
+            "gc.eks1.eu-central-1.azure.cratedb.net.",
+            "gc.gc.eks1.eu-central-1.azure.cratedb.net",
+        ),
+    ],
+)
+def test_grand_central_hostname_only_replaces_leading_label(
+    cluster_name, external_dns, expected
+):
+    assert _grand_central_hostname(cluster_name, external_dns) == expected
