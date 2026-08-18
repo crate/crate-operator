@@ -766,6 +766,20 @@ def grand_central_uses_traefik(spec: kopf.Spec) -> bool:
     return get_grand_central_exposure(spec) == "traefik"
 
 
+def _grand_central_hostname(cluster_name: str, external_dns: str) -> str:
+    """
+    Derive the grand-central hostname from a cluster's external DNS name.
+
+    ``external_dns`` is built as ``<cluster_name>.<region>.<domain>.`` so the
+    cluster name is always its leading label. The grand-central hostname is the
+    same name with a ``.gc`` label inserted after that leading label.
+
+    :param cluster_name: The CrateDB cluster name (the leading DNS label).
+    :param external_dns: The cluster's external DNS name (may have a trailing dot).
+    """
+    return external_dns.replace(cluster_name, f"{cluster_name}.gc", 1).rstrip(".")
+
+
 async def create_grand_central_exposure(
     namespace: str,
     name: str,
@@ -794,7 +808,7 @@ async def create_grand_central_exposure(
     owner_references = get_owner_references(name, meta)
     cluster_name = spec["cluster"]["name"]
     external_dns = spec["cluster"]["externalDNS"]
-    hostname = external_dns.replace(cluster_name, f"{cluster_name}.gc").rstrip(".")
+    hostname = _grand_central_hostname(cluster_name, external_dns)
     labels = get_grand_central_labels(name, meta)
     cidrs = spec["cluster"].get("allowedCIDRs", None)
 
