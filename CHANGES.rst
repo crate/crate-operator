@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fixed the operator restarting the next node during a rolling restart before
+  the cluster had actually recovered.
+
 2.63.0 (2026-08-12)
 -------------------
 
