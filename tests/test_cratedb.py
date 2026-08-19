@@ -293,8 +293,8 @@ async def test_is_cluster_healthy_requires_stable_readings():
     logger = mock.Mock()
     # First poll catches a stale GREEN, the second sees the cluster go YELLOW
     # as the master recomputes health. A single snapshot used to pass here and
-    # let the next node be terminated too early (crate/cloud#3062); requiring
-    # consecutive readings must now report the cluster as not healthy.
+    # let the next node be terminated too early; requiring consecutive readings
+    # must now report the cluster as not healthy.
     conn_factory = _conn_factory_for([(3, 1), (3, 2)])
     result = await is_cluster_healthy(
         conn_factory,
