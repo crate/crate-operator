@@ -246,7 +246,10 @@ async def get_source_backup_repository_data(
                 f'Secret {secret_key_ref["name"]} could not be found.'
             )
         except KeyError:
-            raise kopf.PermanentError(f"Key {key} not found in secret.")
+            if BackupRepositoryData.is_optional(backup_provider, key):
+                data_dict[key] = ""
+            else:
+                raise kopf.PermanentError(f"Key {key} not found in secret.")
 
     data_cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
     data = BackupRepositoryData(
@@ -688,8 +691,10 @@ class RestoreBackupSubHandler(StateBasedSubHandler):
                         try:
                             data = backup_repository_data.data
                             for field in fields(data):
-                                param = field.metadata["query_param"]
                                 value = getattr(data, field.name)
+                                if not value:
+                                    continue
+                                param = field.metadata["query_param"]
                                 create_repo_settings.append((param, value))
                         except KeyError as e:
                             logger.warning(

@@ -968,6 +968,59 @@ async def test_create_backup_repository(
 
 
 @pytest.mark.asyncio
+async def test_create_backup_repository_with_endpoint_url(
+    faker, mock_cratedb_connection, backup_repository_data, mock_quote_ident
+):
+    mock_cursor = mock_cratedb_connection["mock_cursor"]
+    mock_cursor.fetchone.return_value = None
+
+    repository = faker.domain_word()
+    mock_logger = mock.Mock(spec=logging.Logger)
+    conn_factory = connection_factory("host", "password")
+
+    data_dict = {
+        **backup_repository_data[BackupStorageProvider.AWS],
+        "endpointUrl": faker.url(),
+    }
+    data = BackupRepositoryData(data=AwsBackupRepositoryData(**data_dict))
+
+    with mock.patch(
+        "crate.operator.restore_backup.quote_ident", return_value=repository
+    ):
+        await RestoreBackupSubHandler._create_backup_repository(
+            conn_factory, repository, data, mock_logger
+        )
+
+    expected_stmt = (
+        f"CREATE REPOSITORY {repository} TYPE s3 "
+        "WITH (max_restore_bytes_per_sec = %s, readonly = %s, "
+        "access_key = %s, base_path = %s, bucket = %s, secret_key = %s, "
+        "endpoint = %s);"
+    )
+    expected_values = (
+        "240mb",
+        "true",
+        data_dict["accessKeyId"],
+        data_dict["basePath"],
+        data_dict["bucket"],
+        data_dict["secretAccessKey"],
+        data_dict["endpointUrl"],
+    )
+    mock_cursor.execute.assert_has_awaits(
+        [
+            mock.call("SELECT * FROM sys.repositories WHERE name=%s", (repository,)),
+            mock.call(expected_stmt, expected_values),
+        ]
+    )
+
+
+def test_aws_backup_repository_data_not_optional_field(backup_repository_data):
+    data_dict = {**backup_repository_data[BackupStorageProvider.AWS], "bucket": ""}
+    with pytest.raises(ValueError, match="`bucket`"):
+        BackupRepositoryData(data=AwsBackupRepositoryData(**data_dict))
+
+
+@pytest.mark.asyncio
 @mock.patch("crate.operator.restore_backup.get_gc_user_password")
 @mock.patch("crate.operator.restore_backup.execute_sql")
 async def test_gc_admin_password_restore(
