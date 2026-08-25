@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Support restoring a snapshot from an AWS S3 bucket with an endpoint URL.
+
 2.63.0 (2026-08-12)
 -------------------
 

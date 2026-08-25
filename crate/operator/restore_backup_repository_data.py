@@ -26,6 +26,9 @@ class AwsBackupRepositoryData:
     basePath: str = field(metadata={"query_param": "base_path"})
     bucket: str = field(metadata={"query_param": "bucket"})
     secretAccessKey: str = field(metadata={"query_param": "secret_key"})
+    endpointUrl: str = field(
+        default="", metadata={"query_param": "endpoint", "optional": True}
+    )
 
 
 @dataclass
@@ -47,6 +50,8 @@ class BackupRepositoryData:
             )
         for current_field in fields(self.data):
             value = getattr(self.data, current_field.name)
+            if current_field.metadata.get("optional") and not value:
+                continue
             if not isinstance(value, str) or not value:
                 raise ValueError(
                     f"Field `{current_field.name}` must be a non-empty string"
@@ -72,6 +77,18 @@ class BackupRepositoryData:
         """
         cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
         return [field.name for field in fields(cls)]
+
+    @staticmethod
+    def is_optional(backup_provider: BackupStorageProvider, key: str) -> bool:
+        """
+        Returns whether the given secrets key is optional for the given provider.
+        """
+        cls = BackupRepositoryData.get_class_from_backup_provider(backup_provider)
+        return next(
+            field.metadata.get("optional", False)
+            for field in fields(cls)
+            if field.name == key
+        )
 
     @staticmethod
     def get_repository_type(backup_provider: BackupStorageProvider) -> str:

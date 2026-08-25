@@ -379,6 +379,26 @@ spec:
                         required:
                         - secretKeyRef
                         type: object
+                      endpointUrl:
+                        properties:
+                          secretKeyRef:
+                            properties:
+                              key:
+                                description: The key within the Kubernetes Secret
+                                  that holds the S3 endpoint.
+                                type: string
+                              name:
+                                description: Name of a Kubernetes Secret that contains
+                                  the S3 endpoint-url to be used for accessing the
+                                  backup of the source cluster.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        required:
+                        - secretKeyRef
+                        type: object
                       accountName:
                         properties:
                           secretKeyRef:
