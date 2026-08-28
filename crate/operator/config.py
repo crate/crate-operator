@@ -55,6 +55,17 @@ class Config:
     #: the pods are quick to start up.
     HEALTH_CHECK_RETRY_DELAY: Optional[int] = 30
 
+    #: Number of consecutive positive readings ``is_cluster_healthy`` requires
+    #: before it reports a cluster as healthy. A single reading can catch a
+    #: stale ``GREEN`` in the short window after a node rejoins but before the
+    #: master has recomputed cluster health, which lets a rolling restart
+    #: terminate the next node too early.
+    HEALTH_CHECK_STABILITY_CHECKS: Optional[int] = 3
+
+    #: Delay in seconds between the consecutive readings taken by
+    #: ``is_cluster_healthy``.
+    HEALTH_CHECK_STABILITY_DELAY: Optional[int] = 2
+
     #: When set, enable special handling for the defind cloud provider, e.g. on
     #: AWS pass the availability zone as a CrateDB node attribute.
     CLOUD_PROVIDER: Optional[CloudProvider] = None
@@ -219,6 +230,32 @@ class Config:
             raise ConfigurationError(
                 f"Invalid {self._prefix}HEALTH_CHECK_RETRY_DELAY="
                 f"'{bootstrap_timeout}'. Needs to be a positive integer."
+            )
+
+        stability_checks = self.env(
+            "HEALTH_CHECK_STABILITY_CHECKS",
+            default=str(self.HEALTH_CHECK_STABILITY_CHECKS),
+        )
+        try:
+            self.HEALTH_CHECK_STABILITY_CHECKS = int(stability_checks)
+            if self.HEALTH_CHECK_STABILITY_CHECKS < 1:
+                raise ValueError()
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}HEALTH_CHECK_STABILITY_CHECKS="
+                f"'{stability_checks}'. Needs to be an integer >= 1."
+            )
+
+        stability_delay = self.env(
+            "HEALTH_CHECK_STABILITY_DELAY",
+            default=str(self.HEALTH_CHECK_STABILITY_DELAY),
+        )
+        try:
+            self.HEALTH_CHECK_STABILITY_DELAY = int(stability_delay)
+        except ValueError:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}HEALTH_CHECK_STABILITY_DELAY="
+                f"'{stability_delay}'. Needs to be a positive integer."
             )
 
         cloud_provider = self.env("CLOUD_PROVIDER", default=self.CLOUD_PROVIDER)

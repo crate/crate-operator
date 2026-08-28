@@ -8,6 +8,9 @@ Unreleased
 * Fixed the grand-central hostname being corrupted when the cluster name recurs
   later in its external DNS name.
 
+* Fixed the operator restarting the next node during a rolling restart before
+  the cluster had actually recovered.
+
 2.63.1 (2026-08-27)
 -------------------
 
