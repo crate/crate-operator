@@ -11,6 +11,8 @@ Unreleased
 * Fixed the operator restarting the next node during a rolling restart before
   the cluster had actually recovered.
 
+* Bumped sql_exporter to ``0.24.6`` for CVE fixes.
+
 2.63.1 (2026-08-27)
 -------------------
 
