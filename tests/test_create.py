@@ -1255,10 +1255,16 @@ class TestServiceModels:
                 in annotation_keys
             )
         if dns:
+            # Both prefixes must be set: external-dns v0.22.0 dropped the alpha
+            # one as its default, older controllers only know the alpha one.
             assert (
                 service.metadata.annotations[
                     "external-dns.alpha.kubernetes.io/hostname"
                 ]
+                == dns
+            )
+            assert (
+                service.metadata.annotations["external-dns.kubernetes.io/hostname"]
                 == dns
             )
 
@@ -1415,7 +1421,10 @@ class TestServices:
             additional_annotations=annotations,
         )
 
-        expected_annotations = {"external-dns.alpha.kubernetes.io/hostname": host}
+        expected_annotations = {
+            "external-dns.alpha.kubernetes.io/hostname": host,
+            "external-dns.kubernetes.io/hostname": host,
+        }
         if annotations:
             expected_annotations.update(annotations)
 
@@ -1693,6 +1702,10 @@ class TestCreateCustomResource:
         )
         assert (
             ingress.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
+            == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
+        )
+        assert (
+            ingress.metadata.annotations["external-dns.kubernetes.io/hostname"]
             == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
         )
 

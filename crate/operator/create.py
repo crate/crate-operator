@@ -94,6 +94,8 @@ from kubernetes_asyncio.client import (
 
 from crate.operator.config import config
 from crate.operator.constants import (
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME,
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
     API_GROUP,
     CRATE_CONTROL_PORT,
     DATA_PVC_NAME_PREFIX,
@@ -1305,7 +1307,8 @@ def _lb_annotations_to_add(dns_record: Optional[str]) -> dict:
             }
         )
     if dns_record:
-        annotations["external-dns.alpha.kubernetes.io/hostname"] = dns_record
+        annotations[ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA] = dns_record
+        annotations[ANNOTATION_EXTERNAL_DNS_HOSTNAME] = dns_record
     return annotations
 
 
@@ -1327,7 +1330,8 @@ def _lb_annotations_to_remove() -> dict:
         "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": None,  # noqa
         "service.beta.kubernetes.io/azure-load-balancer-disable-tcp-reset": None,
         "service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout": None,
-        "external-dns.alpha.kubernetes.io/hostname": None,
+        ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA: None,
+        ANNOTATION_EXTERNAL_DNS_HOSTNAME: None,
     }
 
 

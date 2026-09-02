@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Set the external-dns hostname annotation under both the alpha and new prefix.
+
 2.64.0 (2026-09-02)
 -------------------
 
