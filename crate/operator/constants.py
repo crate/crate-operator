@@ -36,6 +36,13 @@ LABEL_NODE_NAME = f"{API_GROUP}/node-name"
 LABEL_NODE_DATA = f"{API_GROUP}/node-data"
 LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
+# external-dns v0.22.0 changed its default annotation prefix from
+# "external-dns.alpha.kubernetes.io/" to "external-dns.kubernetes.io/" with no
+# fallback, so both are set until all external-dns controllers are on v0.22.0+.
+# Drop the alpha one afterwards.
+ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA = "external-dns.alpha.kubernetes.io/hostname"
+ANNOTATION_EXTERNAL_DNS_HOSTNAME = "external-dns.kubernetes.io/hostname"
+
 SYSTEM_USERNAME = "system"
 GC_USERNAME = "gc_admin"
 GC_USER_SECRET_NAME = "user-gc-{name}"

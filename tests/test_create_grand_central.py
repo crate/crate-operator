@@ -205,6 +205,10 @@ async def test_create_grand_central(faker, namespace, kopf_runner, api_client):
         == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
     )
     assert (
+        ingress.metadata.annotations["external-dns.kubernetes.io/hostname"]
+        == "my-crate-cluster.gc.aks1.eastus.azure.cratedb-dev.net"
+    )
+    assert (
         ingress.metadata.annotations[
             "nginx.ingress.kubernetes.io/cors-allow-credentials"
         ]

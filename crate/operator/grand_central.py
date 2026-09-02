@@ -69,6 +69,8 @@ from kubernetes_asyncio.client import (
 from crate.operator.bootstrap import bootstrap_gc_admin_user
 from crate.operator.config import config
 from crate.operator.constants import (
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME,
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
     GC_USER_SECRET_NAME,
     GC_USERNAME,
     GRAND_CENTRAL_BACKEND_API_PORT,
@@ -904,7 +906,8 @@ def get_grand_central_ingress(
         or "$http_origin"
     )
     annotations = {
-        "external-dns.alpha.kubernetes.io/hostname": hostname,
+        ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA: hostname,
+        ANNOTATION_EXTERNAL_DNS_HOSTNAME: hostname,
         "nginx.ingress.kubernetes.io/proxy-body-size": "1G",
         "nginx.ingress.kubernetes.io/configuration-snippet": (
             """
