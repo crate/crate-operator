@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.64.0 (2026-09-02)
+-------------------
+
 * Fixed the grand-central hostname being corrupted when the cluster name recurs
   later in its external DNS name.
 
