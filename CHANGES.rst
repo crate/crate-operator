@@ -7,6 +7,8 @@ Unreleased
 
 * Set the external-dns hostname annotation under both the alpha and new prefix.
 
+* Bumped sql_exporter to ``0.24.8`` for CVE fixes.
+
 2.64.0 (2026-09-02)
 -------------------
 
