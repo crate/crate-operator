@@ -178,7 +178,7 @@ class Config:
     PROMETHEUS_PORT: int = 8080
 
     #: The sql_exporter image to use
-    SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.24.6"
+    SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.24.8"
 
     #: Name of the secret containing credentials to access the source
     #: backup when restoring a snapshot.
