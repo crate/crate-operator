@@ -5,6 +5,10 @@ Changelog
 Unreleased
 ----------
 
+* Fixed grand-central routing not converging on a ``spec.cluster.exposure``
+  change while ``spec.grandCentral.exposure`` was unset, which could leave a
+  stale nginx Ingress behind.
+
 2.64.1 (2026-09-07)
 -------------------
 
