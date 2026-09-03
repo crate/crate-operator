@@ -531,23 +531,22 @@ async def migrate_grand_central_exposure(
     name: str,
     spec: kopf.Spec,
     meta: kopf.Meta,
-    old_use_traefik: bool,
-    new_use_traefik: bool,
+    use_traefik: bool,
     logger: logging.Logger,
 ) -> None:
     """
-    Migrate grand-central routing resources from one exposure to the other.
+    Reconcile grand-central routing resources to the given exposure.
 
-    Creates the routing resources for ``new_use_traefik`` and deletes the
-    resources belonging to the old exposure. Does nothing if grand-central is
-    not deployed for this cluster.
+    Creates the routing resources for ``use_traefik`` and deletes the resources
+    belonging to the *other* exposure. Does nothing if grand-central is not
+    deployed for this cluster.
 
     :param namespace: The Kubernetes namespace for the CrateDB cluster.
     :param name: The CrateDB custom resource name defining the CrateDB cluster.
     :param spec: The ``spec`` section of the CrateDB custom resource.
     :param meta: The ``metadata`` section of the CrateDB custom resource.
-    :param old_use_traefik: Whether grand-central was previously on Traefik.
-    :param new_use_traefik: Whether grand-central should now be on Traefik.
+    :param use_traefik: The target exposure - ``True`` for Traefik (HTTPRoute +
+        Middlewares), ``False`` for an nginx Ingress.
     :param logger: Logger for operation tracking.
     """
     gc_deployment = await read_grand_central_deployment(namespace, name)
@@ -561,13 +560,15 @@ async def migrate_grand_central_exposure(
         spec=spec,
         meta=meta,
         logger=logger,
-        use_traefik=new_use_traefik,
+        use_traefik=use_traefik,
     )
 
-    if old_use_traefik:
-        await delete_grand_central_traefik_resources(namespace, name, logger)
-    else:
+    # Always remove the resources for the OTHER exposure so the routing layer
+    # converges to `use_traefik` regardless of the previous (or fallback) state.
+    if use_traefik:
         await delete_grand_central_ingress(namespace, name, logger)
+    else:
+        await delete_grand_central_traefik_resources(namespace, name, logger)
 
 
 class CreateTraefikResourcesSubHandler(StateBasedSubHandler):
@@ -678,8 +679,7 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
                 name,
                 spec,
                 meta=body["metadata"],
-                old_use_traefik=(old_exposure == "traefik"),
-                new_use_traefik=(new_exposure == "traefik"),
+                use_traefik=(new_exposure == "traefik"),
                 logger=logger,
             )
 
@@ -701,24 +701,16 @@ class ChangeGrandCentralExposureSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        old_use_traefik = grand_central_uses_traefik(old["spec"])
-        new_use_traefik = grand_central_uses_traefik(body["spec"])
+        use_traefik = grand_central_uses_traefik(body["spec"])
 
-        if old_use_traefik == new_use_traefik:
-            logger.info("Grand-central exposure unchanged")
-            return
-
-        logger.info(
-            "Changing grand-central exposure "
-            f"(traefik={old_use_traefik} -> traefik={new_use_traefik})"
-        )
+        # Always reconcile to the resolved exposure
+        logger.info(f"Reconciling grand-central exposure to traefik={use_traefik}")
 
         await migrate_grand_central_exposure(
             namespace,
             name,
             body["spec"],
             meta=body["metadata"],
-            old_use_traefik=old_use_traefik,
-            new_use_traefik=new_use_traefik,
+            use_traefik=use_traefik,
             logger=logger,
         )

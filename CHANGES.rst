@@ -9,6 +9,10 @@ Unreleased
 
 * Bumped sql_exporter to ``0.24.8`` for CVE fixes.
 
+* Fixed grand-central routing not converging on a ``spec.cluster.exposure``
+  change while ``spec.grandCentral.exposure`` was unset, which could leave a
+  stale nginx Ingress behind.
+
 2.64.0 (2026-09-02)
 -------------------
 
