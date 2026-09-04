@@ -49,6 +49,11 @@ GC_USER_SECRET_NAME = "user-gc-{name}"
 
 CONNECT_TIMEOUT = 10.0
 
+# Shared, idempotently-(re)created ClusterRole granting read-only access to Node
+# objects, used by CrateDB pods to resolve their own topology.kubernetes.io/zone
+# label at startup instead of querying each cloud's instance metadata service.
+NODE_ZONE_READER_CLUSTER_ROLE_NAME = "crate-node-zone-reader"
+
 KOPF_STATE_STORE_PREFIX = f"operator.{API_GROUP}"
 
 CLUSTER_UPDATE_ID = "cluster_update"

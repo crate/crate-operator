@@ -38,6 +38,8 @@ from kubernetes_asyncio.client import (
     RbacV1Subject,
     V1Affinity,
     V1Capabilities,
+    V1ClusterRole,
+    V1ClusterRoleBinding,
     V1ConfigMap,
     V1ConfigMapVolumeSource,
     V1Container,
@@ -108,6 +110,7 @@ from crate.operator.constants import (
     LABEL_NODE_DATA,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
+    NODE_ZONE_READER_CLUSTER_ROLE_NAME,
     SHARED_NODE_SELECTOR_KEY,
     SHARED_NODE_SELECTOR_VALUE,
     SHARED_NODE_TOLERATION_EFFECT,
@@ -592,32 +595,32 @@ def get_statefulset_crate_command(
         settings["-Cnetwork.host"] = "0.0.0.0"
         settings["-Cnetwork.publish_host"] = "$(POD_IP)"
 
-    # Availability zone retrieval at pod launch time
-    if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        aws_cmd = (
-            "curl -s -X PUT 'http://169.254.169.254/latest/api/token' "
-            "-H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | "
-            "xargs -I {} curl -s "
-            "'http://169.254.169.254/latest/meta-data/placement/availability-zone'"
-            " -H 'X-aws-ec2-metadata-token: {}'"
+    # Availability zone retrieval at pod launch time. Reads the Node object's
+    # well-known topology.kubernetes.io/zone label via the in-cluster API server
+    # instead of querying each cloud's instance metadata service. One code path
+    # for every provider, and it doesn't require pod egress to
+    # 169.254.169.254 (crate/cloud#3850, crate/cloud#3851).
+    #
+    # ${NODE_NAME} is injected into the crate container's environment via the
+    # Downward API (spec.nodeName); see get_statefulset_crate_env. Reading the
+    # Node object requires the pod's ServiceAccount to be bound to the
+    # crate-node-zone-reader ClusterRole (created below, in create_statefulset).
+    if config.CLOUD_PROVIDER in (
+        CloudProvider.AWS,
+        CloudProvider.AZURE,
+        CloudProvider.GCP,
+        CloudProvider.STACKIT,
+    ):
+        zone_cmd = (
+            "curl -s "
+            "--cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt "
+            '-H "Authorization: Bearer '
+            '$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" '
+            '"https://kubernetes.default.svc/api/v1/nodes/${NODE_NAME}" | '
+            "sed -n "
+            '\'s/.*"topology\\.kubernetes\\.io\\/zone": *"\\([^"]*\\)".*/\\1/p\''
         )
-        settings["-Cnode.attr.zone"] = f"$({aws_cmd})"
-    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
-        url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
-    elif config.CLOUD_PROVIDER == CloudProvider.GCP:
-        url = "http://169.254.169.254/computeMetadata/v1/instance/zone"  # noqa
-        # projects/<account-id>/zones/us-central1-a
-        settings["-Cnode.attr.zone"] = (
-            f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
-        )
-    elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
-        # STACKIT runs on OpenStack, which serves the EC2-compatible metadata API
-        # as well, so the zone comes back as a bare string and needs no parsing.
-        # Same path as AWS above, minus the IMDSv2 token: OpenStack does not
-        # require one.
-        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
+        settings["-Cnode.attr.zone"] = f"$({zone_cmd})"
 
     if cluster_settings:
         for k, v in cluster_settings.items():
@@ -710,6 +713,25 @@ def get_statefulset_crate_env(
                 value_from=V1EnvVarSource(
                     field_ref=V1ObjectFieldSelector(
                         api_version="v1", field_path="status.podIP"
+                    )
+                ),
+            )
+        )
+
+    # Referenced as ``${NODE_NAME}`` by the ``-Cnode.attr.zone`` Node lookup
+    # above, on every provider that resolves zone awareness that way.
+    if config.CLOUD_PROVIDER in (
+        CloudProvider.AWS,
+        CloudProvider.AZURE,
+        CloudProvider.GCP,
+        CloudProvider.STACKIT,
+    ):
+        crate_env.append(
+            V1EnvVar(
+                name="NODE_NAME",
+                value_from=V1EnvVarSource(
+                    field_ref=V1ObjectFieldSelector(
+                        api_version="v1", field_path="spec.nodeName"
                     )
                 ),
             )
@@ -1161,6 +1183,68 @@ def get_pod_disruption_budget(
     )
 
 
+async def create_node_zone_reader_rbac(
+    api_client: Any,
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+) -> None:
+    """
+    Grant this cluster's default ServiceAccount read-only access to its own
+    Node object, so the crate container can resolve
+    ``topology.kubernetes.io/zone`` for ``-Cnode.attr.zone`` at startup instead
+    of querying the cloud's instance metadata service
+    (crate/cloud#3850, crate/cloud#3851).
+
+    Nodes are cluster-scoped, so - unlike the per-cluster ``Role`` used for
+    StatefulSet access - this needs a ``ClusterRole``. That role is shared
+    across every CrateDB cluster in every namespace and (re)created
+    idempotently on every call; only the binding is per-cluster.
+
+    A namespaced CrateDB CR cannot own a cluster-scoped object, so neither
+    object here is covered by ``owner_references`` garbage collection - the
+    binding is explicitly deleted in ``delete_cratedb`` instead.
+    """
+    if config.CLOUD_PROVIDER not in (
+        CloudProvider.AWS,
+        CloudProvider.AZURE,
+        CloudProvider.GCP,
+        CloudProvider.STACKIT,
+    ):
+        return
+
+    rbac = RbacAuthorizationV1Api(api_client)
+
+    cluster_role = V1ClusterRole(
+        metadata=V1ObjectMeta(name=NODE_ZONE_READER_CLUSTER_ROLE_NAME),
+        rules=[V1PolicyRule(api_groups=[""], resources=["nodes"], verbs=["get"])],
+    )
+    await call_kubeapi(
+        rbac.create_cluster_role,
+        logger,
+        continue_on_conflict=True,
+        body=cluster_role,
+    )
+
+    cluster_role_binding = V1ClusterRoleBinding(
+        metadata=V1ObjectMeta(name=f"crate-node-zone-reader-{namespace}-{name}"),
+        role_ref=V1RoleRef(
+            api_group="rbac.authorization.k8s.io",
+            kind="ClusterRole",
+            name=NODE_ZONE_READER_CLUSTER_ROLE_NAME,
+        ),
+        subjects=[
+            RbacV1Subject(kind="ServiceAccount", name="default", namespace=namespace)
+        ],
+    )
+    await call_kubeapi(
+        rbac.create_cluster_role_binding,
+        logger,
+        continue_on_conflict=True,
+        body=cluster_role_binding,
+    )
+
+
 async def create_statefulset(
     owner_references: Optional[List[V1OwnerReference]],
     namespace: str,
@@ -1282,6 +1366,8 @@ async def create_statefulset(
             namespace=namespace,
             body=role_binding,
         )
+
+        await create_node_zone_reader_rbac(api_client, namespace, name, logger)
 
 
 def _lb_annotations_to_add(dns_record: Optional[str]) -> dict:

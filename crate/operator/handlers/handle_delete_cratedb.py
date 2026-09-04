@@ -21,7 +21,11 @@
 
 import logging
 
-from kubernetes_asyncio.client import ApiException, CustomObjectsApi
+from kubernetes_asyncio.client import (
+    ApiException,
+    CustomObjectsApi,
+    RbacAuthorizationV1Api,
+)
 
 from crate.operator.config import config
 from crate.operator.constants import CloudProvider
@@ -39,10 +43,11 @@ async def delete_cratedb(
 
     Namespace-scoped resources (Services, Secrets, StatefulSets, etc.)
     are cleaned up automatically via owner references. However,
-    SecurityContextConstraints are cluster-scoped and require explicit
-    deletion here.
+    SecurityContextConstraints and the node-zone-reader ClusterRoleBinding
+    are cluster-scoped and require explicit deletion here.
     """
     await _delete_crate_scc(namespace, name, logger)
+    await _delete_node_zone_reader_binding(namespace, name, logger)
 
 
 async def _delete_crate_scc(
@@ -76,6 +81,37 @@ async def _delete_crate_scc(
                     "Could not delete SCC %s (status=%s reason=%s) — "
                     "it may need to be removed manually",
                     scc_name,
+                    e.status,
+                    e.reason,
+                )
+
+
+async def _delete_node_zone_reader_binding(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+) -> None:
+    """
+    Delete the per-cluster ClusterRoleBinding created by
+    ``create_node_zone_reader_rbac``. The shared ``ClusterRole`` itself is
+    left in place - it may still be bound for other CrateDB clusters.
+    """
+    binding_name = f"crate-node-zone-reader-{namespace}-{name}"
+
+    async with GlobalApiClient() as api_client:
+        rbac = RbacAuthorizationV1Api(api_client)
+        try:
+            await rbac.delete_cluster_role_binding(name=binding_name)
+            logger.info("Deleted ClusterRoleBinding %s", binding_name)
+        except ApiException as e:
+            if e.status == 404:
+                logger.info("ClusterRoleBinding %s already deleted", binding_name)
+            else:
+                logger.warning(
+                    "Could not delete ClusterRoleBinding %s "
+                    "(status=%s reason=%s) — it may need to be removed "
+                    "manually",
+                    binding_name,
                     e.status,
                     e.reason,
                 )
