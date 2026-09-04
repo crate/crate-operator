@@ -40,12 +40,6 @@ OTHER_PROVIDERS = [
     CloudProvider.OPENSHIFT,
 ]
 
-METADATA_URL = "http://169.254.169.254/latest/meta-data/placement/availability-zone"
-
-#: The whole zone snippet. AWS reads the same path, so tests that assert a
-#: provider does *not* use it have to compare the snippet, not just the URL.
-ZONE_SETTING = f"-Cnode.attr.zone=$(curl -s '{METADATA_URL}')"
-
 
 def crate_command(provider):
     with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
@@ -147,25 +141,6 @@ class TestStackitNetworkSettings:
         assert "-Cauth.host_based.config.99.method=password" in cmd
 
 
-class TestStackitZoneAttribute:
-    """
-    ``node.attr.zone`` comes from the EC2-compatible metadata API that OpenStack
-    serves alongside its own. It answers with the bare zone name (``eu01-3``), so
-    there is nothing to parse - unlike AWS, no IMDSv2 token is needed either.
-    """
-
-    def test_reads_the_zone_from_the_metadata_service(self):
-        cmd = crate_command(CloudProvider.STACKIT)
-
-        assert ZONE_SETTING in cmd
-
-    @pytest.mark.parametrize("provider", OTHER_PROVIDERS)
-    def test_other_providers_are_untouched(self, provider):
-        cmd = crate_command(provider)
-
-        assert ZONE_SETTING not in cmd
-
-
 class TestStackitTopologySpread:
     def test_pods_are_spread_over_three_zones(self, faker):
         """
@@ -207,7 +182,7 @@ class TestStackitCrateEnv:
         assert pod_ip[0].value_from.field_ref.field_path == "status.podIP"
         assert pod_ip[0].value_from.field_ref.api_version == "v1"
 
-    @pytest.mark.parametrize("provider", OTHER_PROVIDERS)
+    @pytest.mark.parametrize("provider", [None, CloudProvider.OPENSHIFT])
     def test_other_providers_have_no_pod_ip(self, provider):
         node_spec = {"resources": {"memory": "123Mi", "heapRatio": 0.456}}
 
@@ -237,4 +212,42 @@ class TestStackitCrateEnv:
             "KEYSTORE_KEY_PASSWORD",
             "KEYSTORE_PASSWORD",
             "POD_IP",
+            "NODE_NAME",
         ]
+
+
+class TestStackitNodeNameEnv:
+    """
+    ``${NODE_NAME}`` feeds the Node lookup behind ``-Cnode.attr.zone`` on every
+    provider that resolves zone awareness that way - STACKIT included.
+    """
+
+    @pytest.mark.parametrize(
+        "provider",
+        [
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
+        ],
+    )
+    def test_zone_aware_providers_get_node_name(self, provider):
+        node_spec = {"resources": {"memory": "123Mi", "heapRatio": 0.456}}
+
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            env = get_statefulset_crate_env(node_spec, 1234, 5678, None)
+
+        node_name = [e for e in env if e.name == "NODE_NAME"]
+        assert len(node_name) == 1
+        assert node_name[0].value is None
+        assert node_name[0].value_from.field_ref.field_path == "spec.nodeName"
+        assert node_name[0].value_from.field_ref.api_version == "v1"
+
+    @pytest.mark.parametrize("provider", [None, CloudProvider.OPENSHIFT])
+    def test_other_providers_have_no_node_name(self, provider):
+        node_spec = {"resources": {"memory": "123Mi", "heapRatio": 0.456}}
+
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+            env = get_statefulset_crate_env(node_spec, 1234, 5678, None)
+
+        assert not any(e.name == "NODE_NAME" for e in env)

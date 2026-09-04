@@ -681,31 +681,15 @@ class TestStatefulSetCrateCommand:
         assert "-Cnode.attr.some_cluster_setting=cluster" in cmd
 
     @pytest.mark.parametrize(
-        "provider, url, header",
+        "provider",
         [
-            (
-                CloudProvider.AWS,
-                "-X PUT 'http://169.254.169.254/latest/api/token'",
-                " -H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | xargs -I {} curl -s 'http://169.254.169.254/latest/meta-data/placement/availability-zone' -H 'X-aws-ec2-metadata-token: {}'",  # noqa
-            ),
-            (
-                CloudProvider.AZURE,
-                "'http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text'",  # noqa
-                " -H 'Metadata: true'",
-            ),
-            (
-                CloudProvider.GCP,
-                "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
-                " -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}'",
-            ),
-            (
-                CloudProvider.STACKIT,
-                "'http://169.254.169.254/latest/meta-data/placement/availability-zone'",  # noqa
-                "",
-            ),
+            CloudProvider.AWS,
+            CloudProvider.AZURE,
+            CloudProvider.GCP,
+            CloudProvider.STACKIT,
         ],
     )
-    def test_zone_attr(self, provider, url, header):
+    def test_zone_attr(self, provider):
         with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
             cmd = get_statefulset_crate_command(
                 namespace="some-namespace",
@@ -730,7 +714,43 @@ class TestStatefulSetCrateCommand:
                 crate_version="4.6.3",
                 cloud_settings={},
             )
-        assert f"-Cnode.attr.zone=$(curl -s {url}{header})" in cmd
+        zone_attr = next(a for a in cmd if a.startswith("-Cnode.attr.zone="))
+        # Every provider resolves the zone the same way now: reading the pod's
+        # own Node object via the in-cluster API server, not a cloud metadata
+        # service - so it doesn't need pod egress to 169.254.169.254.
+        assert "169.254.169.254" not in zone_attr
+        assert "${NODE_NAME}" in zone_attr
+        assert "kubernetes.default.svc/api/v1/nodes/" in zone_attr
+        assert "topology" in zone_attr and "zone" in zone_attr
+
+    def test_zone_attr_openshift_not_set(self):
+        with mock.patch(
+            "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.OPENSHIFT
+        ):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                data_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    }
+                },
+                cluster_settings=None,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+                crate_version="4.6.3",
+                cloud_settings={},
+            )
+        assert not any(a.startswith("-Cnode.attr.zone=") for a in cmd)
 
     @pytest.mark.parametrize(
         "node_settings, cluster_settings",

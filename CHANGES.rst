@@ -5,6 +5,12 @@ Changelog
 Unreleased
 ----------
 
+* Changed ``-Cnode.attr.zone`` to resolve the pod's Node
+  ``topology.kubernetes.io/zone`` label via the in-cluster API server on AWS,
+  Azure, GCP, and STACKIT, instead of querying each cloud's instance metadata
+  service. Requires pod egress to the Kubernetes API server; no longer
+  requires pod egress to ``169.254.169.254``.
+
 * Set the external-dns hostname annotation under both the alpha and new prefix.
 
 * Bumped sql_exporter to ``0.24.8`` for CVE fixes.
