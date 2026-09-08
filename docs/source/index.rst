@@ -12,6 +12,7 @@ CrateDB_ inside Kubernetes_.
    configuration
    architecture
    concepts
+   crd-reference
    openshift
    development
    changelog

@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added CrateDB CRD reference page
+
 2.64.1 (2026-09-07)
 -------------------
 
