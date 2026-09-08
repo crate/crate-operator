@@ -9,6 +9,8 @@ Unreleased
   change while ``spec.grandCentral.exposure`` was unset, which could leave a
   stale nginx Ingress behind.
 
+* Added CrateDB CRD reference page
+
 2.64.1 (2026-09-07)
 -------------------
 
