@@ -116,6 +116,8 @@ CrateDB requires specific kernel parameters, most critically
 ``vm.max_map_count=262144``. On standard Kubernetes the operator sets
 these via a privileged init container. On OpenShift, **you** must
 configure them before deploying any CrateDB cluster and verify host defaults.
+Note that OpenShift nodes commonly provide ``262144`` by default, which already
+satisfies CrateDB's minimum.
 
 Node Tuning Operator with machineConfigLabels (Recommended)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

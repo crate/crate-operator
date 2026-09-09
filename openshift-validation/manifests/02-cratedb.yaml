@@ -1,0 +1,26 @@
+---
+# CrateDB test cluster, sized for the Partner Validation cluster
+# (3 workers @ 4 vCPU / ~16 GiB, one per zone us-central1-a/b/c).
+apiVersion: cloud.crate.io/v1
+kind: CrateDB
+metadata:
+  name: my-cluster
+  namespace: cratedb
+spec:
+  cluster:
+    imageRegistry: crate
+    name: crate-dev
+    version: "6.4.4"
+  nodes:
+    data:
+      - name: hot
+        replicas: 3
+        resources:
+          disk:
+            count: 1
+            size: 32GiB
+            storageClass: ssd-csi
+          heapRatio: 0.5
+          limits:
+            cpu: 1
+            memory: 3Gi
