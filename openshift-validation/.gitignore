@@ -1,0 +1,7 @@
+# Test-run evidence (capture.sh output, screenshots, logs) is kept OUT of this
+# public repo.
+evidence/
+
+# Derived submission copy (embeds sanitized evidence + screenshot; rendered to PDF
+# for Red Hat Partner Connect). Not part of the public repo.
+submission/
