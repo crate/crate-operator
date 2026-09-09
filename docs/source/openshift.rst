@@ -116,6 +116,8 @@ CrateDB requires specific kernel parameters, most critically
 ``vm.max_map_count=262144``. On standard Kubernetes the operator sets
 these via a privileged init container. On OpenShift, **you** must
 configure them before deploying any CrateDB cluster and verify host defaults.
+Note that OpenShift nodes commonly provide ``262144`` by default, which already
+satisfies CrateDB's minimum.
 
 Node Tuning Operator with machineConfigLabels (Recommended)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -285,8 +287,23 @@ Step 2: Install the Operator
    $ helm install crate-operator crate-operator/crate-operator \
        --set env.CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift \
        --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=crate/crate-control:<tag> \
+       --set env.CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS=<your-storageclass> \
+       --set crate-operator-crds.enabled=false \
        --namespace crate-operator \
        --create-namespace
+
+.. note::
+
+   ``crate-operator-crds.enabled=false`` is required because the CRDs were
+   already installed as a separate release in Step 1; the operator chart bundles
+   the same CRD chart by default, and installing both without this flag fails
+   with a CRD ownership error. (Alternatively, install only the operator chart
+   and let it manage the CRDs — but not both.)
+
+   ``CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS`` must name a StorageClass that
+   exists on your cluster (e.g. run ``oc get storageclass``). The operator
+   provisions a debug (heap-dump) volume, and if its StorageClass does not exist,
+   CrateDB pods stay ``Pending`` on an unbound PVC.
 
 Step 3: Prepare the Target Namespace
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -335,8 +352,11 @@ Key considerations:
 - **Volume expansion**: If you plan to resize data volumes, ensure the
   StorageClass has ``allowVolumeExpansion: true``.
 - **Debug volume**: The operator also creates a debug volume for Java
-  heap dumps. This uses the ``DEBUG_VOLUME_STORAGE_CLASS`` config
-  variable (defaults to the cluster's default StorageClass).
+  heap dumps, sized ``DEBUG_VOLUME_SIZE`` (64 GiB by default) per pod. Its
+  StorageClass is set by the ``DEBUG_VOLUME_STORAGE_CLASS`` config variable,
+  whose default may not match a StorageClass on your cluster — set it explicitly
+  to an existing class (see the operator install step), otherwise the debug PVC
+  cannot bind and CrateDB pods stay ``Pending``.
 
 Use the chosen StorageClass name in the ``storageClass`` field of your
 CrateDB resource spec.
