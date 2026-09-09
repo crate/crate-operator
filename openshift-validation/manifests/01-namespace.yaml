@@ -1,0 +1,12 @@
+---
+# Target namespace for CrateDB clusters, labelled with `privileged` Pod Security
+# Admission. CrateDB pods start as UID 0 and use SYS_CHROOT, so without this label
+# the admission controller rejects the pods.
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  name: cratedb
