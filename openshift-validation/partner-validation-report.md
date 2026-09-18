@@ -171,6 +171,8 @@ $ helm install crate-operator-crds crate-operator/crate-operator-crds
 $ helm install crate-operator crate-operator/crate-operator \
     --set env.CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift \
     --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=crate/crate-control:<tag> \
+    --set env.CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS=<your-storageclass> \
+    --set crate-operator-crds.enabled=false \
     --namespace crate-operator --create-namespace
 ```
 
@@ -205,7 +207,7 @@ $ oc label namespace cratedb \
     pod-security.kubernetes.io/enforce=privileged \
     pod-security.kubernetes.io/warn=privileged \
     pod-security.kubernetes.io/audit=privileged
-$ oc apply -f dev-cluster.yaml   # 3 data nodes, storageClass set to the tested SC
+$ oc apply -f manifests/02-cratedb.yaml   # 3 data nodes, storageClass set to the tested SC
 ```
 
 **Expected result:** the operator automatically creates:
@@ -223,7 +225,7 @@ $ oc get pods -n cratedb -l app.kubernetes.io/component=cratedb
 $ oc get scc | grep crate-anyuid
 $ oc get pod <pod> -n cratedb -o jsonpath='{.metadata.annotations.openshift\.io/scc}'
 # Cluster health (via Admin UI Route or SQL):
-#   SELECT health FROM sys.health;  -> GREEN
+#   SELECT health FROM sys.cluster_health;  -> GREEN
 ```
 
 **Result:** ✅ **Evidence:** [pods](evidence/ocp-4.22/tc-02-pods.txt) · [StatefulSet](evidence/ocp-4.22/tc-02-sts.txt) · [SCC](evidence/ocp-4.22/tc-02-scc.txt) · [per-pod SCC](evidence/ocp-4.22/tc-02-pod-scc.txt) · [SA/Secret/Service](evidence/ocp-4.22/tc-02-sa-secret-svc.txt) · [health](evidence/ocp-4.22/tc-02-scc-health.txt)

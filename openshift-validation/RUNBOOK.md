@@ -60,6 +60,7 @@ helm upgrade --install crate-operator-crds crate-operator/crate-operator-crds \
 
 # operator, with the bundled CRD subchart disabled
 helm upgrade --install crate-operator crate-operator/crate-operator \
+  --version 2.64.1 \
   --set env.CRATEDB_OPERATOR_CLOUD_PROVIDER=openshift \
   --set env.CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE=crate/crate-control:2.64.1 \
   --set env.CRATEDB_OPERATOR_DEBUG_VOLUME_STORAGE_CLASS=standard-csi \
@@ -114,7 +115,7 @@ Cluster health (via a Route or `psql`) — record into the evidence folder:
 
 ```bash
 oc create route passthrough cratedb-http --service=crate-my-cluster --port=4200 -n cratedb
-# then: SELECT health FROM sys.cluster;   -> expect GREEN
+# then: SELECT health FROM sys.cluster_health;   -> expect GREEN
 ```
 
 **Prepare for TC-04:** create a test table with a replica so shards exist in
@@ -151,7 +152,7 @@ to refresh the read-only snapshots, and `tee` the action's own output as noted.
 ```bash
 oc delete cratedb my-cluster -n cratedb
 helm uninstall crate-operator -n crate-operator
-helm uninstall crate-operator-crds
+helm uninstall crate-operator-crds -n crate-operator
 oc delete -f manifests/01-namespace.yaml
 ```
 

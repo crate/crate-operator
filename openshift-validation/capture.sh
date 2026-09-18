@@ -47,10 +47,11 @@ snap() {
     echo "# captured: $(date -u '+%Y-%m-%dT%H:%M:%SZ') (UTC)"
     echo "===================================================================="
     "$@" 2>&1
+    local rc=$?
     echo
-    echo "# exit code: $?"
+    echo "# exit code: $rc"
   } >"$file"
-  echo "  -> $1  ($file)"
+  echo "  -> $title  ($file)"
 }
 
 echo "Capturing evidence for OpenShift $OCP_VERSION"
@@ -138,7 +139,7 @@ echo "Done. Review the files in $EVIDENCE_DIR and link them from the"
 echo "matching Evidence: slots in partner-validation-report.md."
 echo
 echo "Reminders — capture these manually (not read-only):"
-echo "  * Cluster health:  SELECT health FROM sys.cluster;  -> paste into tc-*.txt"
+echo "  * Cluster health:  SELECT health FROM sys.cluster_health;  -> paste into tc-*.txt"
 echo "  * TC-03 scaling, TC-04 pod-delete/drain, TC-06 helm upgrade output:"
 echo "      run the command with '| tee $EVIDENCE_DIR/<tc>.txt'"
 echo "  * TC-08 Admin UI / metrics: save a screenshot into $EVIDENCE_DIR/"
