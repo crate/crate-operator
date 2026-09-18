@@ -250,7 +250,7 @@ $ oc get pod <pod> -n cratedb -o jsonpath='{.metadata.annotations.openshift\.io/
 
 - Scaling follows the documented process (master defs first, scale-ups, then
   scale-downs; see `docs/source/concepts.rst`).
-- No lost rows; `sys.health` returns GREEN within `SCALING_TIMEOUT`.
+- No lost rows; `sys.cluster_health` returns GREEN within `SCALING_TIMEOUT`.
 - Operator status/notifications report `event: scale, status: success`.
 
 **Verification:**
@@ -258,7 +258,7 @@ $ oc get pod <pod> -n cratedb -o jsonpath='{.metadata.annotations.openshift\.io/
 ```console
 $ oc get sts -n cratedb
 # SELECT count(*) FROM <test_table>;   (unchanged before/after)
-# SELECT health FROM sys.health;      (GREEN)
+# SELECT health FROM sys.cluster_health;      (GREEN)
 ```
 
 **Result:** ✅ **Evidence:** [tc-03-scaling.txt](evidence/ocp-4.22/tc-03-scaling.txt)
@@ -396,7 +396,7 @@ healthy; reconciliation resumes normally.
 ```console
 $ helm list -n crate-operator
 $ oc get deploy crate-operator -n crate-operator -o jsonpath='{..image}'
-# SELECT health FROM sys.health;  (still GREEN)
+# SELECT health FROM sys.cluster_health;  (still GREEN)
 ```
 
 **Result:** ✅ **Evidence:** [tc-06-upgrade.txt](evidence/ocp-4.22/tc-06-upgrade.txt)
