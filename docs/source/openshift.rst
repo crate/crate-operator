@@ -120,7 +120,7 @@ Note that OpenShift nodes commonly provide ``262144`` by default, which already
 satisfies CrateDB's minimum.
 
 Node Tuning Operator with machineConfigLabels (Recommended)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Node Tuning Operator (NTO) can generate a ``MachineConfig``
 automatically when you use ``machineConfigLabels`` in the recommend
@@ -183,13 +183,9 @@ Using Prebuilt Images
 Prebuilt ``crate-control`` images are published automatically to Docker Hub
 for each tagged release via the project's CI pipeline.
 
-You can use the official image directly without building it yourself:
-
-.. code-block:: console
-
-   crate/crate-control:<version>
-
-This is the recommended approach for most users.
+You can use the official image directly without building it yourself, e.g.
+``crate/crate-control:<version>``. This is the recommended approach for most
+users.
 
 .. note::
 
@@ -280,7 +276,7 @@ Step 1: Install CRDs
    $ helm install crate-operator-crds crate-operator/crate-operator-crds
 
 Step 2: Install the Operator
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: console
 
@@ -306,7 +302,7 @@ Step 2: Install the Operator
    CrateDB pods stay ``Pending`` on an unbound PVC.
 
 Step 3: Prepare the Target Namespace
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Create the namespace where CrateDB clusters will run and configure Pod
 Security Admission:
@@ -363,7 +359,7 @@ CrateDB resource spec.
 
 
 Deploying CrateDB Clusters
----------------------------
+--------------------------
 
 .. code-block:: yaml
 
@@ -411,11 +407,12 @@ Confirm the correct SCC is being used by a pod:
 
 .. code-block:: console
 
-   $ oc get pod <pod-name> -n cratedb -o jsonpath='{.metadata.annotations.openshift\.io/scc}'
+   $ oc get pod <pod-name> -n cratedb \
+       -o jsonpath='{.metadata.annotations.openshift\.io/scc}'
 
 
 Exposing CrateDB
------------------
+----------------
 
 CrateDB exposes two protocols:
 
@@ -559,8 +556,9 @@ Limitations
   cloud-specific features for ``aws``, ``azure``, or ``gcp`` (e.g.,
   zone awareness attribute auto-detection) are not active. You can still
   set zone attributes manually via ``.spec.nodes.data.*.settings``.
-- **``CRATE_CONTROL_IMAGE`` is required**: The operator does not validate
-  that this variable is set. If it is missing, StatefulSets will be
-  created with an empty image reference and pods will fail to pull.
+- **``CRATEDB_OPERATOR_CRATE_CONTROL_IMAGE`` is required**: The operator fails
+  fast when ``CLOUD_PROVIDER=openshift`` and the sidecar image is unset, so a
+  missing value is caught at deploy time. StatefulSets cannot be created without
+  a sidecar image.
 - **Lifecycle hooks disabled**: ``postStart`` (routing reset) and
   ``preStop`` (graceful decommission) hooks are skipped entirely.
