@@ -467,8 +467,9 @@ $ oc port-forward -n cratedb pod/<crate-pod> 4200:4200   # then open http://loca
 > info/stats: primaries 2 / replicas 2 / unassigned 0). The Admin UI (via Route/
 > port-forward on 4200) shows the healthy 3-node cluster (version 6.4.4, status
 > GREEN). The SQL-exporter sidecar (`:9399`) provides additional SQL-based
-> metrics and requires an SSL-enabled cluster to connect. It operates normally on an SSL-enabled cluster (the production
-> default). Prometheus observability is validated here via the `:7071` endpoint.
+> metrics but requires an SSL-enabled cluster to connect — that is out of scope
+> for this validation (see §1b), so it was not exercised here. Prometheus
+> observability is validated via the `:7071` endpoint.
 
 ---
 
