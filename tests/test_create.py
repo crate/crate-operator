@@ -21,6 +21,7 @@
 
 import logging
 import string
+import subprocess
 from os import walk
 from typing import Any, Dict, Set
 from unittest import mock
@@ -52,6 +53,8 @@ from crate.operator.constants import (
     CloudProvider,
 )
 from crate.operator.create import (
+    ZONE_FILTER,
+    ZONE_UNRESOLVED,
     _lb_annotations_to_remove,
     build_cratedb_labels,
     create_services,
@@ -698,11 +701,6 @@ class TestStatefulSetCrateCommand:
                 "'http://169.254.169.254/computeMetadata/v1/instance/zone'",
                 " -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}'",
             ),
-            (
-                CloudProvider.STACKIT,
-                "'http://169.254.169.254/latest/meta-data/placement/availability-zone'",  # noqa
-                "",
-            ),
         ],
     )
     def test_zone_attr(self, provider, url, header):
@@ -880,6 +878,72 @@ class TestStatefulSetCrateCommand:
         )
         arg = "-Cblobs.path=" + ",".join(f"/data/data{i}/blobs" for i in range(count))
         assert arg in cmd
+
+
+class TestZoneLookup:
+    """STACKIT: ``node.attr.zone`` is whatever the lookup prints (crate/cloud#3121)."""
+
+    def test_lookup_is_bounded_and_filtered(self):
+        with mock.patch(
+            "crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.STACKIT
+        ):
+            cmd = get_statefulset_crate_command(
+                namespace="some-namespace",
+                name="cluster1",
+                master_nodes=["node-0", "node-1", "node-2"],
+                total_nodes_count=3,
+                data_nodes_count=3,
+                crate_node_name_prefix="node-",
+                cluster_name="my-cluster",
+                node_name="node",
+                node_spec={
+                    "resources": {
+                        "requests": {"cpu": 1},
+                        "limits": {"cpu": 1},
+                        "disk": {"count": 1},
+                    }
+                },
+                cluster_settings=None,
+                has_ssl=False,
+                is_master=True,
+                is_data=True,
+                crate_version="4.6.3",
+                cloud_settings={},
+            )
+
+        zone = next(s for s in cmd if s.startswith("-Cnode.attr.zone="))
+
+        # -f drops error bodies, the rest bounds and retries the lookup.
+        assert "-sf" in zone
+        assert "--max-time" in zone
+        assert "--retry" in zone
+        assert zone.endswith(f"| {ZONE_FILTER})")
+
+    @pytest.mark.parametrize(
+        "response, expected",
+        [
+            ("eu01-3", "eu01-3"),
+            ("us-central1-a", "us-central1-a"),
+            ("2", "2"),
+            ("<!DOCTYPE html>\n<html>502 Bad Gateway</html>", ZONE_UNRESOLVED),
+            ("\n<html>error</html>", ZONE_UNRESOLVED),
+            ("", ZONE_UNRESOLVED),
+            ("eu01-3 ", ZONE_UNRESOLVED),
+            ("a" * 64, ZONE_UNRESOLVED),
+        ],
+    )
+    def test_filter_passes_only_a_plausible_zone(self, response, expected):
+        """Runs the real filter, so a bad response cannot become the zone."""
+        result = subprocess.run(
+            ZONE_FILTER,
+            shell=True,
+            input=response,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert result.stdout.rstrip("\n") == expected
 
 
 class TestStatefulSetCrateEnv:

@@ -128,6 +128,21 @@ from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
 from crate.operator.utils.version import CrateVersion
 
+#: STACKIT only: ``-f`` keeps HTTP error bodies out of the attribute, the
+#: rest bounds and retries a metadata service that is not reachable yet.
+ZONE_CURL_OPTS = "-sf --max-time 5 --retry 5 --retry-delay 2 --retry-connrefused"
+
+#: Placeholder zone, so a failed lookup stays visible in ``sys.nodes``.
+ZONE_UNRESOLVED = "lookup-failed"
+
+#: ``node.attr.zone`` becomes whatever this prints, so anything that is not a
+#: plausible zone name has to be dropped (crate/cloud#3121).
+ZONE_FILTER = (
+    "awk 'NR == 1 && /^[A-Za-z0-9_-]+$/ && length($0) <= 63 "
+    "{ print; found = 1; exit } "
+    f'END {{ if (!found) print "{ZONE_UNRESOLVED}" }}\''
+)
+
 
 def get_sql_exporter_config(
     owner_references: Optional[List[V1OwnerReference]], name: str, labels: LabelType
@@ -617,7 +632,9 @@ def get_statefulset_crate_command(
         # Same path as AWS above, minus the IMDSv2 token: OpenStack does not
         # require one.
         url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}')"
+        settings["-Cnode.attr.zone"] = (
+            f"$(curl {ZONE_CURL_OPTS} '{url}' | {ZONE_FILTER})"
+        )
 
     if cluster_settings:
         for k, v in cluster_settings.items():
