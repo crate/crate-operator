@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Fixed the STACKIT zone lookup storing an error response as the zone on newly
+  created clusters.
+
 * Fixed grand-central routing not converging on a ``spec.cluster.exposure``
   change while ``spec.grandCentral.exposure`` was unset, which could leave a
   stale nginx Ingress behind.

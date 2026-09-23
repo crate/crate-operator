@@ -27,6 +27,8 @@ import pytest
 
 from crate.operator.constants import CloudProvider
 from crate.operator.create import (
+    ZONE_CURL_OPTS,
+    ZONE_FILTER,
     get_statefulset_crate_command,
     get_statefulset_crate_env,
     get_topology_spread,
@@ -44,7 +46,9 @@ METADATA_URL = "http://169.254.169.254/latest/meta-data/placement/availability-z
 
 #: The whole zone snippet. AWS reads the same path, so tests that assert a
 #: provider does *not* use it have to compare the snippet, not just the URL.
-ZONE_SETTING = f"-Cnode.attr.zone=$(curl -s '{METADATA_URL}')"
+ZONE_SETTING = (
+    f"-Cnode.attr.zone=$(curl {ZONE_CURL_OPTS} '{METADATA_URL}'" f" | {ZONE_FILTER})"
+)
 
 
 def crate_command(provider):
