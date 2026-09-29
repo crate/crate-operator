@@ -60,3 +60,8 @@ venv.bak/
 dmypy.json
 
 .idea/
+
+# TLC model checker, see spec/README.md
+spec/tla2tools.jar
+spec/states/
+spec/*_TTrace_*.tla
