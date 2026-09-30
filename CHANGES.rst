@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.65.0 (2026-09-30)
+-------------------
+
 * Fixed the STACKIT zone lookup storing an error response as the zone on newly
   created clusters.
 
