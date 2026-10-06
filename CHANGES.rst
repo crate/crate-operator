@@ -17,6 +17,8 @@ Unreleased
 
 * Added CrateDB CRD reference page
 
+* Bumped JMX exporter to ``1.2.5``
+
 2.64.1 (2026-09-07)
 -------------------
 
