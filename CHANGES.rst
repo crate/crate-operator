@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Bumped sql_exporter to ``0.24.10`` for CVE fixes.
+
 2.65.1 (2026-10-13)
 -------------------
 
