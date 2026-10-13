@@ -5,6 +5,11 @@ Changelog
 Unreleased
 ----------
 
+2.65.1 (2026-10-13)
+-------------------
+
+* Bumped JMX exporter to ``1.2.5``
+
 2.65.0 (2026-09-30)
 -------------------
 
@@ -16,8 +21,6 @@ Unreleased
   stale nginx Ingress behind.
 
 * Added CrateDB CRD reference page
-
-* Bumped JMX exporter to ``1.2.5``
 
 2.64.1 (2026-09-07)
 -------------------
