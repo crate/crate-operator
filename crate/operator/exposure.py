@@ -519,11 +519,17 @@ async def patch_service_exposure(
     }
 
     logger.info(f"Patching service {service_name} to exposure={new_exposure}")
-    await core.patch_namespaced_service(
-        name=service_name,
-        namespace=namespace,
-        body=patch_body,
-    )
+    try:
+        await core.patch_namespaced_service(
+            name=service_name,
+            namespace=namespace,
+            body=patch_body,
+        )
+    except ApiException as e:
+        if e.status != 404:
+            raise
+        # A suspended cluster has no service. Resume creates it from the spec.
+        logger.info(f"Service {service_name} does not exist, skipping patch")
 
 
 async def migrate_grand_central_exposure(
