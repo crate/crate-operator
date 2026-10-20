@@ -67,6 +67,10 @@ def test_exposure_predicates(exposure, load_balancer, traefik):
     assert exposure.uses_traefik is traefik
 
 
+def test_exposure_formats_as_value():
+    assert f"{Exposure.CLUSTERIP}" == "clusterip"
+
+
 async def _patch_body(new_exposure, dns_record, source_ranges=None) -> dict:
     core = mock.AsyncMock()
     with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):

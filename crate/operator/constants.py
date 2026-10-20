@@ -98,6 +98,10 @@ class Exposure(str, enum.Enum):
     TRAEFIK = "traefik"
     CLUSTERIP = "clusterip"
 
+    def __str__(self) -> str:
+        # Python 3.12 formats a str mixin enum as "Exposure.X". Log the value.
+        return self.value
+
     @classmethod
     def of(cls, spec) -> "Exposure":
         """
