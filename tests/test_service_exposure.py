@@ -26,6 +26,7 @@ import pytest
 from crate.operator.constants import (
     ANNOTATION_EXTERNAL_DNS_HOSTNAME,
     ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
+    Exposure,
 )
 from crate.operator.exposure import patch_service_exposure
 from crate.operator.utils.kubeapi import get_host
@@ -39,6 +40,33 @@ DNS_ANNOTATIONS = (
 )
 
 
+@pytest.mark.parametrize(
+    "spec, expected",
+    [
+        ({}, Exposure.LOADBALANCER),
+        ({"cluster": {}}, Exposure.LOADBALANCER),
+        ({"cluster": {"exposure": "loadbalancer"}}, Exposure.LOADBALANCER),
+        ({"cluster": {"exposure": "traefik"}}, Exposure.TRAEFIK),
+        ({"cluster": {"exposure": "clusterip"}}, Exposure.CLUSTERIP),
+    ],
+)
+def test_exposure_of(spec, expected):
+    assert Exposure.of(spec) is expected
+
+
+@pytest.mark.parametrize(
+    "exposure, load_balancer, traefik",
+    [
+        (Exposure.LOADBALANCER, True, False),
+        (Exposure.TRAEFIK, False, True),
+        (Exposure.CLUSTERIP, False, False),
+    ],
+)
+def test_exposure_predicates(exposure, load_balancer, traefik):
+    assert exposure.uses_load_balancer is load_balancer
+    assert exposure.uses_traefik is traefik
+
+
 async def _patch_body(new_exposure, dns_record, source_ranges=None) -> dict:
     core = mock.AsyncMock()
     with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):
@@ -46,7 +74,7 @@ async def _patch_body(new_exposure, dns_record, source_ranges=None) -> dict:
             core,
             "ns",
             "c",
-            new_exposure,
+            Exposure(new_exposure),
             source_ranges,
             dns_record,
             None,

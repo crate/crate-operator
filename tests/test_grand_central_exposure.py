@@ -25,6 +25,7 @@ from unittest import mock
 import pytest
 from kubernetes_asyncio.client import ApiException
 
+from crate.operator.constants import Exposure
 from crate.operator.exposure import (
     ChangeGrandCentralExposureSubHandler,
     migrate_grand_central_exposure,
@@ -49,6 +50,7 @@ def _await_kwargs(m: Any) -> dict:
     [
         ({"cluster": {"exposure": "traefik"}}, True),
         ({"cluster": {"exposure": "loadbalancer"}}, False),
+        ({"cluster": {"exposure": "clusterip"}}, False),
         ({"cluster": {}}, False),
         ({}, False),
         ({"cluster": {"exposure": "traefik"}, "grandCentral": {}}, True),
@@ -84,9 +86,17 @@ def test_explicit_grand_central_exposure_wins_over_cluster():
     assert get_grand_central_exposure(spec) == "traefik"
 
 
-def test_grand_central_exposure_falls_back_to_cluster():
-    spec = {"cluster": {"exposure": "traefik"}}
-    assert get_grand_central_exposure(spec) == "traefik"
+@pytest.mark.parametrize(
+    "cluster, expected",
+    [
+        ({"exposure": "traefik"}, "traefik"),
+        ({"exposure": "loadbalancer"}, "nginx"),
+        ({"exposure": "clusterip"}, "nginx"),
+        ({}, "nginx"),
+    ],
+)
+def test_grand_central_exposure_falls_back_to_cluster(cluster, expected):
+    assert get_grand_central_exposure({"cluster": cluster}) == expected
 
 
 @pytest.mark.parametrize(
@@ -263,7 +273,7 @@ async def test_patch_service_exposure_without_service(status, raises):
     core = mock.AsyncMock()
     core.patch_namespaced_service.side_effect = ApiException(status=status)
     call = patch_service_exposure(
-        core, "ns", "c", "traefik", None, None, None, mock.MagicMock()
+        core, "ns", "c", Exposure.TRAEFIK, None, None, None, mock.MagicMock()
     )
     if raises:
         with pytest.raises(ApiException):

@@ -25,7 +25,7 @@ import kopf
 from kopf import DiffItem
 from kubernetes_asyncio.client import CoreV1Api, NetworkingV1Api
 
-from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX
+from crate.operator.constants import GRAND_CENTRAL_RESOURCE_PREFIX, Exposure
 from crate.operator.exposure import update_traefik_ip_restriction
 from crate.operator.grand_central import (
     grand_central_uses_traefik,
@@ -63,9 +63,7 @@ async def update_service_allowed_cidrs(
         core = CoreV1Api(api_client)
         networking = NetworkingV1Api(api_client)
         cratedb = await get_cratedb_resource(namespace, name)
-        exposure = (
-            cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
-        )
+        exposure = Exposure.of(cratedb["spec"])
 
         # This also runs on creation events, so we want to double check that the service
         # exists before attempting to do anything.
@@ -90,9 +88,9 @@ async def update_service_allowed_cidrs(
                 f"is of type '{service.spec.type if service else 'missing'}'."
             )
 
-        if exposure == "traefik":
+        if exposure.uses_traefik:
             await update_traefik_ip_restriction(namespace, name, new_cidrs, logger)
-        elif exposure == "clusterip" and new_cidrs:
+        elif exposure is Exposure.CLUSTERIP and new_cidrs:
             logger.info("allowedCIDRs has no effect with exposure=clusterip")
 
         # Grand-central IP allowlist follows its own exposure, which

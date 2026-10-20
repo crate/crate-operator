@@ -27,7 +27,7 @@ import kopf
 from crate.operator.backup import CreateBackupsSubHandler
 from crate.operator.bootstrap import CreateUsersSubHandler
 from crate.operator.config import config
-from crate.operator.constants import CLUSTER_CREATE_ID, CloudProvider, Port
+from crate.operator.constants import CLUSTER_CREATE_ID, CloudProvider, Exposure, Port
 from crate.operator.create import (
     CreateCrateControlSubHandler,
     CreateCrateSCCSubHandler,
@@ -89,7 +89,7 @@ async def create_cratedb(
     cluster_name = spec["cluster"]["name"]
     source_ranges = spec["cluster"].get("allowedCIDRs", None)
     cloud_settings = spec.get("grandCentral", {})
-    exposure = spec["cluster"].get("exposure", "loadbalancer")
+    exposure = Exposure.of(spec)
     dns_record = spec.get("cluster", {}).get("externalDNS")
     kopf.register(
         fn=CreateSqlExporterConfigSubHandler(namespace, name, hash, context)(
@@ -143,7 +143,7 @@ async def create_cratedb(
         id="services",
     )
 
-    if exposure == "traefik":
+    if exposure.uses_traefik:
         kopf.register(
             fn=CreateTraefikResourcesSubHandler(namespace, name, hash, context)(
                 owner_references=owner_references,

@@ -30,7 +30,7 @@ from kubernetes_asyncio.client import (
     V1OwnerReference,
 )
 
-from crate.operator.constants import Port
+from crate.operator.constants import Exposure, Port
 from crate.operator.create import (
     _lb_annotations_to_add,
     _lb_annotations_to_remove,
@@ -473,7 +473,7 @@ async def patch_service_exposure(
     core: CoreV1Api,
     namespace: str,
     name: str,
-    new_exposure: str,
+    new_exposure: Exposure,
     source_ranges: Optional[List[str]],
     dns_record: Optional[str],
     additional_annotations: Optional[dict],
@@ -484,7 +484,7 @@ async def patch_service_exposure(
     LoadBalancer and ClusterIP.
     """
     service_name = f"crate-{name}"
-    use_load_balancer = new_exposure == "loadbalancer"
+    use_load_balancer = new_exposure.uses_load_balancer
 
     new_annotations: dict[str, Optional[str]] = {}
     if not use_load_balancer:
@@ -623,8 +623,8 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         **kwargs: Any,
     ):
-        new_exposure = body["spec"]["cluster"].get("exposure", "loadbalancer")
-        old_exposure = old["spec"]["cluster"].get("exposure", "loadbalancer")
+        new_exposure = Exposure.of(body["spec"])
+        old_exposure = Exposure.of(old["spec"])
 
         if old_exposure == new_exposure:
             logger.info(f"Exposure unchanged: {new_exposure}")
@@ -658,13 +658,13 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
                 logger,
             )
 
-            if old_exposure == "traefik":
+            if old_exposure.uses_traefik:
                 await delete_traefik_resources(namespace, name)
 
-        if new_exposure == "clusterip" and source_ranges:
+        if new_exposure is Exposure.CLUSTERIP and source_ranges:
             logger.info("allowedCIDRs has no effect with exposure=clusterip")
 
-        if new_exposure == "traefik":
+        if new_exposure.uses_traefik:
             await create_traefik_resources(
                 owner_references,
                 namespace,
@@ -688,7 +688,7 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
                 name,
                 spec,
                 meta=body["metadata"],
-                use_traefik=(new_exposure == "traefik"),
+                use_traefik=new_exposure.uses_traefik,
                 logger=logger,
             )
 
