@@ -1355,9 +1355,11 @@ async def suspend_or_start_cluster(
                 await delete_traefik_resources(namespace, name)
                 # Also delete the ClusterIP service
                 await delete_clusterip_service(core, namespace, name)
-            else:
-                # Delete the LoadBalancer or ClusterIP service
+            elif use_load_balancer:
+                # Delete the LoadBalancer service
                 await delete_lb_service(core, namespace, name)
+            # Keep a clusterip service. It costs nothing, and its cluster IP
+            # must not change on resume.
 
     if has_dedicated_masters and is_suspend:
         await scale_master_statefulset(apps, namespace, name, 0, logger)

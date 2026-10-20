@@ -593,7 +593,7 @@ class TestSuspendResumeOrdering:
         assert order.index("master_scale:0") < order.index("masters_gone")
 
 
-class TestResumeExposure:
+class TestClusterIPSuspendResume:
     @pytest.mark.asyncio
     async def test_resume_clusterip_does_not_wait_for_load_balancer(self):
         # A ClusterIP service gets no load balancer address. If resume waits
@@ -630,6 +630,43 @@ class TestResumeExposure:
         recreate.assert_awaited_once()
         lb_ready.assert_not_awaited()
         traefik_present.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_suspend_clusterip_keeps_service(self):
+        # Clients connect by service name. If the service stays, its cluster IP
+        # does not change on resume.
+        old = {"spec": {"nodes": {"data": [{"name": "hot", "replicas": 3}]}}}
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=3)
+        )
+        M = "crate.operator.operations."
+
+        with (
+            _suspend_resume_patches(
+                [],
+                data_groups=[{"name": "hot", "replicas": 0}],
+                cluster={"exposure": "clusterip"},
+            ),
+            mock.patch(M + "delete_lb_service", new=mock.AsyncMock()) as delete_lb,
+            mock.patch(
+                M + "delete_clusterip_service", new=mock.AsyncMock()
+            ) as delete_svc,
+            mock.patch(M + "delete_traefik_resources", new=mock.AsyncMock()),
+        ):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                old,
+                _data_scaling_diff(3, 0),
+                False,
+                mock.Mock(),
+            )
+
+        delete_lb.assert_not_awaited()
+        delete_svc.assert_not_awaited()
 
 
 class TestSuspendWithSeveralDataGroups:

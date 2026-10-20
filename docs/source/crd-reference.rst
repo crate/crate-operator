@@ -200,8 +200,8 @@ Core identity and cluster-wide configuration. **Required.**
      - string
      - no
      - Service exposure type. One of ``loadbalancer`` (default), ``traefik``
-       or ``clusterip``. ``clusterip`` gives in-cluster access only and ignores
-       ``allowedCIDRs``.
+       or ``clusterip``. ``clusterip`` gives in-cluster access only, ignores
+       ``allowedCIDRs`` and keeps the service while the cluster is suspended.
    * - ``settings``
      - object
      - no
