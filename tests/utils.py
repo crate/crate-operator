@@ -61,6 +61,7 @@ from crate.operator.cratedb import (
     get_healthiness,
     get_number_of_nodes,
 )
+from crate.operator.exposure import ChangeExposureSubHandler
 from crate.operator.operations import get_pods_in_deployment
 from crate.operator.utils.kubeapi import (
     get_service_public_hostname,
@@ -910,3 +911,41 @@ def require_connection(host: Optional[str], password: Optional[str]) -> tuple[st
     assert host is not None, "host is None"
     assert password is not None, "password is None"
     return host, password
+
+
+class _AsyncCM:
+    async def __aenter__(self):
+        return mock.MagicMock()
+
+    async def __aexit__(self, *args):
+        return False
+
+
+async def run_change_exposure(body: dict, old: dict) -> Dict[str, mock.MagicMock]:
+    """
+    Run ``ChangeExposureSubHandler`` against mocks and return them by name.
+    """
+    handler = ChangeExposureSubHandler("ns", "c", "hash", {})
+    M = "crate.operator.exposure."
+    with (
+        mock.patch(M + "GlobalApiClient", return_value=_AsyncCM()),
+        mock.patch(M + "CoreV1Api"),
+        mock.patch(M + "get_owner_references", return_value=[]),
+        mock.patch(M + "patch_service_exposure") as patch_service_exposure,
+        mock.patch(M + "create_traefik_resources") as create_traefik_resources,
+        mock.patch(M + "delete_traefik_resources") as delete_traefik_resources,
+        mock.patch(M + "migrate_grand_central_exposure") as migrate,
+    ):
+        await handler.handle(
+            namespace="ns",
+            name="c",
+            body=body,
+            old=old,
+            logger=mock.MagicMock(),
+        )
+    return {
+        "patch_service_exposure": patch_service_exposure,
+        "create_traefik_resources": create_traefik_resources,
+        "delete_traefik_resources": delete_traefik_resources,
+        "migrate_grand_central_exposure": migrate,
+    }

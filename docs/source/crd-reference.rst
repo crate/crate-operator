@@ -199,7 +199,9 @@ Core identity and cluster-wide configuration. **Required.**
    * - ``exposure``
      - string
      - no
-     - Service exposure type. One of ``loadbalancer`` or ``traefik``.
+     - Service exposure type. One of ``loadbalancer`` (default), ``traefik``
+       or ``clusterip``. ``clusterip`` gives in-cluster access only and ignores
+       ``allowedCIDRs``.
    * - ``settings``
      - object
      - no

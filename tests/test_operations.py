@@ -404,7 +404,7 @@ class TestValidateDataNodeGroupNames:
             validate_node_spec(self._nodes("Hot", "Hot"), mock.Mock())
 
 
-def _suspend_resume_patches(order, master_replicas=3, data_groups=None):
+def _suspend_resume_patches(order, master_replicas=3, data_groups=None, cluster=None):
     """
     Patch every collaborator ``suspend_or_start_cluster`` calls so the function
     runs end to end against mocks, recording the ordering-relevant calls into
@@ -418,6 +418,8 @@ def _suspend_resume_patches(order, master_replicas=3, data_groups=None):
         },
         "metadata": {},
     }
+    if cluster is not None:
+        cratedb["spec"]["cluster"] = cluster
 
     async def _record(label, *args, **kwargs):
         order.append(label)
@@ -589,6 +591,45 @@ class TestSuspendResumeOrdering:
         assert order.index("data_scale:0") < order.index("master_scale:0")
         assert order.index("data_gone") < order.index("master_scale:0")
         assert order.index("master_scale:0") < order.index("masters_gone")
+
+
+class TestResumeExposure:
+    @pytest.mark.asyncio
+    async def test_resume_clusterip_does_not_wait_for_load_balancer(self):
+        # A ClusterIP service gets no load balancer address. If resume waits
+        # for one, it retries forever.
+        old = {"spec": {"nodes": {"data": [{"name": "hot", "replicas": 0}]}}}
+        apps = mock.Mock()
+        apps.read_namespaced_stateful_set = mock.AsyncMock(
+            return_value=_statefulset(spec_replicas=0)
+        )
+        M = "crate.operator.operations."
+
+        with (
+            _suspend_resume_patches([], cluster={"exposure": "clusterip"}),
+            mock.patch(
+                M + "is_service_present", new=mock.AsyncMock(return_value=False)
+            ),
+            mock.patch(
+                M + "is_lb_service_ready", new=mock.AsyncMock(return_value=False)
+            ) as lb_ready,
+            mock.patch(M + "recreate_services", new=mock.AsyncMock()) as recreate,
+            mock.patch(M + "are_traefik_resources_present") as traefik_present,
+        ):
+            await suspend_or_start_cluster(
+                apps,
+                mock.Mock(),
+                "ns",
+                "c",
+                old,
+                _data_scaling_diff(0, 3),
+                False,
+                mock.Mock(),
+            )
+
+        recreate.assert_awaited_once()
+        lb_ready.assert_not_awaited()
+        traefik_present.assert_not_called()
 
 
 class TestSuspendWithSeveralDataGroups:

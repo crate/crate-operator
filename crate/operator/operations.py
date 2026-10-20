@@ -1189,6 +1189,7 @@ async def suspend_or_start_cluster(
         cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
     )
     use_traefik = exposure == "traefik"
+    use_load_balancer = exposure == "loadbalancer"
 
     # Dedicated master nodes are suspended/resumed in lockstep with the data
     # nodes, but with strict ordering: on resume the masters must come up
@@ -1217,7 +1218,7 @@ async def suspend_or_start_cluster(
                     await recreate_services(
                         namespace, name, cratedb["spec"], cratedb["metadata"], logger
                     )
-                if not use_traefik and not await is_lb_service_ready(
+                if use_load_balancer and not await is_lb_service_ready(
                     core, namespace, name
                 ):
                     raise TemporaryError(delay=config.BOOTSTRAP_RETRY_DELAY)
@@ -1355,7 +1356,7 @@ async def suspend_or_start_cluster(
                 # Also delete the ClusterIP service
                 await delete_clusterip_service(core, namespace, name)
             else:
-                # Delete the LoadBalancer service
+                # Delete the LoadBalancer or ClusterIP service
                 await delete_lb_service(core, namespace, name)
 
     if has_dedicated_masters and is_suspend:

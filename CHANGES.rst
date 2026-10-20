@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Added ``clusterip`` exposure for clusters reachable only inside Kubernetes.
+
 * Fixed changing ``spec.cluster.exposure`` failing while the cluster is suspended.
 
 * Bumped sql_exporter to ``0.24.10`` for CVE fixes.

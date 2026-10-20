@@ -92,6 +92,8 @@ async def update_service_allowed_cidrs(
 
         if exposure == "traefik":
             await update_traefik_ip_restriction(namespace, name, new_cidrs, logger)
+        elif exposure == "clusterip" and new_cidrs:
+            logger.info("allowedCIDRs has no effect with exposure=clusterip")
 
         # Grand-central IP allowlist follows its own exposure, which
         # may differ from the CrateDB service exposure.

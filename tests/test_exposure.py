@@ -26,6 +26,8 @@ import pytest
 from kubernetes_asyncio.client import ApiException, CoreV1Api, CustomObjectsApi
 
 from crate.operator.constants import (
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME,
+    ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
     API_GROUP,
     KOPF_STATE_STORE_PREFIX,
     RESOURCE_CRATEDB,
@@ -760,3 +762,227 @@ async def test_change_exposure_traefik_to_loadbalancer(
         err_msg="Service was not LoadBalancer",
         timeout=DEFAULT_TIMEOUT,
     )
+
+
+async def _patch_exposure(coapi: CustomObjectsApi, namespace: str, name: str, value):
+    await coapi.patch_namespaced_custom_object(
+        group=API_GROUP,
+        version="v1",
+        plural=RESOURCE_CRATEDB,
+        namespace=namespace,
+        name=name,
+        body=[{"op": "replace", "path": "/spec/cluster/exposure", "value": value}],
+    )
+
+
+async def has_external_dns_annotation(
+    core: CoreV1Api, namespace: str, name: str
+) -> bool:
+    svc = await get_service(core, namespace, name)
+    annotations = (svc.metadata.annotations or {}) if svc else {}
+    return any(
+        key in annotations
+        for key in (
+            ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
+            ANNOTATION_EXTERNAL_DNS_HOSTNAME,
+        )
+    )
+
+
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+async def test_create_clusterip(
+    mock_send_notification: mock.AsyncMock,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    """
+    Test that a clusterip-exposed cluster without externalDNS creates a
+    ClusterIP service and no Traefik resources, ignoring allowedCIDRs.
+    """
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    await start_cluster(
+        name,
+        namespace,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=False,
+        wait_for_lb=False,
+        additional_cluster_spec={
+            "exposure": "clusterip",
+            "allowedCIDRs": ["10.0.0.0/8"],
+        },
+    )
+
+    await wait_for_kopf_handler(
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        timeout=CLUSTER_CREATE_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        service_is_clusterip,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Service was not ClusterIP",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    svc = await get_service(core, namespace.metadata.name, name)
+    assert not svc.spec.load_balancer_source_ranges
+    assert not await middleware_exists(coapi, namespace.metadata.name, name)
+    for suffix in ("pg", "http"):
+        assert not await ingress_route_exists(
+            coapi, namespace.metadata.name, name, suffix
+        )
+
+
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+async def test_change_exposure_loadbalancer_to_clusterip(
+    mock_send_notification: mock.AsyncMock,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    """
+    Test changing exposure from loadbalancer to clusterip: the service is
+    patched in place, keeps its cluster IP and loses the external-dns hostname.
+    """
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    await start_cluster(
+        name,
+        namespace,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=False,
+        additional_cluster_spec={"externalDNS": f"{name}.example.com"},
+    )
+
+    await wait_for_kopf_handler(
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_create.bootstrap",
+        timeout=CLUSTER_CREATE_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        service_is_loadbalancer,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Service was not LoadBalancer",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    before = await get_service(core, namespace.metadata.name, name)
+
+    await _patch_exposure(coapi, namespace.metadata.name, name, "clusterip")
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        service_is_clusterip,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Service was not ClusterIP",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    after = await get_service(core, namespace.metadata.name, name)
+    assert after.metadata.uid == before.metadata.uid
+    assert after.spec.cluster_ip == before.spec.cluster_ip
+    assert not await has_external_dns_annotation(core, namespace.metadata.name, name)
+
+
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+async def test_change_exposure_clusterip_to_loadbalancer_without_dns(
+    mock_send_notification: mock.AsyncMock,
+    faker,
+    namespace,
+    kopf_runner,
+    api_client,
+):
+    """
+    Test changing exposure from clusterip to loadbalancer when externalDNS was
+    never set: the service becomes LoadBalancer without external-dns annotations.
+    """
+    coapi = CustomObjectsApi(api_client)
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+
+    await start_cluster(
+        name,
+        namespace,
+        core,
+        coapi,
+        1,
+        wait_for_healthy=False,
+        wait_for_lb=False,
+        additional_cluster_spec={"exposure": "clusterip"},
+    )
+
+    await wait_for_kopf_handler(
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_create",
+        timeout=CLUSTER_CREATE_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        service_is_clusterip,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Service was not ClusterIP",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await _patch_exposure(coapi, namespace.metadata.name, name, "loadbalancer")
+
+    await assert_wait_for(
+        True,
+        is_kopf_handler_finished,
+        coapi,
+        name,
+        namespace.metadata.name,
+        f"{KOPF_STATE_STORE_PREFIX}/cluster_update",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    await assert_wait_for(
+        True,
+        service_is_loadbalancer,
+        core,
+        namespace.metadata.name,
+        name,
+        err_msg="Service was not LoadBalancer",
+        timeout=DEFAULT_TIMEOUT,
+    )
+    svc = await get_service(core, namespace.metadata.name, name)
+    assert svc.spec.external_traffic_policy == "Local"
+    assert not await has_external_dns_annotation(core, namespace.metadata.name, name)
