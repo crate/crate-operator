@@ -128,20 +128,14 @@ from crate.operator.utils.secrets import gen_password
 from crate.operator.utils.typing import LabelType
 from crate.operator.utils.version import CrateVersion
 
-#: STACKIT only: ``-f`` keeps HTTP error bodies out of the attribute, the
-#: rest bounds and retries a metadata service that is not reachable yet.
-ZONE_CURL_OPTS = "-sf --max-time 5 --retry 5 --retry-delay 2 --retry-connrefused"
-
-#: Placeholder zone, so a failed lookup stays visible in ``sys.nodes``.
-ZONE_UNRESOLVED = "lookup-failed"
-
-#: ``node.attr.zone`` becomes whatever this prints, so anything that is not a
-#: plausible zone name has to be dropped (crate/cloud#3121).
-ZONE_FILTER = (
-    "awk 'NR == 1 && /^[A-Za-z0-9_-]+$/ && length($0) <= 63 "
-    "{ print; found = 1; exit } "
-    f'END {{ if (!found) print "{ZONE_UNRESOLVED}" }}\''
+ZONE_AWARE_PROVIDERS = (
+    CloudProvider.AWS,
+    CloudProvider.AZURE,
+    CloudProvider.GCP,
+    CloudProvider.STACKIT,
 )
+
+ZONE_UNRESOLVED = "lookup-failed"
 
 
 def get_sql_exporter_config(
@@ -607,34 +601,9 @@ def get_statefulset_crate_command(
         settings["-Cnetwork.host"] = "0.0.0.0"
         settings["-Cnetwork.publish_host"] = "$(POD_IP)"
 
-    # Availability zone retrieval at pod launch time
-    if config.CLOUD_PROVIDER == CloudProvider.AWS:
-        aws_cmd = (
-            "curl -s -X PUT 'http://169.254.169.254/latest/api/token' "
-            "-H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | "
-            "xargs -I {} curl -s "
-            "'http://169.254.169.254/latest/meta-data/placement/availability-zone'"
-            " -H 'X-aws-ec2-metadata-token: {}'"
-        )
-        settings["-Cnode.attr.zone"] = f"$({aws_cmd})"
-    elif config.CLOUD_PROVIDER == CloudProvider.AZURE:
-        url = "http://169.254.169.254/metadata/instance/compute/zone?api-version=2020-06-01&format=text"  # noqa
-        settings["-Cnode.attr.zone"] = f"$(curl -s '{url}' -H 'Metadata: true')"
-    elif config.CLOUD_PROVIDER == CloudProvider.GCP:
-        url = "http://169.254.169.254/computeMetadata/v1/instance/zone"  # noqa
-        # projects/<account-id>/zones/us-central1-a
-        settings["-Cnode.attr.zone"] = (
-            f"$(curl -s '{url}' -H 'Metadata-Flavor: Google' | awk -F'/' '{{print $NF}}')"  # noqa
-        )
-    elif config.CLOUD_PROVIDER == CloudProvider.STACKIT:
-        # STACKIT runs on OpenStack, which serves the EC2-compatible metadata API
-        # as well, so the zone comes back as a bare string and needs no parsing.
-        # Same path as AWS above, minus the IMDSv2 token: OpenStack does not
-        # require one.
-        url = "http://169.254.169.254/latest/meta-data/placement/availability-zone"  # noqa
-        settings["-Cnode.attr.zone"] = (
-            f"$(curl {ZONE_CURL_OPTS} '{url}' | {ZONE_FILTER})"
-        )
+    zone = get_zone_setting()
+    if zone is not None:
+        settings["-Cnode.attr.zone"] = zone
 
     if cluster_settings:
         for k, v in cluster_settings.items():
@@ -717,9 +686,7 @@ def get_statefulset_crate_env(
             ]
         )
 
-    # Referenced as ``$(POD_IP)`` by ``-Cnetwork.publish_host`` on STACKIT. Appended
-    # only there, and last, so the pod spec of every other provider stays byte for
-    # byte what it was - an extra env var would restart all existing clusters.
+    # Referenced as ``$(POD_IP)`` by ``-Cnetwork.publish_host`` on STACKIT.
     if config.CLOUD_PROVIDER == CloudProvider.STACKIT:
         crate_env.append(
             V1EnvVar(
@@ -732,7 +699,37 @@ def get_statefulset_crate_env(
             )
         )
 
+    if config.CLOUD_PROVIDER in ZONE_AWARE_PROVIDERS:
+        crate_env.append(get_topology_zone_env())
+
     return crate_env
+
+
+def get_zone_setting() -> Optional[str]:
+    """
+    Return the ``node.attr.zone`` value for the configured cloud provider, or
+    ``None`` if the provider has no zone awareness.
+    """
+    # TOPOLOGY_ZONE needs Kubernetes 1.35+ (KEP-4742). The expansions run in the
+    # ``eval`` of CrateDB's bin/crate, not in Kubernetes.
+    if config.CLOUD_PROVIDER == CloudProvider.AZURE:
+        # AKS labels are ``<region>-<n>``; keep the bare ``<n>`` IMDS returned.
+        return f"$(z=${{TOPOLOGY_ZONE##*-}}; echo ${{z:-{ZONE_UNRESOLVED}}})"
+    if config.CLOUD_PROVIDER in ZONE_AWARE_PROVIDERS:
+        return f"${{TOPOLOGY_ZONE:-{ZONE_UNRESOLVED}}}"
+    return None
+
+
+def get_topology_zone_env() -> V1EnvVar:
+    return V1EnvVar(
+        name="TOPOLOGY_ZONE",
+        value_from=V1EnvVarSource(
+            field_ref=V1ObjectFieldSelector(
+                api_version="v1",
+                field_path="metadata.labels['topology.kubernetes.io/zone']",
+            )
+        ),
+    )
 
 
 def get_statefulset_crate_volume_mounts(

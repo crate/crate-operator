@@ -5,6 +5,15 @@ Changelog
 Unreleased
 ----------
 
+* Changed ``-Cnode.attr.zone`` to read the pod's own
+  ``topology.kubernetes.io/zone`` label through the Downward API on AWS, Azure,
+  GCP, and STACKIT, instead of querying each cloud's instance metadata service.
+  No longer requires pod egress to ``169.254.169.254``. Requires Kubernetes 1.35
+  or later, which copies the Node's topology labels onto the pod. On Azure the
+  region prefix is stripped so the zone value stays unchanged. A missing label
+  sets the zone to ``lookup-failed``. Existing clusters are migrated on their
+  next CrateDB version upgrade.
+
 * Bumped sql_exporter to ``0.24.10`` for CVE fixes.
 
 2.65.1 (2026-10-13)

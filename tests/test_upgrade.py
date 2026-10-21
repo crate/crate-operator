@@ -33,15 +33,17 @@ from crate.operator.constants import (
     CloudProvider,
 )
 from crate.operator.cratedb import connection_factory
-from crate.operator.create import get_statefulset_crate_command
+from crate.operator.create import ZONE_UNRESOLVED, get_statefulset_crate_command
 from crate.operator.upgrade import (
     check_reindexing_tables,
     check_unsafe_upgrade_paths,
     recreate_internal_tables,
+    update_statefulset,
     upgrade_command_data_nodes,
     upgrade_command_global_jwt_config,
     upgrade_command_hostname_and_zone,
     upgrade_command_jwt_auth,
+    upgrade_command_zone,
 )
 from crate.operator.webhooks import (
     WebhookAction,
@@ -64,6 +66,27 @@ from .utils import (
     start_cluster,
     was_notification_sent,
 )
+
+IMDS_ZONE_COMMANDS = {
+    CloudProvider.AWS: (
+        "-Cnode.attr.zone=$(curl -s -X PUT 'http://169.254.169.254/latest/api/token' "
+        "-H 'X-aws-ec2-metadata-token-ttl-seconds: 120' | xargs -I {} curl -s "
+        "'http://169.254.169.254/latest/meta-data/placement/availability-zone' "
+        "-H 'X-aws-ec2-metadata-token: {}')"
+    ),
+    CloudProvider.AZURE: (
+        "-Cnode.attr.zone=$(curl -s 'http://169.254.169.254/metadata/instance/"
+        "compute/zone?api-version=2020-06-01&format=text' -H 'Metadata: true')"
+    ),
+    CloudProvider.GCP: (
+        "-Cnode.attr.zone=$(curl -s 'http://169.254.169.254/computeMetadata/v1/"
+        "instance/zone' -H 'Metadata-Flavor: Google' | awk -F'/' '{print $NF}')"
+    ),
+    CloudProvider.STACKIT: (
+        "-Cnode.attr.zone=$(curl -sf --max-time 5 'http://169.254.169.254/latest/"
+        "meta-data/placement/availability-zone' | awk 'NR == 1 { print }')"
+    ),
+}
 
 
 @pytest.mark.k8s
@@ -287,6 +310,68 @@ def test_upgrade_sts_command_hostname_zone(provider):
                 and "awk -F'/' '{print $NF}'" in item
                 for item in new_cmd
             ), "replacement in GCP cmd did not occur as expected"
+
+
+@pytest.mark.parametrize("provider", list(IMDS_ZONE_COMMANDS))
+def test_upgrade_sts_command_zone(provider):
+    cmd = ["/docker-entrypoint.sh", "crate", IMDS_ZONE_COMMANDS[provider]]
+
+    with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+        new_cmd = upgrade_command_zone(cmd)
+
+    assert new_cmd[:2] == cmd[:2]
+    assert not any("169.254.169.254" in item for item in new_cmd)
+    assert ZONE_UNRESOLVED in new_cmd[2]
+    assert "TOPOLOGY_ZONE" in new_cmd[2]
+
+
+@pytest.mark.parametrize(
+    "provider, item",
+    [
+        (CloudProvider.AWS, "-Cnode.attr.zone=some-override"),
+        (CloudProvider.AWS, "-Cnode.attr.zone=${TOPOLOGY_ZONE:-lookup-failed}"),
+        (CloudProvider.OPENSHIFT, IMDS_ZONE_COMMANDS[CloudProvider.AWS]),
+        (None, IMDS_ZONE_COMMANDS[CloudProvider.AWS]),
+    ],
+)
+def test_upgrade_sts_command_zone_unchanged(provider, item):
+    cmd = ["/docker-entrypoint.sh", "crate", item]
+
+    with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", provider):
+        assert upgrade_command_zone(cmd) == cmd
+
+
+@pytest.mark.asyncio
+async def test_update_statefulset_migrates_zone():
+    statefulset = mock.Mock()
+    statefulset.spec.template.spec.containers = [
+        mock.Mock(command=["crate", IMDS_ZONE_COMMANDS[CloudProvider.AWS]]),
+    ]
+    statefulset.spec.template.spec.containers[0].name = "crate"
+    apps = mock.AsyncMock()
+    apps.read_namespaced_stateful_set.return_value = statefulset
+
+    with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", CloudProvider.AWS):
+        await update_statefulset(
+            apps,
+            "ns",
+            "crate-data-hot-cluster1",
+            "crate:5.10.0",
+            "5.10.0",
+            "5.10.1",
+            3,
+            "cluster1",
+            None,
+            mock.Mock(),
+        )
+
+    body = apps.patch_namespaced_stateful_set.call_args_list[-1].kwargs["body"]
+    crate_container = body["spec"]["template"]["spec"]["containers"][0]
+    assert crate_container["command"] == [
+        "crate",
+        f"-Cnode.attr.zone=${{TOPOLOGY_ZONE:-{ZONE_UNRESOLVED}}}",
+    ]
+    assert [e.name for e in crate_container["env"]] == ["TOPOLOGY_ZONE"]
 
 
 def test_upgrade_sts_command_with_global_jwt_config():

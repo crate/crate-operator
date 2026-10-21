@@ -30,6 +30,7 @@ from kubernetes_asyncio.client import AppsV1Api, CoreV1Api
 from crate.operator.config import config
 from crate.operator.constants import INTERNAL_TABLES, LUCENE_MIN_VERSION_MAP
 from crate.operator.cratedb import connection_factory
+from crate.operator.create import get_topology_zone_env, get_zone_setting
 from crate.operator.operations import get_total_nodes_count
 from crate.operator.scale import get_container
 from crate.operator.utils import crate, quorum
@@ -133,6 +134,30 @@ def upgrade_command_hostname_and_zone(old_command: List[str]) -> List[str]:
     return new_command
 
 
+def upgrade_command_zone(old_command: List[str]) -> List[str]:
+    """
+    Replace a ``node.attr.zone`` lookup against the cloud instance metadata
+    service with the ``TOPOLOGY_ZONE`` based setting.
+
+    User overrides of ``node.attr.zone`` are left untouched.
+
+    :param old_command: The command used to start-up CrateDB inside a
+        Kubernetes container.
+    :return: The list forming the new CrateDB command.
+    """
+    zone = get_zone_setting()
+    if zone is None:
+        return old_command
+    return [
+        (
+            f"-Cnode.attr.zone={zone}"
+            if item.startswith("-Cnode.attr.zone=") and "169.254.169.254" in item
+            else item
+        )
+        for item in old_command
+    ]
+
+
 async def update_statefulset(
     apps: AppsV1Api,
     namespace: str,
@@ -198,6 +223,14 @@ async def update_statefulset(
         # Apply the hostname and zone command upgrade if the old rev pattern is present.
         command = upgrade_command_hostname_and_zone(command)
         logger.info("upgraded hostname and zone sts command: %s", command)
+
+    zone_command = upgrade_command_zone(command)
+    if zone_command != command:
+        command = zone_command
+        body["spec"]["template"]["spec"]["containers"][0]["env"] = [
+            get_topology_zone_env()
+        ]
+        logger.info("upgraded zone sts command: %s", command)
 
     body["spec"]["template"]["spec"]["containers"][0]["command"] = command
 
