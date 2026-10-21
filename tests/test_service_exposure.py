@@ -28,6 +28,7 @@ from crate.operator.constants import (
     ANNOTATION_EXTERNAL_DNS_HOSTNAME_ALPHA,
 )
 from crate.operator.exposure import patch_service_exposure
+from crate.operator.utils.kubeapi import get_host
 
 from .utils import run_change_exposure
 
@@ -113,3 +114,20 @@ async def test_change_exposure_traefik_to_clusterip_deletes_traefik_resources():
 
     mocks["delete_traefik_resources"].assert_awaited_once_with("ns", "c")
     mocks["create_traefik_resources"].assert_not_awaited()
+
+
+@pytest.mark.parametrize("exposure", ["loadbalancer", "traefik", "clusterip"])
+async def test_get_host_uses_discovery_service(exposure):
+    # The operator connects through the headless discovery service. The data
+    # service and externalDNS must not matter, also for clusterip.
+    cratedb = {"spec": {"cluster": {"exposure": exposure}}}
+    with (
+        mock.patch("crate.operator.utils.kubeapi.config.TESTING", False),
+        mock.patch(
+            "crate.operator.utils.kubeapi.get_cratedb_resource",
+            new=mock.AsyncMock(return_value=cratedb),
+        ),
+    ):
+        host = await get_host(mock.AsyncMock(), "ns", "c")
+
+    assert host == "crate-discovery-c.ns"
