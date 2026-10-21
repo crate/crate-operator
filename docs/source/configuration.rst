@@ -27,7 +27,11 @@ expected to use upper case letters and must be prefixed with
    Kubernetes Nodes are configured with availability zones.
    The operator will then use this information to ensure that CrateDB nodes are
    spread across different availability zones. This is done by setting the
-   ``node.attr.zone`` attribute on CrateDB nodes.
+   ``node.attr.zone`` attribute on CrateDB nodes from the pod's
+   ``topology.kubernetes.io/zone`` label, which requires Kubernetes 1.35 or later.
+   If the label is missing, the attribute is set to ``lookup-failed``. On Azure
+   the ``<region>-`` prefix is stripped, so zones are named ``1``, ``2``, ``3``.
+   Existing clusters switch to the label on their next CrateDB version upgrade.
    The operator also sets annotations on the Kubernetes Loadbalancers, based on
    ``CLOUD_PROVIDER``.
 
@@ -58,9 +62,7 @@ expected to use upper case letters and must be prefixed with
    addresses from ``100.64.0.0/10``, which CrateDB's default ``_site_`` host
    resolution does not accept as site-local, so without this a node does not start.
 
-   The ``zone`` attribute is read from the EC2-compatible metadata endpoint that
-   OpenStack serves. STACKIT names its zones ``<region>-<number>``, so the values
-   that go into
+   STACKIT names its zones ``<region>-<number>``, so the values that go into
    ``cluster.routing.allocation.awareness.force.zone.values`` differ from the AWS
    example above. For the ``eu01`` region:
 
@@ -73,8 +75,8 @@ expected to use upper case letters and must be prefixed with
             cluster.routing.allocation.awareness.attributes: "zone"
             cluster.routing.allocation.awareness.force.zone.values: "eu01-1,eu01-2,eu01-3"
 
-   The names must match what the metadata service reports for the nodes the
-   cluster runs on. If they do not, CrateDB will not force shard copies apart and
+   The names must match the ``topology.kubernetes.io/zone`` labels of the nodes
+   the cluster runs on. If they do not, CrateDB will not force shard copies apart and
    a replica can end up in the same zone as its primary.
 
    STACKIT ships no ``StorageClass`` named ``default``, which the Helm chart uses
