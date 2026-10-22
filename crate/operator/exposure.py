@@ -484,10 +484,10 @@ async def patch_service_exposure(
     LoadBalancer and ClusterIP.
     """
     service_name = f"crate-{name}"
-    use_traefik = new_exposure == "traefik"
+    use_load_balancer = new_exposure == "loadbalancer"
 
     new_annotations: dict[str, Optional[str]] = {}
-    if use_traefik:
+    if not use_load_balancer:
         # Drop the LB tuning annotations, but keep aws-load-balancer-type so the
         # service controller can delete the NLB instead of orphaning it.
         new_annotations.update(_lb_annotations_to_remove())
@@ -500,7 +500,7 @@ async def patch_service_exposure(
     # When switching away from LoadBalancer, explicitly null out LB-specific
     # fields - Kubernetes requires them to be absent for ClusterIP.
     spec_patch: dict[str, Any] = {}
-    if use_traefik:
+    if not use_load_balancer:
         spec_patch = {
             "type": "ClusterIP",
             "externalTrafficPolicy": None,
@@ -609,7 +609,7 @@ class CreateTraefikResourcesSubHandler(StateBasedSubHandler):
 
 class ChangeExposureSubHandler(StateBasedSubHandler):
     """
-    Handles changes to spec.cluster.exposure between 'loadbalancer' and 'traefik'.
+    Handles changes to spec.cluster.exposure.
     Deletes old resources and creates new ones accordingly.
     """
 
@@ -660,6 +660,9 @@ class ChangeExposureSubHandler(StateBasedSubHandler):
 
             if old_exposure == "traefik":
                 await delete_traefik_resources(namespace, name)
+
+        if new_exposure == "clusterip" and source_ranges:
+            logger.info("allowedCIDRs has no effect with exposure=clusterip")
 
         if new_exposure == "traefik":
             await create_traefik_resources(

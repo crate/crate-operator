@@ -26,7 +26,6 @@ import pytest
 from kubernetes_asyncio.client import ApiException
 
 from crate.operator.exposure import (
-    ChangeExposureSubHandler,
     ChangeGrandCentralExposureSubHandler,
     migrate_grand_central_exposure,
     patch_service_exposure,
@@ -36,6 +35,8 @@ from crate.operator.grand_central import (
     get_grand_central_exposure,
     grand_central_uses_traefik,
 )
+
+from .utils import run_change_exposure
 
 
 def _await_kwargs(m: Any) -> dict:
@@ -223,14 +224,6 @@ async def test_change_gc_exposure_handler_reconciles_even_when_effective_unchang
     assert _await_kwargs(migrate)["use_traefik"] is True
 
 
-class _AsyncCM:
-    async def __aenter__(self):
-        return mock.MagicMock()
-
-    async def __aexit__(self, *args):
-        return False
-
-
 def _cluster_exposure_body(exposure: str, grand_central: Optional[dict] = None) -> dict:
     spec = {
         "cluster": {
@@ -244,32 +237,11 @@ def _cluster_exposure_body(exposure: str, grand_central: Optional[dict] = None) 
     return {"spec": spec, "metadata": {"name": "c"}}
 
 
-async def _run_change_exposure(body: dict, old: dict):
-    handler = ChangeExposureSubHandler("ns", "c", "hash", {})
-    with (
-        mock.patch("crate.operator.exposure.GlobalApiClient", return_value=_AsyncCM()),
-        mock.patch("crate.operator.exposure.CoreV1Api"),
-        mock.patch("crate.operator.exposure.patch_service_exposure"),
-        mock.patch("crate.operator.exposure.create_traefik_resources"),
-        mock.patch("crate.operator.exposure.delete_traefik_resources"),
-        mock.patch("crate.operator.exposure.get_owner_references", return_value=[]),
-        mock.patch("crate.operator.exposure.migrate_grand_central_exposure") as migrate,
-    ):
-        await handler.handle(
-            namespace="ns",
-            name="c",
-            body=body,
-            old=old,
-            logger=mock.MagicMock(),
-        )
-    return migrate
-
-
 async def test_change_cluster_exposure_converges_gc_when_gc_exposure_unset():
     body = _cluster_exposure_body("traefik")
     old = _cluster_exposure_body("loadbalancer")
 
-    migrate = await _run_change_exposure(body, old)
+    migrate = (await run_change_exposure(body, old))["migrate_grand_central_exposure"]
 
     migrate.assert_awaited_once()
     assert _await_kwargs(migrate)["use_traefik"] is True
@@ -279,7 +251,7 @@ async def test_change_cluster_exposure_skips_gc_when_gc_exposure_explicit():
     body = _cluster_exposure_body("traefik", grand_central={"exposure": "nginx"})
     old = _cluster_exposure_body("loadbalancer", grand_central={"exposure": "nginx"})
 
-    migrate = await _run_change_exposure(body, old)
+    migrate = (await run_change_exposure(body, old))["migrate_grand_central_exposure"]
 
     migrate.assert_not_awaited()
 

@@ -583,7 +583,7 @@ spec:
                   exposure:
                     description: Service exposure type
                     type: string
-                    enum: ["loadbalancer", "traefik"]
+                    enum: ["loadbalancer", "traefik", "clusterip"]
                 required:
                 - imageRegistry
                 - name

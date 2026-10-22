@@ -1361,18 +1361,18 @@ def get_data_service(
     dns_record: Optional[str],
     source_ranges: Optional[List[str]] = None,
     additional_annotations: Optional[Dict] = None,
-    use_traefik: bool = False,
+    use_load_balancer: bool = True,
     has_dedicated_masters: bool = False,
 ) -> V1Service:
     res_annotations = {}
 
-    if not use_traefik:
+    if use_load_balancer:
         res_annotations.update(_lb_annotations_to_add(dns_record))
 
     if additional_annotations:
         res_annotations.update(additional_annotations)
 
-    service_type = "ClusterIP" if use_traefik else "LoadBalancer"
+    service_type = "LoadBalancer" if use_load_balancer else "ClusterIP"
 
     selector = {LABEL_COMPONENT: "cratedb", LABEL_NAME: name}
     if has_dedicated_masters:
@@ -1393,7 +1393,7 @@ def get_data_service(
         type=service_type,
     )
 
-    if not use_traefik:
+    if use_load_balancer:
         spec_kwargs["external_traffic_policy"] = "Local"
         if source_ranges:
             spec_kwargs["load_balancer_source_ranges"] = source_ranges
@@ -1488,7 +1488,7 @@ async def create_services(
     logger: logging.Logger,
     source_ranges: Optional[List[str]] = None,
     additional_annotations: Optional[Dict] = None,
-    use_traefik: bool = False,
+    use_load_balancer: bool = True,
     has_dedicated_masters: bool = False,
 ) -> None:
     async with GlobalApiClient() as api_client:
@@ -1504,7 +1504,7 @@ async def create_services(
             dns_record,
             source_ranges,
             additional_annotations=additional_annotations,
-            use_traefik=use_traefik,
+            use_load_balancer=use_load_balancer,
             has_dedicated_masters=has_dedicated_masters,
         )
         await call_kubeapi(
@@ -1559,7 +1559,6 @@ async def recreate_services(
     dns_record = spec.get("cluster", {}).get("externalDNS", None)
 
     exposure = spec.get("cluster", {}).get("exposure", "loadbalancer")
-    use_traefik = exposure == "traefik"
 
     await create_services(
         owner_references,
@@ -1573,7 +1572,7 @@ async def recreate_services(
         logger,
         source_ranges,
         additional_annotations,
-        use_traefik=use_traefik,
+        use_load_balancer=exposure == "loadbalancer",
         has_dedicated_masters="master" in spec["nodes"],
     )
 
@@ -1809,7 +1808,6 @@ class CreateServicesSubHandler(StateBasedSubHandler):
         has_dedicated_masters: bool = False,
         **kwargs: Any,
     ):
-        use_traefik = exposure == "traefik"
         await create_services(
             owner_references,
             namespace,
@@ -1822,7 +1820,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
             logger,
             source_ranges,
             additional_annotations,
-            use_traefik=use_traefik,
+            use_load_balancer=exposure == "loadbalancer",
             has_dedicated_masters=has_dedicated_masters,
         )
 

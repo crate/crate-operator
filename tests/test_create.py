@@ -1332,6 +1332,23 @@ class TestServiceModels:
                 == dns
             )
 
+    def test_get_data_service_without_load_balancer(self, faker):
+        with mock.patch("crate.operator.create.config.CLOUD_PROVIDER", "aws"):
+            service = get_data_service(
+                None,
+                faker.domain_word(),
+                {},
+                faker.port_number(),
+                faker.port_number(),
+                "mycluster.example.com",
+                ["10.0.0.0/8"],
+                use_load_balancer=False,
+            )
+        assert service.spec.type == "ClusterIP"
+        assert service.spec.external_traffic_policy is None
+        assert service.spec.load_balancer_source_ranges is None
+        assert service.metadata.annotations == {}
+
     def test_lb_type_annotation_retained_when_switching_to_clusterip(self):
         # Switching to traefik (LoadBalancer -> ClusterIP) must keep
         # aws-load-balancer-type so the service controller can identify and
