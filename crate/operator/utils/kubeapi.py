@@ -37,6 +37,7 @@ from crate.operator.constants import (
     GC_USER_SECRET_NAME,
     LABEL_USER_PASSWORD,
     RESOURCE_CRATEDB,
+    Exposure,
 )
 from crate.operator.utils.formatting import b64decode
 from crate.operator.utils.k8s_api_client import GlobalApiClient
@@ -198,11 +199,7 @@ async def get_host(core: CoreV1Api, namespace: str, name: str) -> str:
     """
     if config.TESTING:
         cratedb = await get_cratedb_resource(namespace, name)
-        exposure = (
-            cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
-        )
-
-        if exposure == "traefik":
+        if Exposure.of(cratedb["spec"]).uses_traefik:
             dns = cratedb.get("spec", {}).get("cluster", {}).get("externalDNS")
             if dns:
                 return dns

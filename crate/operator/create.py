@@ -115,6 +115,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_VALUE,
     TERMINATION_GRACE_PERIOD_SECONDS,
     CloudProvider,
+    Exposure,
     Nodepool,
     Port,
 )
@@ -1558,8 +1559,6 @@ async def recreate_services(
     )
     dns_record = spec.get("cluster", {}).get("externalDNS", None)
 
-    exposure = spec.get("cluster", {}).get("exposure", "loadbalancer")
-
     await create_services(
         owner_references,
         namespace,
@@ -1572,7 +1571,7 @@ async def recreate_services(
         logger,
         source_ranges,
         additional_annotations,
-        use_load_balancer=exposure == "loadbalancer",
+        use_load_balancer=Exposure.of(spec).uses_load_balancer,
         has_dedicated_masters="master" in spec["nodes"],
     )
 
@@ -1804,7 +1803,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
         logger: logging.Logger,
         source_ranges: Optional[List[str]] = None,
         additional_annotations: Optional[Dict] = None,
-        exposure: str = "loadbalancer",
+        exposure: Exposure = Exposure.LOADBALANCER,
         has_dedicated_masters: bool = False,
         **kwargs: Any,
     ):
@@ -1820,7 +1819,7 @@ class CreateServicesSubHandler(StateBasedSubHandler):
             logger,
             source_ranges,
             additional_annotations,
-            use_load_balancer=exposure == "loadbalancer",
+            use_load_balancer=exposure.uses_load_balancer,
             has_dedicated_masters=has_dedicated_masters,
         )
 

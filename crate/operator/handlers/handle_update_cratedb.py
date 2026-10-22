@@ -31,7 +31,7 @@ from crate.operator.change_compute import (
     ChangeComputeSubHandler,
 )
 from crate.operator.config import config
-from crate.operator.constants import CLUSTER_UPDATE_ID, OperationType
+from crate.operator.constants import CLUSTER_UPDATE_ID, Exposure, OperationType
 from crate.operator.expand_volume import ExpandVolumeSubHandler
 from crate.operator.exposure import (
     ChangeExposureSubHandler,
@@ -214,8 +214,8 @@ async def update_cratedb(
                 operation = OperationType.CHANGE_COMPUTE
                 do_restart = True
         elif field_path == ("spec", "cluster", "exposure"):
-            old_val = old_spec if old_spec is not None else "loadbalancer"
-            new_val = new_spec if new_spec is not None else "loadbalancer"
+            old_val = old_spec if old_spec is not None else Exposure.LOADBALANCER
+            new_val = new_spec if new_spec is not None else Exposure.LOADBALANCER
             if old_val != new_val:
                 exposure_changed = True
                 do_before_update = False

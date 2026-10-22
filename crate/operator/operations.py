@@ -64,6 +64,7 @@ from crate.operator.constants import (
     LABEL_NAME,
     LABEL_NODE_NAME,
     LABEL_PART_OF,
+    Exposure,
     Port,
 )
 from crate.operator.cratedb import (
@@ -1185,11 +1186,9 @@ async def suspend_or_start_cluster(
         for volume expansion operations.
     """
     cratedb = await get_cratedb_resource(namespace, name)
-    exposure = (
-        cratedb.get("spec", {}).get("cluster", {}).get("exposure", "loadbalancer")
-    )
-    use_traefik = exposure == "traefik"
-    use_load_balancer = exposure == "loadbalancer"
+    exposure = Exposure.of(cratedb["spec"])
+    use_traefik = exposure.uses_traefik
+    use_load_balancer = exposure.uses_load_balancer
 
     # Dedicated master nodes are suspended/resumed in lockstep with the data
     # nodes, but with strict ordering: on resume the masters must come up

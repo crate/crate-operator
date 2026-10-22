@@ -93,6 +93,31 @@ LUCENE_MIN_VERSION_MAP = {
 }
 
 
+class Exposure(str, enum.Enum):
+    LOADBALANCER = "loadbalancer"
+    TRAEFIK = "traefik"
+    CLUSTERIP = "clusterip"
+
+    def __str__(self) -> str:
+        # Python 3.12 formats a str mixin enum as "Exposure.X". Log the value.
+        return self.value
+
+    @classmethod
+    def of(cls, spec) -> "Exposure":
+        """
+        Return ``spec.cluster.exposure``, or the default when it is unset.
+        """
+        return cls(spec.get("cluster", {}).get("exposure", cls.LOADBALANCER))
+
+    @property
+    def uses_load_balancer(self) -> bool:
+        return self is Exposure.LOADBALANCER
+
+    @property
+    def uses_traefik(self) -> bool:
+        return self is Exposure.TRAEFIK
+
+
 class CloudProvider(str, enum.Enum):
     AWS = "aws"
     AZURE = "azure"

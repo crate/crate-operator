@@ -83,6 +83,7 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
+    Exposure,
 )
 from crate.operator.create import (
     build_cratedb_labels,
@@ -756,7 +757,7 @@ def get_grand_central_exposure(spec: kopf.Spec) -> str:
     explicit = (spec.get("grandCentral") or {}).get("exposure")
     if explicit:
         return explicit
-    return spec.get("cluster", {}).get("exposure", "loadbalancer")
+    return "traefik" if Exposure.of(spec).uses_traefik else "nginx"
 
 
 def grand_central_uses_traefik(spec: kopf.Spec) -> bool:
