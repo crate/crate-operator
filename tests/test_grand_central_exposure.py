@@ -23,11 +23,13 @@ from typing import Any, Optional
 from unittest import mock
 
 import pytest
+from kubernetes_asyncio.client import ApiException
 
 from crate.operator.exposure import (
     ChangeExposureSubHandler,
     ChangeGrandCentralExposureSubHandler,
     migrate_grand_central_exposure,
+    patch_service_exposure,
 )
 from crate.operator.grand_central import (
     _grand_central_hostname,
@@ -280,3 +282,19 @@ async def test_change_cluster_exposure_skips_gc_when_gc_exposure_explicit():
     migrate = await _run_change_exposure(body, old)
 
     migrate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("status, raises", [(404, False), (500, True)])
+async def test_patch_service_exposure_without_service(status, raises):
+    # A suspended cluster has no service, so a 404 must not fail the exposure
+    # change. Other errors must still fail it.
+    core = mock.AsyncMock()
+    core.patch_namespaced_service.side_effect = ApiException(status=status)
+    call = patch_service_exposure(
+        core, "ns", "c", "traefik", None, None, None, mock.MagicMock()
+    )
+    if raises:
+        with pytest.raises(ApiException):
+            await call
+    else:
+        await call
