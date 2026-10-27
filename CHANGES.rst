@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.66.0 (2026-10-27)
+-------------------
+
 * Added ``clusterip`` exposure for clusters reachable only inside Kubernetes.
 
 * Fixed changing ``spec.cluster.exposure`` failing while the cluster is suspended.
