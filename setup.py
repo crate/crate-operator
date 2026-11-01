@@ -72,7 +72,7 @@ setup(
             "faker==18.3.1",
             "pytest==9.1.1",
             "pytest-aiohttp==1.0.5",
-            "pytest-asyncio==1.4.0",
+            "pytest-asyncio==1.4.1",
             "pytest-xdist==3.8.0",  # enables parallel testing
             "pytest-rerunfailures==16.6.1",  # retry flaky k8s/e2e tests
             "filelock==3.32.4",  # used for locks when running in parallel mode
