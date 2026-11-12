@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Docs for upgrading JMX and SQL exporters on existing clusters.
+
 2.66.0 (2026-10-27)
 -------------------
 
