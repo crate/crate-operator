@@ -17,6 +17,10 @@ Unreleased
 * Fixed cluster updates and scaling failing when unlabeled (or differently
   labeled) CronJobs, Jobs or StatefulSets exist in the cluster's namespace.
 
+* Added ``SQL_EXPORTER_AUTO_UPDATE``. When enabled, the operator updates the
+  sql_exporter image and configuration of existing clusters when it starts,
+  restarting only the ``sql-exporter`` container, one pod at a time.
+
 2.66.0 (2026-10-27)
 -------------------
 
