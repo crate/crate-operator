@@ -62,6 +62,7 @@ from crate.operator.operations import (
     is_namespace_terminating,
 )
 from crate.operator.restore_backup import is_valid_snapshot
+from crate.operator.sql_exporter import update_sql_exporter
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
@@ -149,6 +150,28 @@ async def cluster_create(
     """
     await raise_on_namespace_terminating(namespace)
     await create_cratedb(namespace, meta, spec, patch, status, logger)
+
+
+@kopf.on.resume(
+    API_GROUP,
+    "v1",
+    RESOURCE_CRATEDB,
+    annotations=annotation_filter(),
+    when=lambda **_: config.SQL_EXPORTER_AUTO_UPDATE,
+    timeout=float(config.ROLLING_RESTART_TIMEOUT),
+)
+async def sql_exporter_update(
+    namespace: str,
+    name: str,
+    logger: logging.Logger,
+    **_kwargs,
+):
+    """
+    Brings the SQL exporter of clusters that exist when the operator starts
+    to the image and configuration the operator ships.
+    """
+    await raise_on_namespace_terminating(namespace)
+    await update_sql_exporter(namespace, name, logger)
 
 
 @kopf.on.delete(API_GROUP, "v1", RESOURCE_CRATEDB, annotations=annotation_filter())
