@@ -36,6 +36,13 @@ LABEL_NODE_NAME = f"{API_GROUP}/node-name"
 LABEL_NODE_DATA = f"{API_GROUP}/node-data"
 LABEL_USER_PASSWORD = f"operator.{API_GROUP}/user-password"
 
+SQL_EXPORTER_CONTAINER = "sql-exporter"
+#: ConfigMap key holding a hash over the SQL exporter configuration files.
+SQL_EXPORTER_CONFIG_HASH_KEY = "config-hash"
+#: Pod annotation holding the hash of the configuration the SQL exporter of
+#: that pod has loaded.
+SQL_EXPORTER_CONFIG_HASH_ANNOTATION = f"operator.{API_GROUP}/sql-exporter-config-hash"
+
 # external-dns v0.22.0 changed its default annotation prefix from
 # "external-dns.alpha.kubernetes.io/" to "external-dns.kubernetes.io/" with no
 # fallback, so both are set until all external-dns controllers are on v0.22.0+.
