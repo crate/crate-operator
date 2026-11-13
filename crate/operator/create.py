@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import hashlib
 import logging
 import math
 import pkgutil
@@ -113,6 +114,9 @@ from crate.operator.constants import (
     SHARED_NODE_TOLERATION_EFFECT,
     SHARED_NODE_TOLERATION_KEY,
     SHARED_NODE_TOLERATION_VALUE,
+    SQL_EXPORTER_CONFIG_HASH_ANNOTATION,
+    SQL_EXPORTER_CONFIG_HASH_KEY,
+    SQL_EXPORTER_CONTAINER,
     TERMINATION_GRACE_PERIOD_SECONDS,
     CloudProvider,
     Exposure,
@@ -185,6 +189,12 @@ def get_sql_exporter_config(
                     f"Could not load config for collector {collector}"
                 )
             result.data[yaml_filename] = collector_config.decode()
+
+        config_hash = hashlib.sha256()
+        for filename in sorted(result.data):
+            config_hash.update(filename.encode())
+            config_hash.update(result.data[filename].encode())
+        result.data[SQL_EXPORTER_CONFIG_HASH_KEY] = config_hash.hexdigest()
 
         return result
     else:
@@ -444,7 +454,7 @@ def get_statefulset_containers(
                 "-web.metrics-path=/metrics",
             ],
             image=sql_exporter_image,
-            name="sql-exporter",
+            name=SQL_EXPORTER_CONTAINER,
             ports=[V1ContainerPort(container_port=9399, name="sql-exporter")],
             volume_mounts=[
                 V1VolumeMount(
@@ -928,6 +938,11 @@ def get_statefulset(
     node_annotations.update(
         {"prometheus.io/port": str(prometheus_port), "prometheus.io/scrape": "true"}
     )
+    sql_exporter_config = get_sql_exporter_config(None, name, {})
+    if sql_exporter_config is not None:
+        node_annotations[SQL_EXPORTER_CONFIG_HASH_ANNOTATION] = (
+            sql_exporter_config.data[SQL_EXPORTER_CONFIG_HASH_KEY]
+        )
     node_labels = labels.copy()
     node_labels.update(node_spec.get("labels", {}))
     # This is to identify pods of the same cluster but with a different node type

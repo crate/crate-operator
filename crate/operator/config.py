@@ -180,6 +180,10 @@ class Config:
     #: The sql_exporter image to use
     SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.24.10"
 
+    #: Update the sql_exporter image and configuration of existing clusters
+    #: when the operator starts.
+    SQL_EXPORTER_AUTO_UPDATE: bool = False
+
     #: Name of the secret containing credentials to access the source
     #: backup when restoring a snapshot.
     RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
@@ -416,6 +420,10 @@ class Config:
         self.SQL_EXPORTER_IMAGE = self.env(
             "SQL_EXPORTER_IMAGE", default=self.SQL_EXPORTER_IMAGE
         )
+        sql_exporter_auto_update = self.env(
+            "SQL_EXPORTER_AUTO_UPDATE", default=str(self.SQL_EXPORTER_AUTO_UPDATE)
+        )
+        self.SQL_EXPORTER_AUTO_UPDATE = sql_exporter_auto_update.lower() == "true"
 
         self.GC_SENTRY_DSN = self.env("GC_SENTRY_DSN", default=self.GC_SENTRY_DSN)
 

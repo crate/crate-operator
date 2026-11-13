@@ -22,14 +22,12 @@
 import asyncio
 import datetime
 import logging
-import pkgutil
 import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import kopf
-import yaml
 from aiopg import Cursor
 from kopf import TemporaryError
 from kubernetes_asyncio.client import (
@@ -38,7 +36,6 @@ from kubernetes_asyncio.client import (
     BatchV1Api,
     CoreV1Api,
     CustomObjectsApi,
-    V1ConfigMap,
     V1CronJobList,
     V1JobList,
     V1JobStatus,
@@ -1489,44 +1486,6 @@ async def get_lb_service(core: CoreV1Api, namespace: str, name: str) -> V1Servic
         return svc_list.items[0]
     else:
         return None
-
-
-def get_sql_exporter_collectors(sql_exporter_config) -> list:
-    # Parse the config yaml file to get the defined collectors and load them
-    parsed_sql_exporter_config = yaml.load(
-        sql_exporter_config.decode(), Loader=yaml.FullLoader
-    )
-    return parsed_sql_exporter_config["target"]["collectors"]
-
-
-def add_sql_exporter_collectors_to_configmap(
-    config_map: V1ConfigMap, collectors: list
-) -> V1ConfigMap:
-    # Add the yaml collectors to the configmap dynamically
-    for collector in collectors:
-        # Remove the `_collector` suffix from the collector name if present
-        if collector.endswith("_collector"):
-            collector = collector[:-10]
-        yaml_filename = f"{collector}-collector.yaml"  # Notice the `-` instead of `_`!
-        collector_config = pkgutil.get_data("crate.operator", f"data/{yaml_filename}")
-
-        if collector_config is None:
-            raise FileNotFoundError(f"Could not load config for collector {collector}")
-        config_map.data[yaml_filename] = collector_config.decode()
-
-    return config_map
-
-
-def _has_sql_exporter_config_changed(
-    old_config_map: V1ConfigMap, new_collectors: list
-) -> bool:
-    for collector in new_collectors:
-        if collector.endswith("_collector"):
-            collector = collector[:-10]
-        yaml_filename = f"{collector}-collector.yaml"
-        if yaml_filename not in old_config_map.data.keys():
-            return True
-    return False
 
 
 def get_crash_pod_name(spec: dict, name: str) -> str:
