@@ -660,7 +660,7 @@ async def check_cluster_healthy(
     expected_number_of_nodes = 0
     all_sts: V1StatefulSetList = await apps.list_namespaced_stateful_set(namespace)
     for sts in all_sts.items:
-        if sts.metadata.labels["app.kubernetes.io/name"] == name:
+        if (sts.metadata.labels or {}).get("app.kubernetes.io/name") == name:
             expected_number_of_nodes += sts.spec.replicas
 
     if expected_number_of_nodes == 0:
@@ -1632,7 +1632,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
             for job in jobs.items:
                 job_name = job.metadata.name
-                labels = job.metadata.labels
+                labels = job.metadata.labels or {}
                 if (
                     labels.get("app.kubernetes.io/component") == "backup"
                     and labels.get("app.kubernetes.io/name") == name
@@ -1692,7 +1692,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
             )
             for job in jobs.items:
                 job_name = job.metadata.name
-                labels = job.metadata.labels
+                labels = job.metadata.labels or {}
                 job_status: V1JobStatus = job.status
                 if (
                     labels.get("app.kubernetes.io/component") == "backup"
