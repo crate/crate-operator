@@ -7,6 +7,8 @@ Unreleased
 
 * Bumped sql_exporter to ``0.24.13`` for CVE fixes.
 
+* Update user password secret only when the secret's data changes.
+
 2.66.0 (2026-10-27)
 -------------------
 

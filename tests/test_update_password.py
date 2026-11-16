@@ -20,8 +20,9 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import json
 import logging
-from typing import Any, List, Mapping
+from typing import Any, List, Mapping, Optional
 from unittest import mock
 
 import pytest
@@ -33,7 +34,7 @@ from kubernetes_asyncio.client import (
 )
 from psycopg2 import DatabaseError, OperationalError
 
-from crate.operator.constants import LABEL_USER_PASSWORD
+from crate.operator.constants import KOPF_STATE_STORE_PREFIX, LABEL_USER_PASSWORD
 from crate.operator.cratedb import get_connection
 from crate.operator.update_user_password import update_user_password
 from crate.operator.utils.formatting import b64encode
@@ -65,6 +66,20 @@ async def is_password_set(host: str, system_password: str, user: str) -> bool:
                 return bool(row and row[0] == 1)
     except (DatabaseError, OperationalError, asyncio.exceptions.TimeoutError):
         return False
+
+
+async def was_label_handled(
+    core: CoreV1Api, namespace: str, name: str, label: str, value: Optional[str]
+) -> bool:
+    # kopf only stores the last handled state once the handlers have finished
+    secret = await core.read_namespaced_secret(namespace=namespace, name=name)
+    last_handled = (secret.metadata.annotations or {}).get(
+        f"{KOPF_STATE_STORE_PREFIX}/last"
+    )
+    if last_handled is None:
+        return False
+    labels = json.loads(last_handled).get("metadata", {}).get("labels", {})
+    return labels.get(label) == value
 
 
 @mock.patch("crate.operator.webhooks.webhook_client.send_notification")
@@ -208,3 +223,72 @@ async def test_update_cluster_password_errors(
 
     assert e.typename == "TemporaryError"
     mock_send_notification.assert_not_called()
+
+
+@mock.patch("crate.operator.webhooks.webhook_client.send_notification")
+async def test_update_password_secret_ignores_label_changes(
+    mock_send_notification: mock.AsyncMock, faker, namespace, kopf_runner, api_client
+):
+    """
+    Any change of labels must not be reported as a password update.
+    """
+    core = CoreV1Api(api_client)
+    name = faker.domain_word()
+    secret_name = f"user-password-{name}-0"
+    extra_label = "credentials.gardener.cloud/key-name"
+
+    await core.create_namespaced_secret(
+        namespace=namespace.metadata.name,
+        body=V1Secret(
+            data={"password": b64encode(faker.password(length=40))},
+            metadata=V1ObjectMeta(
+                name=secret_name, labels={LABEL_USER_PASSWORD: "true"}
+            ),
+            type="Opaque",
+        ),
+    )
+
+    await assert_wait_for(
+        True,
+        was_label_handled,
+        core,
+        namespace.metadata.name,
+        secret_name,
+        extra_label,
+        None,
+        err_msg="Secret was not handled.",
+        timeout=DEFAULT_TIMEOUT,
+    )
+
+    for label_value in ("kube-apiserver-etcd-encryption-key-test", None):
+        await core.patch_namespaced_secret(
+            namespace=namespace.metadata.name,
+            name=secret_name,
+            body=V1Secret(metadata=V1ObjectMeta(labels={extra_label: label_value})),
+        )
+        await assert_wait_for(
+            True,
+            was_label_handled,
+            core,
+            namespace.metadata.name,
+            secret_name,
+            extra_label,
+            label_value,
+            err_msg="Label change was not handled.",
+            timeout=DEFAULT_TIMEOUT,
+        )
+        assert not await was_notification_sent(
+            mock_send_notification,
+            mock.call(
+                namespace.metadata.name,
+                name,
+                WebhookEvent.FEEDBACK,
+                WebhookFeedbackPayload(
+                    message="Updating password.",
+                    operation=WebhookOperation.UPDATE,
+                    action=WebhookAction.PASSWORD_UPDATE,
+                ),
+                WebhookStatus.IN_PROGRESS,
+                mock.ANY,
+            ),
+        ), "Label change triggered a password update."

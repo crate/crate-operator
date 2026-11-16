@@ -198,6 +198,7 @@ async def cluster_update(
     "v1",
     "secrets",
     labels={LABEL_USER_PASSWORD: "true"},
+    field="data",
 )
 async def secret_update(
     namespace: str,
