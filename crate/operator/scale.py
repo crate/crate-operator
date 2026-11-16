@@ -833,7 +833,7 @@ async def _ensure_cluster_healthy(
     expected_number_of_nodes = 0
     all_sts: V1StatefulSetList = await apps.list_namespaced_stateful_set(namespace)
     for sts in all_sts.items:
-        if sts.metadata.labels["app.kubernetes.io/name"] == name:
+        if (sts.metadata.labels or {}).get("app.kubernetes.io/name") == name:
             expected_number_of_nodes += sts.spec.replicas
 
     if not await is_cluster_healthy(conn_factory, expected_number_of_nodes, logger):
