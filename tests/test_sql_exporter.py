@@ -51,6 +51,7 @@ from crate.operator.constants import (
     SQL_EXPORTER_CONFIG_HASH_ANNOTATION,
     SQL_EXPORTER_CONFIG_HASH_KEY,
     SQL_EXPORTER_CONTAINER,
+    SQL_EXPORTER_ROLLOUT_ANNOTATION,
 )
 from crate.operator.create import get_sql_exporter_config
 
@@ -64,17 +65,21 @@ LOGGER = logging.getLogger(__name__)
 
 def make_pod(
     name: str = "crate-data-hot-c-0",
+    uid: str = "uid-0",
+    rollout_from: Optional[str] = None,
     image: str = OLD_IMAGE,
     config_hash: Optional[str] = NEW_HASH,
     restart_count: int = 0,
     ready: bool = True,
     phase: str = "Running",
 ) -> V1Pod:
-    annotations = (
-        {SQL_EXPORTER_CONFIG_HASH_ANNOTATION: config_hash} if config_hash else None
-    )
+    annotations = {}
+    if config_hash:
+        annotations[SQL_EXPORTER_CONFIG_HASH_ANNOTATION] = config_hash
+    if rollout_from:
+        annotations[SQL_EXPORTER_ROLLOUT_ANNOTATION] = rollout_from
     return V1Pod(
-        metadata=V1ObjectMeta(name=name, annotations=annotations),
+        metadata=V1ObjectMeta(name=name, uid=uid, annotations=annotations or None),
         spec=V1PodSpec(
             containers=[
                 V1Container(name=SQL_EXPORTER_CONTAINER, image=image),
@@ -163,18 +168,24 @@ async def test_pod_image_is_patched_in_place(apis):
 
     await sql_exporter.update_pod("ns", make_pod(), NEW_IMAGE, NEW_HASH, LOGGER)
 
-    apis.core.patch_namespaced_pod.assert_awaited_once_with(
-        namespace="ns",
-        name="crate-data-hot-c-0",
-        body={
-            "metadata": {
-                "annotations": {SQL_EXPORTER_CONFIG_HASH_ANNOTATION: NEW_HASH}
-            },
+    assert [
+        c.kwargs["body"] for c in apis.core.patch_namespaced_pod.await_args_list
+    ] == [
+        {
+            "metadata": {"annotations": {SQL_EXPORTER_ROLLOUT_ANNOTATION: OLD_IMAGE}},
             "spec": {
                 "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": NEW_IMAGE}]
             },
         },
-    )
+        {
+            "metadata": {
+                "annotations": {
+                    SQL_EXPORTER_ROLLOUT_ANNOTATION: None,
+                    SQL_EXPORTER_CONFIG_HASH_ANNOTATION: NEW_HASH,
+                }
+            }
+        },
+    ]
     assert apis.core.read_namespaced_pod.await_count == 2
     apis.exec.assert_not_called()
 
@@ -192,18 +203,20 @@ async def test_pod_image_is_reverted_when_exporter_does_not_start(apis):
         namespace="ns",
         name="crate-data-hot-c-0",
         body={
+            "metadata": {"annotations": {SQL_EXPORTER_ROLLOUT_ANNOTATION: None}},
             "spec": {
                 "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": OLD_IMAGE}]
-            }
+            },
         },
     )
 
 
 async def test_pod_config_is_reloaded_once_projected(apis):
     apis.exec.side_effect = ["old-hash\n", f"{NEW_HASH}\n", None]
-    apis.core.read_namespaced_pod.return_value = make_pod(
-        image=NEW_IMAGE, config_hash="old-hash", restart_count=3
-    )
+    apis.core.read_namespaced_pod.side_effect = [
+        make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=3),
+        make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=4),
+    ]
     pod = make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=2)
 
     await sql_exporter.update_pod("ns", pod, NEW_IMAGE, NEW_HASH, LOGGER)
@@ -246,15 +259,17 @@ async def test_pod_image_is_updated_without_projected_config(apis):
             "ns", make_pod(config_hash=None), NEW_IMAGE, NEW_HASH, LOGGER
         )
 
-    apis.core.patch_namespaced_pod.assert_awaited_once_with(
-        namespace="ns",
-        name="crate-data-hot-c-0",
-        body={
+    assert [
+        c.kwargs["body"] for c in apis.core.patch_namespaced_pod.await_args_list
+    ] == [
+        {
+            "metadata": {"annotations": {SQL_EXPORTER_ROLLOUT_ANNOTATION: OLD_IMAGE}},
             "spec": {
                 "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": NEW_IMAGE}]
-            }
+            },
         },
-    )
+        {"metadata": {"annotations": {SQL_EXPORTER_ROLLOUT_ANNOTATION: None}}},
+    ]
 
 
 async def test_pod_config_reload_without_restart_is_not_recorded(apis):
@@ -274,6 +289,78 @@ async def test_pod_gone_is_skipped(apis):
     await sql_exporter.update_pod("ns", make_pod(), NEW_IMAGE, NEW_HASH, LOGGER)
 
 
+async def test_pod_replaced_while_waiting_is_not_reverted(apis):
+    apis.core.read_namespaced_pod.return_value = make_pod(
+        image=OLD_IMAGE, uid="uid-1", restart_count=0
+    )
+
+    await sql_exporter.update_pod("ns", make_pod(), NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert len(apis.core.patch_namespaced_pod.await_args_list) == 1
+
+
+async def test_pod_restart_before_the_baseline_does_not_count(apis):
+    apis.exec.side_effect = [f"{NEW_HASH}\n", None]
+    apis.core.read_namespaced_pod.side_effect = [
+        make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=3),
+        make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=3),
+        make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=4),
+    ]
+    pod = make_pod(image=NEW_IMAGE, config_hash="old-hash", restart_count=2)
+
+    await sql_exporter.update_pod("ns", pod, NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert apis.core.read_namespaced_pod.await_count == 3
+
+
+async def test_unverified_rollout_is_confirmed_before_it_is_cleared(apis):
+    apis.core.read_namespaced_pod.return_value = make_pod(image=NEW_IMAGE)
+    pod = make_pod(image=NEW_IMAGE, rollout_from=OLD_IMAGE)
+
+    await sql_exporter.update_pod("ns", pod, NEW_IMAGE, NEW_HASH, LOGGER)
+
+    apis.core.patch_namespaced_pod.assert_awaited_once_with(
+        namespace="ns",
+        name="crate-data-hot-c-0",
+        body={"metadata": {"annotations": {SQL_EXPORTER_ROLLOUT_ANNOTATION: None}}},
+    )
+
+
+async def test_unverified_rollout_is_reverted_when_exporter_is_not_ready(apis):
+    apis.core.read_namespaced_pod.return_value = make_pod(image=NEW_IMAGE, ready=False)
+    pod = make_pod(image=NEW_IMAGE, rollout_from=OLD_IMAGE)
+
+    with pytest.raises(kopf.PermanentError):
+        await sql_exporter.update_pod("ns", pod, NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert apis.core.patch_namespaced_pod.await_args.kwargs["body"]["spec"] == {
+        "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": OLD_IMAGE}]
+    }
+
+
+async def test_stale_pod_that_is_not_running_is_reported(apis):
+    assert await sql_exporter.update_pod(
+        "ns", make_pod(phase="Pending"), NEW_IMAGE, NEW_HASH, LOGGER
+    )
+
+
+async def test_up_to_date_pod_that_is_not_running_is_not_reported(apis):
+    assert not await sql_exporter.update_pod(
+        "ns", make_pod(image=NEW_IMAGE, phase="Pending"), NEW_IMAGE, NEW_HASH, LOGGER
+    )
+
+
+async def test_pending_stale_pod_requeues_the_update(apis):
+    expected = get_sql_exporter_config(None, "c", {})
+    apis.core.read_namespaced_config_map.return_value = V1ConfigMap(data=expected.data)
+    apis.core.list_namespaced_pod.return_value.items = [make_pod(phase="Pending")]
+    apis.core.read_namespaced_pod.return_value = make_pod(phase="Pending")
+    apis.apps.list_namespaced_stateful_set.return_value.items = []
+
+    with pytest.raises(kopf.TemporaryError):
+        await sql_exporter.update_sql_exporter("ns", "c", LOGGER)
+
+
 async def test_pods_are_updated_one_after_the_other(apis):
     apis.core.list_namespaced_pod.return_value.items = [
         make_pod(name="crate-data-hot-c-1"),
@@ -282,7 +369,8 @@ async def test_pods_are_updated_one_after_the_other(apis):
     events = []
 
     async def patch_pod(namespace, name, body):
-        events.append(("patch", name))
+        if "spec" in body:
+            events.append(("patch", name))
 
     async def read_pod(namespace, name):
         if ("patch", name) not in events:
