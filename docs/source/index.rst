@@ -14,6 +14,7 @@ CrateDB_ inside Kubernetes_.
    concepts
    crd-reference
    openshift
+   upgrading-exporters
    development
    changelog
    deprecation
