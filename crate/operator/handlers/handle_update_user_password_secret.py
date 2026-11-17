@@ -67,7 +67,6 @@ async def update_user_password_secret(
             for crate_custom_object in custom_objects["items"]:
                 for user_spec in crate_custom_object["spec"]["users"]:
                     expected_field_path = (
-                        "data",
                         user_spec["password"]["secretKeyRef"]["key"],
                     )
                     if (
