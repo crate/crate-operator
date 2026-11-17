@@ -169,6 +169,9 @@ expected to use upper case letters and must be prefixed with
    CrateDB exports metrics via the JMX protocol. This is the version of the
    exporter to be used.
 
+   The version is applied when a cluster is created. To change it on existing
+   clusters, see :ref:`upgrading-exporters`.
+
 .. envvar:: KUBECONFIG
 
    If defined, it needs to point to a valid Kubernetes configuration file. Due
@@ -205,6 +208,17 @@ expected to use upper case letters and must be prefixed with
    timeouts.
 
    The default value is ``14400`` seconds. The Helm chart sets it to ``3600``.
+
+.. envvar:: SQL_EXPORTER_IMAGE
+
+   The image of the SQL exporter sidecar that runs in every CrateDB pod and
+   exposes metrics gathered through SQL queries.
+
+   The image is applied when a cluster is created. To change it on existing
+   clusters, see :ref:`upgrading-exporters`.
+
+   The default changes between operator releases; the :doc:`changelog
+   <changelog>` lists the version each release ships.
 
 .. envvar:: TESTING
 

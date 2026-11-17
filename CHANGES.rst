@@ -5,6 +5,8 @@ Changelog
 Unreleased
 ----------
 
+* Documented how to upgrade JMX and SQL exporters on existing clusters.
+
 * Bumped sql_exporter to ``0.24.13`` for CVE fixes.
 
 * Update user password secret only when the secret's data changes.
