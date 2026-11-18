@@ -1632,7 +1632,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
 
             for job in jobs.items:
                 job_name = job.metadata.name
-                labels = job.metadata.labels
+                labels = job.metadata.labels or {}
                 if (
                     labels.get("app.kubernetes.io/component") == "backup"
                     and labels.get("app.kubernetes.io/name") == name
@@ -1692,7 +1692,7 @@ class BeforeClusterUpdateSubHandler(StateBasedSubHandler):
             )
             for job in jobs.items:
                 job_name = job.metadata.name
-                labels = job.metadata.labels
+                labels = job.metadata.labels or {}
                 job_status: V1JobStatus = job.status
                 if (
                     labels.get("app.kubernetes.io/component") == "backup"
