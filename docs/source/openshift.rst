@@ -32,7 +32,8 @@ The operator adapts to these constraints when ``CLOUD_PROVIDER`` is set to
    decommission (``dc_util --min-availability PRIMARIES``) is **not
    performed** on OpenShift. During rolling updates or pod evictions,
    shard availability may be temporarily reduced. Plan maintenance
-   windows accordingly and monitor shard replication status.
+   windows accordingly and monitor shard replication status. See
+   :ref:`kubernetes-maintenance` for a manual procedure.
 
 
 Architecture Changes
