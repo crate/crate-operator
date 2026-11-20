@@ -11,6 +11,9 @@ Unreleased
 
 * Update user password secret only when the secret's data changes.
 
+* Fixed cluster updates failing when an unlabeled CronJob or Job exists in the
+  cluster's namespace.
+
 2.66.0 (2026-10-27)
 -------------------
 
