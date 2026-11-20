@@ -1007,3 +1007,93 @@ class TestHoldRoutingAllocation:
             for mode in ("TRANSIENT", "PERSISTENT")
         ]
         mock_reset.assert_not_awaited()
+
+
+def _k8s_job(name, labels, active=None, suspend=False):
+    job = mock.Mock()
+    job.metadata.name = name
+    job.metadata.labels = labels
+    job.status.active = active
+    job.spec.suspend = suspend
+    return job
+
+
+def _backup_labels(name):
+    return {
+        "app.kubernetes.io/component": "backup",
+        "app.kubernetes.io/name": name,
+    }
+
+
+@contextlib.contextmanager
+def _batch_api(cron_jobs=(), jobs=()):
+    batch = mock.Mock()
+    batch.list_namespaced_cron_job = mock.AsyncMock(
+        return_value=mock.Mock(items=list(cron_jobs))
+    )
+    batch.list_namespaced_job = mock.AsyncMock(return_value=mock.Mock(items=list(jobs)))
+    batch.patch_namespaced_cron_job = mock.AsyncMock()
+    with mock.patch("crate.operator.operations.GlobalApiClient"):
+        with mock.patch("crate.operator.operations.BatchV1Api", return_value=batch):
+            yield batch
+
+
+class TestUnlabeledBackupJobs:
+    """
+    Kubernetes returns ``metadata.labels = None`` for objects without labels.
+    Such CronJobs/Jobs in the namespace must not break the update handlers.
+    """
+
+    @pytest.mark.asyncio
+    async def test_suspend_skips_unlabeled_cronjob(self):
+        cron_jobs = [
+            _k8s_job("unlabeled", None),
+            _k8s_job("create-snapshot-c", _backup_labels("c")),
+        ]
+        with _batch_api(cron_jobs=cron_jobs) as batch:
+            result = await BeforeClusterUpdateSubHandler._ensure_cronjob_suspended(
+                "ns", "c", {}, mock.Mock()
+            )
+
+        batch.patch_namespaced_cron_job.assert_awaited_once_with(
+            "create-snapshot-c", "ns", {"spec": {"suspend": True}}
+        )
+        assert result is not None
+        assert result["cronjob_name"] == "create-snapshot-c"
+
+    @pytest.mark.asyncio
+    async def test_suspend_with_only_unlabeled_cronjob_is_a_noop(self):
+        with _batch_api(cron_jobs=[_k8s_job("unlabeled", None)]) as batch:
+            result = await BeforeClusterUpdateSubHandler._ensure_cronjob_suspended(
+                "ns", "c", {}, mock.Mock()
+            )
+
+        assert result is None
+        batch.patch_namespaced_cron_job.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_running_check_skips_unlabeled_job(self):
+        handler = mock.Mock(spec=BeforeClusterUpdateSubHandler)
+        jobs = [
+            _k8s_job("unlabeled", None, active=1),
+            _k8s_job("create-snapshot-c-123", _backup_labels("c"), active=None),
+        ]
+        with _batch_api(jobs=jobs):
+            # should not raise: the only active job is not a backup job.
+            await BeforeClusterUpdateSubHandler._ensure_no_backup_cronjobs_running(
+                handler, "ns", "c", mock.Mock()
+            )
+
+    @pytest.mark.asyncio
+    async def test_running_check_still_detects_active_backup_job(self):
+        handler = mock.Mock(spec=BeforeClusterUpdateSubHandler)
+        jobs = [
+            _k8s_job("unlabeled", None),
+            _k8s_job("create-snapshot-c-123", _backup_labels("c"), active=1),
+        ]
+        with _batch_api(jobs=jobs):
+            with mock.patch("crate.operator.operations.kopf.execute", mock.AsyncMock()):
+                with pytest.raises(kopf.TemporaryError):
+                    await BeforeClusterUpdateSubHandler._ensure_no_backup_cronjobs_running(  # noqa: E501
+                        handler, "ns", "c", mock.Mock()
+                    )
