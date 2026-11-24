@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+2.66.1 (2026-11-24)
+-------------------
+
 * Documented how to upgrade JMX and SQL exporters on existing clusters.
 
 * Bumped sql_exporter to ``0.24.13`` for CVE fixes.
