@@ -5,6 +5,9 @@ Changelog
 Unreleased
 ----------
 
+* Documented how to upgrade or replace Kubernetes nodes running CrateDB
+  safely.
+
 * Documented how to upgrade JMX and SQL exporters on existing clusters.
 
 * Bumped sql_exporter to ``0.24.13`` for CVE fixes.
