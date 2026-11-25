@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.utils import wait_for_kopf_handler
+from tests.utils import _describe_handler_state, wait_for_kopf_handler
 
 HANDLER = "operator.cloud.crate.io/cluster_create"
 
@@ -70,6 +70,89 @@ async def test_returns_when_handler_finished_before_first_poll():
 
 
 @pytest.mark.asyncio
+async def test_returns_when_dotted_subhandler_finished_before_first_poll():
+    """The annotation of a sub-handler is ``parent.child`` while kopf records
+    its status as ``parent/child``; the wait must match them."""
+    status = {"cluster_create/bootstrap": {"success": True}}
+    await wait_for_kopf_handler(
+        _coapi(_cratedb(status=status)),
+        "n",
+        "ns",
+        f"{HANDLER}.bootstrap",
+        timeout=TIMEOUT,
+        delay=DELAY,
+    )
+
+
+@pytest.mark.asyncio
+async def test_returns_for_field_path_subhandler_with_dots_in_its_id():
+    status = {"cluster_restore/spec.cluster.restoreSnapshot": {"success": True}}
+    await wait_for_kopf_handler(
+        _coapi(_cratedb(status=status)),
+        "n",
+        "ns",
+        "operator.cloud.crate.io/cluster_restore.spec.cluster.restoreSnapshot",
+        timeout=TIMEOUT,
+        delay=DELAY,
+    )
+
+
+@pytest.mark.asyncio
+async def test_returns_for_nested_subhandler_of_a_field_handler():
+    status = {
+        "cluster_restore/spec.cluster.restoreSnapshot/before_restore_backup": {
+            "success": True
+        }
+    }
+    await wait_for_kopf_handler(
+        _coapi(_cratedb(status=status)),
+        "n",
+        "ns",
+        "operator.cloud.crate.io/cluster_restore."
+        "spec.cluster.restoreSnapshot.before_restore_backup",
+        timeout=TIMEOUT,
+        delay=DELAY,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler_name",
+    [
+        "operator.cloud.crate.io/cluster_restore/spec.cluster.restoreSnapshot",
+        "operator.cloud.crate.io/cluster_restore.spec.cluster.restoreSnapshot",
+        "cluster_restore.spec.cluster.restoreSnapshot",
+        "cluster_restore/spec.cluster.restoreSnapshot",
+    ],
+)
+async def test_handler_name_forms_resolve_to_the_same_status_key(handler_name):
+    status = {"cluster_restore/spec.cluster.restoreSnapshot": {"success": True}}
+    await wait_for_kopf_handler(
+        _coapi(_cratedb(status=status)),
+        "n",
+        "ns",
+        handler_name,
+        timeout=TIMEOUT,
+        delay=DELAY,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dotted_subhandler_does_not_match_a_sibling():
+    status = {"cluster_create/services": {"success": True}}
+    with _no_pods():
+        with pytest.raises(AssertionError, match="did not finish within"):
+            await wait_for_kopf_handler(
+                _coapi(_cratedb(status=status)),
+                "n",
+                "ns",
+                f"{HANDLER}.bootstrap",
+                timeout=TIMEOUT,
+                delay=DELAY,
+            )
+
+
+@pytest.mark.asyncio
 async def test_returns_when_annotation_is_purged_while_polling():
     await _wait(
         _coapi(
@@ -85,6 +168,25 @@ async def test_times_out_while_handler_is_still_running():
     with _no_pods():
         with pytest.raises(AssertionError, match="did not finish within"):
             await _wait(coapi)
+
+
+@pytest.mark.asyncio
+async def test_timeout_prints_handler_state(capsys):
+    """pytest-rerunfailures drops a retried attempt's report, so the state has
+    to reach stdout as well as the AssertionError."""
+    coapi = _coapi(_cratedb(annotation={"started": "2026-08-11T04:32:30+00:00"}))
+    with _no_pods():
+        with pytest.raises(AssertionError, match="Handler state: annotation="):
+            await _wait(coapi)
+    assert "Handler state: annotation=" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_handler_state_reports_an_unreadable_resource():
+    coapi = MagicMock()
+    coapi.get_namespaced_custom_object = AsyncMock(side_effect=RuntimeError("down"))
+    state = await _describe_handler_state(coapi, "n", "ns", HANDLER)
+    assert state.startswith("<unavailable:")
 
 
 @pytest.mark.asyncio
