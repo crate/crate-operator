@@ -548,9 +548,13 @@ def _handler_ran(cratedb: dict, handler_name: str) -> bool:
     leaves in ``status`` survive. They tell an already-finished handler apart
     from one that has not started yet, which the annotation alone cannot.
     """
-    handler_id = handler_name.rsplit("/", 1)[-1]
-    status = cratedb.get("status") or {}
-    return any(key == handler_id or key.startswith(f"{handler_id}/") for key in status)
+    # kopf names the annotation ``parent.child`` but the status key ``parent/child``;
+    # comparing both with ``/`` folded to ``.`` also covers dotted field-path ids.
+    handler_id = handler_name.removeprefix(f"{KOPF_STATE_STORE_PREFIX}/").replace(
+        "/", "."
+    )
+    keys = (key.replace("/", ".") for key in cratedb.get("status") or {})
+    return any(key == handler_id or key.startswith(f"{handler_id}.") for key in keys)
 
 
 async def _check_kopf_handler_status(
@@ -675,9 +679,32 @@ async def wait_for_kopf_handler(
     # not, include the pods' container states so the failure points at the
     # cause (image pull, crash loop, unschedulable) instead of a bare timeout.
     pod_states = await describe_pods(CoreV1Api(coapi.api_client), namespace)
-    raise AssertionError(
+    handler_state = await _describe_handler_state(coapi, name, namespace, handler_name)
+    message = (
         f"Handler '{handler_name}' did not finish within {timeout}s.\n"
+        f"Handler state: {handler_state}\n"
         f"Pod states:\n{pod_states}"
+    )
+    # pytest-rerunfailures drops a retried attempt's report; stdout stays in the -s log.
+    print(message, flush=True)
+    raise AssertionError(message)
+
+
+async def _describe_handler_state(coapi, name, namespace, handler_name) -> str:
+    try:
+        cratedb = await coapi.get_namespaced_custom_object(
+            group=API_GROUP,
+            version="v1",
+            plural=RESOURCE_CRATEDB,
+            namespace=namespace,
+            name=name,
+        )
+    except Exception as exc:  # diagnostics must not mask the timeout
+        return f"<unavailable: {exc!r}>"
+    annotation = cratedb["metadata"].get("annotations", {}).get(handler_name)
+    return (
+        f"annotation={annotation!r} ran={_handler_ran(cratedb, handler_name)} "
+        f"status_keys={sorted(cratedb.get('status') or {})}"
     )
 
 
