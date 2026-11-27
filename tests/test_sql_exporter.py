@@ -57,6 +57,7 @@ from crate.operator.constants import (
     SQL_EXPORTER_CONTAINER,
     SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION,
     SQL_EXPORTER_ROLLOUT_ANNOTATION,
+    CloudProvider,
 )
 from crate.operator.create import get_sql_exporter_config
 
@@ -153,6 +154,23 @@ def apis():
         mock.patch.object(sql_exporter, "_exec", mock.AsyncMock()) as exec_,
     ):
         yield mock.Mock(core=core, apps=apps, exec=exec_)
+
+
+@pytest.mark.parametrize(
+    "enabled, provider, expected",
+    [
+        (True, CloudProvider.AWS, True),
+        (True, None, True),
+        (False, CloudProvider.AWS, False),
+        (True, CloudProvider.OPENSHIFT, False),
+    ],
+)
+def test_auto_update_is_not_run_on_openshift(enabled, provider, expected):
+    with (
+        mock.patch.object(config, "SQL_EXPORTER_AUTO_UPDATE", enabled),
+        mock.patch.object(config, "CLOUD_PROVIDER", provider),
+    ):
+        assert sql_exporter.sql_exporter_auto_update_enabled() is expected
 
 
 async def test_pod_up_to_date_is_left_alone(apis):

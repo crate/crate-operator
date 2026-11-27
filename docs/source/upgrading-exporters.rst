@@ -71,6 +71,10 @@ For each cluster the operator:
 
 3. Updates the StatefulSets, so that pods created later match.
 
+The automatic update is not available on OpenShift, where the operator is not
+allowed to run commands in pods. See :doc:`openshift`, and use the manual
+procedure below.
+
 Clusters that are already up to date are left alone. At most
 :envvar:`SQL_EXPORTER_UPDATE_CONCURRENCY` clusters are updated at the same
 time; the others wait for their turn.

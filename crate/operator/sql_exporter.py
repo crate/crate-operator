@@ -45,6 +45,7 @@ from crate.operator.constants import (
     SQL_EXPORTER_CONTAINER,
     SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION,
     SQL_EXPORTER_ROLLOUT_ANNOTATION,
+    CloudProvider,
 )
 from crate.operator.create import get_sql_exporter_config
 from crate.operator.utils.k8s_api_client import GlobalApiClient
@@ -69,6 +70,15 @@ class _PodReplaced(Exception):
 
 class _ConfigPending(kopf.TemporaryError):
     """A pod has not received the new configuration yet."""
+
+
+def sql_exporter_auto_update_enabled() -> bool:
+    # The update checks and restarts the exporter through `pod_exec`, which
+    # OpenShift's restricted SCC does not permit.
+    return (
+        config.SQL_EXPORTER_AUTO_UPDATE
+        and config.CLOUD_PROVIDER != CloudProvider.OPENSHIFT
+    )
 
 
 def _label_selector(name: str) -> str:

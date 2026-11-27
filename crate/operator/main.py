@@ -62,7 +62,10 @@ from crate.operator.operations import (
     is_namespace_terminating,
 )
 from crate.operator.restore_backup import is_valid_snapshot
-from crate.operator.sql_exporter import update_sql_exporter
+from crate.operator.sql_exporter import (
+    sql_exporter_auto_update_enabled,
+    update_sql_exporter,
+)
 from crate.operator.utils import crate
 from crate.operator.webhooks import webhook_client
 
@@ -157,7 +160,7 @@ async def cluster_create(
     "v1",
     RESOURCE_CRATEDB,
     annotations=annotation_filter(),
-    when=lambda **_: config.SQL_EXPORTER_AUTO_UPDATE,
+    when=lambda **_: sql_exporter_auto_update_enabled(),
     timeout=float(config.ROLLING_RESTART_TIMEOUT),
 )
 async def sql_exporter_update(
