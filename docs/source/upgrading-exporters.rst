@@ -67,7 +67,9 @@ For each cluster the operator:
 
 3. Updates the StatefulSets, so that pods created later match.
 
-Clusters that are already up to date are left alone.
+Clusters that are already up to date are left alone. At most
+:envvar:`SQL_EXPORTER_UPDATE_CONCURRENCY` clusters are updated at the same
+time; the others wait for their turn.
 
 .. note::
 
@@ -77,10 +79,11 @@ Clusters that are already up to date are left alone.
    Service.
 
 If the SQL exporter of a pod does not come up with the new image within five
-minutes, the operator puts the previous image back on that pod, leaves the
-remaining pods and the StatefulSets of the cluster unchanged, and does not try
-again until it is restarted. Look for ``did not start with image`` in the
-operator log.
+minutes, or the image cannot be pulled, the operator puts the previous image
+back on that pod, leaves the remaining pods and the StatefulSets of the cluster
+unchanged, and does not try again until it is restarted. If no pod has taken
+over the new configuration yet, the previous ConfigMap is restored as well.
+Look for ``did not start with image`` in the operator log.
 
 The operator records the configuration a pod has loaded in the pod annotation
 ``operator.cloud.crate.io/sql-exporter-config-hash``. Pods of clusters created

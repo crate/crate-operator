@@ -19,6 +19,7 @@
 # with Crate these terms will supersede the license and you may use the
 # software solely pursuant to the terms of the relevant commercial agreement.
 
+import asyncio
 import itertools
 import logging
 from typing import Optional
@@ -32,6 +33,8 @@ from kubernetes_asyncio.client import (
     CustomObjectsApi,
     V1ConfigMap,
     V1Container,
+    V1ContainerState,
+    V1ContainerStateWaiting,
     V1ContainerStatus,
     V1ObjectMeta,
     V1Pod,
@@ -72,6 +75,7 @@ def make_pod(
     restart_count: int = 0,
     ready: bool = True,
     phase: str = "Running",
+    waiting_reason: Optional[str] = None,
 ) -> V1Pod:
     annotations = {}
     if config_hash:
@@ -95,6 +99,13 @@ def make_pod(
                     image_id="",
                     ready=ready,
                     restart_count=restart_count,
+                    state=V1ContainerState(
+                        waiting=(
+                            V1ContainerStateWaiting(reason=waiting_reason)
+                            if waiting_reason
+                            else None
+                        )
+                    ),
                 )
             ],
         ),
@@ -361,6 +372,119 @@ async def test_pending_stale_pod_requeues_the_update(apis):
         await sql_exporter.update_sql_exporter("ns", "c", LOGGER)
 
 
+@pytest.mark.parametrize("reason", sorted(sql_exporter.IMAGE_PULL_FAILURES))
+async def test_image_that_cannot_be_pulled_is_reverted_without_waiting(apis, reason):
+    apis.core.read_namespaced_pod.return_value = make_pod(
+        image=NEW_IMAGE, ready=False, waiting_reason=reason
+    )
+
+    with pytest.raises(kopf.PermanentError):
+        await sql_exporter.update_pod("ns", make_pod(), NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert apis.core.read_namespaced_pod.await_count == 1
+    assert apis.core.patch_namespaced_pod.await_args.kwargs["body"]["spec"] == {
+        "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": OLD_IMAGE}]
+    }
+
+
+async def test_image_that_is_being_pulled_is_waited_for(apis):
+    apis.core.read_namespaced_pod.side_effect = [
+        make_pod(image=NEW_IMAGE, ready=False, waiting_reason="ContainerCreating"),
+        make_pod(image=NEW_IMAGE, restart_count=1),
+    ]
+
+    await sql_exporter.update_pod("ns", make_pod(), NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert apis.core.read_namespaced_pod.await_count == 2
+
+
+def _cluster_with_unstartable_image(apis, pods):
+    """
+    Cluster whose ConfigMap is outdated and whose stale pods never start the
+    new image.
+    """
+    new = get_sql_exporter_config(None, "c", {}).data
+    old = {"sql-exporter.yaml": "old", "gone-collector.yaml": "x"}
+    apis.exec.return_value = new[SQL_EXPORTER_CONFIG_HASH_KEY]
+    apis.core.read_namespaced_config_map.side_effect = [
+        V1ConfigMap(data=old),
+        V1ConfigMap(data=new),
+    ]
+    apis.core.list_namespaced_pod.return_value.items = pods
+    started = set()
+
+    async def patch_pod(namespace, name, body):
+        if "spec" in body:
+            started.add(name)
+
+    async def read_pod(namespace, name):
+        if name in started:
+            return make_pod(name=name, image=NEW_IMAGE, ready=False)
+        return pods_by_name[name]
+
+    pods_by_name = {pod.metadata.name: pod for pod in pods}
+    apis.core.patch_namespaced_pod.side_effect = patch_pod
+    apis.core.read_namespaced_pod.side_effect = read_pod
+    return old, new
+
+
+async def test_config_map_is_restored_when_the_first_rollout_is_reverted(apis):
+    old, new = _cluster_with_unstartable_image(
+        apis, [make_pod(name="crate-data-hot-c-0", config_hash="old-hash")]
+    )
+
+    with mock.patch.object(config, "SQL_EXPORTER_IMAGE", NEW_IMAGE):
+        with pytest.raises(kopf.PermanentError):
+            await sql_exporter.update_sql_exporter("ns", "c", LOGGER)
+
+    assert apis.core.patch_namespaced_config_map.await_args_list[-1] == mock.call(
+        namespace="ns",
+        name="crate-sql-exporter-c",
+        body={"data": {**{key: None for key in new if key not in old}, **old}},
+    )
+    apis.apps.patch_namespaced_stateful_set.assert_not_called()
+
+
+async def test_config_map_is_kept_when_a_pod_already_uses_it(apis):
+    new_hash = get_sql_exporter_config(None, "c", {}).data[SQL_EXPORTER_CONFIG_HASH_KEY]
+    _cluster_with_unstartable_image(
+        apis,
+        [
+            make_pod(name="crate-data-hot-c-0", image=NEW_IMAGE, config_hash=new_hash),
+            make_pod(name="crate-data-hot-c-1", config_hash="old-hash"),
+        ],
+    )
+
+    with mock.patch.object(config, "SQL_EXPORTER_IMAGE", NEW_IMAGE):
+        with pytest.raises(kopf.PermanentError):
+            await sql_exporter.update_sql_exporter("ns", "c", LOGGER)
+
+    apis.core.patch_namespaced_config_map.assert_awaited_once()
+
+
+async def test_cluster_updates_run_a_limited_number_at_a_time():
+    running = 0
+    peak = 0
+
+    async def update(namespace, name, logger):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0)
+        running -= 1
+
+    with (
+        mock.patch.object(sql_exporter, "_update_slots", None),
+        mock.patch.object(config, "SQL_EXPORTER_UPDATE_CONCURRENCY", 2),
+        mock.patch.object(sql_exporter, "_update_sql_exporter", update),
+    ):
+        await asyncio.gather(
+            *(sql_exporter.update_sql_exporter("ns", f"c{i}", LOGGER) for i in range(6))
+        )
+
+    assert peak == 2
+
+
 async def test_pods_are_updated_one_after_the_other(apis):
     apis.core.list_namespaced_pod.return_value.items = [
         make_pod(name="crate-data-hot-c-1"),
@@ -435,8 +559,9 @@ async def test_config_map_is_patched_and_obsolete_files_removed(apis):
     )
     data = {"sql-exporter.yaml": "new", SQL_EXPORTER_CONFIG_HASH_KEY: NEW_HASH}
 
-    assert await sql_exporter.update_config_map("ns", "c", data, LOGGER) is True
+    previous = await sql_exporter.update_config_map("ns", "c", data, LOGGER)
 
+    assert previous == {"sql-exporter.yaml": "old", "gone-collector.yaml": "x"}
     apis.core.patch_namespaced_config_map.assert_awaited_once_with(
         namespace="ns",
         name="crate-sql-exporter-c",
@@ -448,7 +573,7 @@ async def test_config_map_up_to_date_is_left_alone(apis):
     data = {"sql-exporter.yaml": "new", SQL_EXPORTER_CONFIG_HASH_KEY: NEW_HASH}
     apis.core.read_namespaced_config_map.return_value = V1ConfigMap(data=dict(data))
 
-    assert await sql_exporter.update_config_map("ns", "c", data, LOGGER) is True
+    assert await sql_exporter.update_config_map("ns", "c", data, LOGGER) == data
 
     apis.core.patch_namespaced_config_map.assert_not_called()
 

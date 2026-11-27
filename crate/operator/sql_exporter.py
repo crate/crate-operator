@@ -54,6 +54,10 @@ RETRY_DELAY = 60
 CONFIG_PROJECTION_TIMEOUT = 180
 RESTART_TIMEOUT = 300
 POLL_INTERVAL = 5
+#: Waiting reasons of a container that will not start without outside help.
+IMAGE_PULL_FAILURES = {"ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull"}
+
+_update_slots: Optional[asyncio.Semaphore] = None
 
 
 class _PodReplaced(Exception):
@@ -96,16 +100,39 @@ async def update_sql_exporter(
     an image that cannot be started is caught on a single pod before it
     reaches the pod template.
     """
+    global _update_slots
+    if _update_slots is None:
+        _update_slots = asyncio.Semaphore(config.SQL_EXPORTER_UPDATE_CONCURRENCY)
+    # A slot is held from the ConfigMap until the pods are checked, so that
+    # clusters waiting for one still run with a matching image and config.
+    async with _update_slots:
+        await _update_sql_exporter(namespace, name, logger)
+
+
+async def _update_sql_exporter(
+    namespace: str, name: str, logger: logging.Logger
+) -> None:
     image = config.SQL_EXPORTER_IMAGE
     config_map = get_sql_exporter_config(None, name, {})
     config_hash = None
+    previous_data = None
     if config_map is not None:
-        if not await update_config_map(namespace, name, config_map.data, logger):
+        previous_data = await update_config_map(
+            namespace, name, config_map.data, logger
+        )
+        if previous_data is None:
             logger.info("No SQL exporter ConfigMap found, skipping.")
             return
         config_hash = config_map.data[SQL_EXPORTER_CONFIG_HASH_KEY]
 
-    await update_pods(namespace, name, image, config_hash, logger)
+    try:
+        await update_pods(namespace, name, image, config_hash, logger)
+    except kopf.PermanentError:
+        if config_map is not None and previous_data != config_map.data:
+            await _restore_config_map(
+                namespace, name, previous_data or {}, config_hash, logger
+            )
+        raise
     await update_statefulsets(namespace, name, image, config_hash, logger)
     # Pods recreated during the first pass came from the old pod template.
     # `OnDelete` leaves a pod that is not running yet on its old exporter, so
@@ -118,11 +145,41 @@ async def update_sql_exporter(
         )
 
 
+async def _restore_config_map(
+    namespace: str,
+    name: str,
+    previous_data: Dict[str, str],
+    config_hash: Optional[str],
+    logger: logging.Logger,
+) -> None:
+    """
+    Put back the ConfigMap that was replaced for a rollout that was reverted.
+
+    A pod that already runs the new configuration needs it on its next start,
+    so nothing is restored once one exists.
+    """
+    async with GlobalApiClient() as api_client:
+        core = CoreV1Api(api_client)
+        pods = await core.list_namespaced_pod(
+            namespace=namespace, label_selector=_label_selector(name)
+        )
+    if any(
+        _annotations(pod.metadata).get(SQL_EXPORTER_CONFIG_HASH_ANNOTATION)
+        == config_hash
+        for pod in pods.items
+    ):
+        logger.warning("Keeping the new SQL exporter ConfigMap, a pod already uses it.")
+        return
+    logger.warning("Restoring the previous SQL exporter ConfigMap.")
+    await update_config_map(namespace, name, previous_data, logger)
+
+
 async def update_config_map(
     namespace: str, name: str, data: Dict[str, str], logger: logging.Logger
-) -> bool:
+) -> Optional[Dict[str, str]]:
     """
-    :returns: ``False`` if the cluster has no SQL exporter ConfigMap.
+    :returns: The data the ConfigMap had before, or ``None`` if the cluster has
+        no SQL exporter ConfigMap.
     """
     config_map_name = f"crate-sql-exporter-{name}"
     async with GlobalApiClient() as api_client:
@@ -133,12 +190,12 @@ async def update_config_map(
             )
         except ApiException as e:
             if e.status == 404:
-                return False
+                return None
             raise
 
         existing_data = existing.data or {}
         if existing_data == data:
-            return True
+            return existing_data
 
         body: Dict[str, Any] = {
             "data": {**{key: None for key in existing_data if key not in data}, **data}
@@ -147,7 +204,7 @@ async def update_config_map(
         await core.patch_namespaced_config_map(
             namespace=namespace, name=config_map_name, body=body
         )
-    return True
+    return existing_data
 
 
 async def update_statefulsets(
@@ -434,6 +491,9 @@ async def _wait_for_restart(
         if pod is None or pod.metadata.uid != uid:
             raise _PodReplaced()
         status = _container_status(pod)
+        waiting = status.state.waiting if status and status.state else None
+        if waiting is not None and waiting.reason in IMAGE_PULL_FAILURES:
+            return False
         if (
             status
             and status.ready

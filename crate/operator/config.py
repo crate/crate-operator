@@ -184,6 +184,9 @@ class Config:
     #: when the operator starts.
     SQL_EXPORTER_AUTO_UPDATE: bool = False
 
+    #: The number of clusters whose SQL exporter is updated at the same time.
+    SQL_EXPORTER_UPDATE_CONCURRENCY: int = 3
+
     #: Name of the secret containing credentials to access the source
     #: backup when restoring a snapshot.
     RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
@@ -424,6 +427,15 @@ class Config:
             "SQL_EXPORTER_AUTO_UPDATE", default=str(self.SQL_EXPORTER_AUTO_UPDATE)
         )
         self.SQL_EXPORTER_AUTO_UPDATE = sql_exporter_auto_update.lower() == "true"
+        self.SQL_EXPORTER_UPDATE_CONCURRENCY = max(
+            1,
+            int(
+                self.env(
+                    "SQL_EXPORTER_UPDATE_CONCURRENCY",
+                    default=str(self.SQL_EXPORTER_UPDATE_CONCURRENCY),
+                )
+            ),
+        )
 
         self.GC_SENTRY_DSN = self.env("GC_SENTRY_DSN", default=self.GC_SENTRY_DSN)
 

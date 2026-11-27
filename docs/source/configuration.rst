@@ -217,6 +217,14 @@ expected to use upper case letters and must be prefixed with
 
    The default value is ``false``.
 
+.. envvar:: SQL_EXPORTER_UPDATE_CONCURRENCY
+
+   The number of clusters whose SQL exporter is updated at the same time when
+   :envvar:`SQL_EXPORTER_AUTO_UPDATE` is enabled. Lower it to restart fewer
+   exporters at once, or raise it to get through many clusters faster.
+
+   The default value is ``3``.
+
 .. envvar:: SQL_EXPORTER_IMAGE
 
    The image of the SQL exporter sidecar that runs in every CrateDB pod and

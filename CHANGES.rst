@@ -19,7 +19,9 @@ Unreleased
 
 * Added ``SQL_EXPORTER_AUTO_UPDATE``. When enabled, the operator updates the
   sql_exporter image and configuration of existing clusters when it starts,
-  restarting only the ``sql-exporter`` container, one pod at a time.
+  restarting only the ``sql-exporter`` container, one pod at a time. The
+  number of clusters updated at once is set with
+  ``SQL_EXPORTER_UPDATE_CONCURRENCY``.
 
 2.66.0 (2026-10-27)
 -------------------
