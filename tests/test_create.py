@@ -1947,7 +1947,7 @@ def test_sql_exporter_config():
 
     _, _, filenames = next(walk("crate/operator/data"))
 
-    assert len(result.data) == len(filenames)
+    assert len(result.data) == len(filenames) + 1
     for filename in filenames:
         assert filename in result.data.keys()
         assert result.data[filename] is not None

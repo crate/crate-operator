@@ -209,13 +209,31 @@ expected to use upper case letters and must be prefixed with
 
    The default value is ``14400`` seconds. The Helm chart sets it to ``3600``.
 
+.. envvar:: SQL_EXPORTER_AUTO_UPDATE
+
+   When set to ``true``, the operator updates the SQL exporter image and
+   configuration of existing clusters each time it starts. See
+   :ref:`upgrading-sql-exporter-automatically`.
+
+   The default value is ``false``, also in the Helm chart. It has no effect
+   when :envvar:`CLOUD_PROVIDER` is ``openshift``.
+
+.. envvar:: SQL_EXPORTER_UPDATE_CONCURRENCY
+
+   The number of clusters whose SQL exporter is updated at the same time when
+   :envvar:`SQL_EXPORTER_AUTO_UPDATE` is enabled. Lower it to restart fewer
+   exporters at once, or raise it to get through many clusters faster.
+
+   The default value is ``3``.
+
 .. envvar:: SQL_EXPORTER_IMAGE
 
    The image of the SQL exporter sidecar that runs in every CrateDB pod and
    exposes metrics gathered through SQL queries.
 
-   The image is applied when a cluster is created. To change it on existing
-   clusters, see :ref:`upgrading-exporters`.
+   The image is applied when a cluster is created. Existing clusters follow
+   it only if :envvar:`SQL_EXPORTER_AUTO_UPDATE` is enabled; otherwise see
+   :ref:`upgrading-exporters`.
 
    The default changes between operator releases; the :doc:`changelog
    <changelog>` lists the version each release ships.

@@ -10,11 +10,15 @@ Every CrateDB pod created by the operator ships two metrics exporters:
 - The `SQL Exporter`_, a sidecar container named ``sql-exporter``. Its image is
   set with :envvar:`SQL_EXPORTER_IMAGE`.
 
-The operator writes both settings into the StatefulSets of a cluster **only
-when the cluster is created**. Changing the settings, or upgrading to an
-operator release that ships newer defaults, affects new clusters only.
-Existing clusters keep the versions they were created with until their
-StatefulSets are changed by hand, as described on this page.
+By default, the operator writes both settings into the StatefulSets of a
+cluster **only when the cluster is created**. Changing the settings, or
+upgrading to an operator release that ships newer defaults, affects new
+clusters only. Existing clusters keep the versions they were created with
+until their StatefulSets are changed.
+
+The SQL exporter can be updated by the operator itself, see
+:ref:`upgrading-sql-exporter-automatically`. The JMX exporter has to be
+changed by hand.
 
 The :doc:`changelog <changelog>` lists the exporter versions each operator
 release ships.
@@ -41,8 +45,65 @@ A cluster has one StatefulSet per node definition (``crate-master-$NAME`` and
 of their pods.
 
 
-Upgrading the SQL Exporter
---------------------------
+.. _upgrading-sql-exporter-automatically:
+
+Upgrading the SQL Exporter Automatically
+----------------------------------------
+
+The Helm chart leaves :envvar:`SQL_EXPORTER_AUTO_UPDATE` disabled. Set
+``env.CRATEDB_OPERATOR_SQL_EXPORTER_AUTO_UPDATE`` to ``"true"`` in the chart
+values to enable it, or see :ref:`upgrading-sql-exporter-manually`.
+
+With :envvar:`SQL_EXPORTER_AUTO_UPDATE` set to ``true``, the operator brings
+the SQL exporter of every existing cluster to its own
+:envvar:`SQL_EXPORTER_IMAGE` and to the exporter configuration it ships. It
+does so each time the operator starts, which covers both a changed setting
+and an operator upgrade.
+
+For each cluster the operator:
+
+1. Updates the ConfigMap ``crate-sql-exporter-$NAME``.
+
+2. Goes through the running pods one at a time. It restarts only the
+   ``sql-exporter`` container, and waits for it to be ready before moving on
+   to the next pod. The ``crate`` container keeps running and the pods are not
+   recreated.
+
+3. Updates the StatefulSets, so that pods created later match.
+
+The automatic update is not available on OpenShift, where the operator is not
+allowed to run commands in pods. See :doc:`openshift`, and use the manual
+procedure below.
+
+Clusters that are already up to date are left alone. At most
+:envvar:`SQL_EXPORTER_UPDATE_CONCURRENCY` clusters are updated at the same
+time; the others wait for their turn.
+
+.. note::
+
+   A pod is not ready while one of its containers restarts. During the
+   restart of its SQL exporter, which takes a few seconds plus the time to
+   pull a new image, a pod receives no new connections through the cluster's
+   Service.
+
+If the SQL exporter of a pod does not come up with the new image within five
+minutes, or the image cannot be pulled, the operator puts the previous image
+back on that pod, leaves the remaining pods and the StatefulSets of the cluster
+unchanged, and does not try again until it is restarted. If no pod has taken
+over the new configuration yet, the previous ConfigMap is restored as well.
+Look for ``did not start with image`` in the operator log.
+
+The operator records the configuration a pod has loaded in the pod annotation
+``operator.cloud.crate.io/sql-exporter-config-hash``. Pods of clusters created
+by an operator release without this feature do not have the annotation, so
+their SQL exporter is restarted once when the feature is first enabled, even
+if nothing else changed.
+
+
+.. _upgrading-sql-exporter-manually:
+
+Upgrading the SQL Exporter Manually
+-----------------------------------
 
 The SQL exporter runs in its own container, so it can be upgraded without
 restarting CrateDB and without recreating the pods.

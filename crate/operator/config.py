@@ -180,6 +180,13 @@ class Config:
     #: The sql_exporter image to use
     SQL_EXPORTER_IMAGE: str = "burningalchemist/sql_exporter:0.24.13"
 
+    #: Update the sql_exporter image and configuration of existing clusters
+    #: when the operator starts.
+    SQL_EXPORTER_AUTO_UPDATE: bool = False
+
+    #: The number of clusters whose SQL exporter is updated at the same time.
+    SQL_EXPORTER_UPDATE_CONCURRENCY: int = 3
+
     #: Name of the secret containing credentials to access the source
     #: backup when restoring a snapshot.
     RESTORE_BACKUP_SECRET_NAME = "restore-from-backup-{name}"
@@ -416,6 +423,23 @@ class Config:
         self.SQL_EXPORTER_IMAGE = self.env(
             "SQL_EXPORTER_IMAGE", default=self.SQL_EXPORTER_IMAGE
         )
+        sql_exporter_auto_update = self.env(
+            "SQL_EXPORTER_AUTO_UPDATE", default=str(self.SQL_EXPORTER_AUTO_UPDATE)
+        )
+        self.SQL_EXPORTER_AUTO_UPDATE = sql_exporter_auto_update.lower() == "true"
+        sql_exporter_concurrency = self.env(
+            "SQL_EXPORTER_UPDATE_CONCURRENCY",
+            default=str(self.SQL_EXPORTER_UPDATE_CONCURRENCY),
+        )
+        try:
+            self.SQL_EXPORTER_UPDATE_CONCURRENCY = int(sql_exporter_concurrency)
+        except ValueError:
+            self.SQL_EXPORTER_UPDATE_CONCURRENCY = 0
+        if self.SQL_EXPORTER_UPDATE_CONCURRENCY < 1:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}SQL_EXPORTER_UPDATE_CONCURRENCY="
+                f"'{sql_exporter_concurrency}'. Needs to be a positive integer."
+            )
 
         self.GC_SENTRY_DSN = self.env("GC_SENTRY_DSN", default=self.GC_SENTRY_DSN)
 
