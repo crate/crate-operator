@@ -50,6 +50,10 @@ of their pods.
 Upgrading the SQL Exporter Automatically
 ----------------------------------------
 
+The Helm chart leaves :envvar:`SQL_EXPORTER_AUTO_UPDATE` disabled. Set
+``env.CRATEDB_OPERATOR_SQL_EXPORTER_AUTO_UPDATE`` to ``"true"`` in the chart
+values to enable it, or see :ref:`upgrading-sql-exporter-manually`.
+
 With :envvar:`SQL_EXPORTER_AUTO_UPDATE` set to ``true``, the operator brings
 the SQL exporter of every existing cluster to its own
 :envvar:`SQL_EXPORTER_IMAGE` and to the exporter configuration it ships. It
@@ -91,6 +95,8 @@ by an operator release without this feature do not have the annotation, so
 their SQL exporter is restarted once when the feature is first enabled, even
 if nothing else changed.
 
+
+.. _upgrading-sql-exporter-manually:
 
 Upgrading the SQL Exporter Manually
 -----------------------------------

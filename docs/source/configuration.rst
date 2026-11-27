@@ -215,7 +215,7 @@ expected to use upper case letters and must be prefixed with
    configuration of existing clusters each time it starts. See
    :ref:`upgrading-sql-exporter-automatically`.
 
-   The default value is ``false``.
+   The default value is ``false``, also in the Helm chart.
 
 .. envvar:: SQL_EXPORTER_UPDATE_CONCURRENCY
 
