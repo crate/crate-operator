@@ -57,7 +57,7 @@ setup(
         "PyYAML<7.0",
         "prometheus_client==0.26.0",
         "aiohttp==3.14.5",
-        "verlib2==0.3.2",
+        "verlib2==26.2",
         "wrapt==2.5.1",
         "python-json-logger==4.2.0",
         "httpx==0.28.1",
