@@ -45,6 +45,11 @@ SQL_EXPORTER_CONFIG_HASH_ANNOTATION = f"operator.{API_GROUP}/sql-exporter-config
 #: Set on a pod while its exporter image change is unverified; holds the image to
 #: revert to.
 SQL_EXPORTER_ROLLOUT_ANNOTATION = f"operator.{API_GROUP}/sql-exporter-rollout-from"
+#: Set on the SQL exporter ConfigMap; holds the data it had before the last
+#: update, as JSON.
+SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION = (
+    f"operator.{API_GROUP}/sql-exporter-previous-config"
+)
 
 # external-dns v0.22.0 changed its default annotation prefix from
 # "external-dns.alpha.kubernetes.io/" to "external-dns.kubernetes.io/" with no

@@ -21,6 +21,7 @@
 
 import asyncio
 import itertools
+import json
 import logging
 from typing import Optional
 from unittest import mock
@@ -54,6 +55,7 @@ from crate.operator.constants import (
     SQL_EXPORTER_CONFIG_HASH_ANNOTATION,
     SQL_EXPORTER_CONFIG_HASH_KEY,
     SQL_EXPORTER_CONTAINER,
+    SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION,
     SQL_EXPORTER_ROLLOUT_ANNOTATION,
 )
 from crate.operator.create import get_sql_exporter_config
@@ -440,7 +442,14 @@ async def test_config_map_is_restored_when_the_first_rollout_is_reverted(apis):
     assert apis.core.patch_namespaced_config_map.await_args_list[-1] == mock.call(
         namespace="ns",
         name="crate-sql-exporter-c",
-        body={"data": {**{key: None for key in new if key not in old}, **old}},
+        body={
+            "metadata": {
+                "annotations": {
+                    SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION: json.dumps(new)
+                }
+            },
+            "data": {**{key: None for key in new if key not in old}, **old},
+        },
     )
     apis.apps.patch_namespaced_stateful_set.assert_not_called()
 
@@ -462,27 +471,112 @@ async def test_config_map_is_kept_when_a_pod_already_uses_it(apis):
     apis.core.patch_namespaced_config_map.assert_awaited_once()
 
 
-async def test_cluster_updates_run_a_limited_number_at_a_time():
-    running = 0
-    peak = 0
+async def test_cluster_updates_beyond_the_limit_are_requeued():
+    release = asyncio.Event()
 
     async def update(namespace, name, logger):
-        nonlocal running, peak
-        running += 1
-        peak = max(peak, running)
-        await asyncio.sleep(0)
-        running -= 1
+        await release.wait()
 
     with (
         mock.patch.object(sql_exporter, "_update_slots", None),
         mock.patch.object(config, "SQL_EXPORTER_UPDATE_CONCURRENCY", 2),
         mock.patch.object(sql_exporter, "_update_sql_exporter", update),
     ):
-        await asyncio.gather(
-            *(sql_exporter.update_sql_exporter("ns", f"c{i}", LOGGER) for i in range(6))
-        )
+        running = [
+            asyncio.ensure_future(
+                sql_exporter.update_sql_exporter("ns", f"c{i}", LOGGER)
+            )
+            for i in range(2)
+        ]
+        await asyncio.sleep(0)
 
-    assert peak == 2
+        with pytest.raises(kopf.TemporaryError):
+            await sql_exporter.update_sql_exporter("ns", "c2", LOGGER)
+
+        release.set()
+        await asyncio.gather(*running)
+        await sql_exporter.update_sql_exporter("ns", "c2", LOGGER)
+
+
+async def test_statefulset_is_not_patched_while_a_stale_pod_is_not_running(apis):
+    expected = get_sql_exporter_config(None, "c", {})
+    apis.core.read_namespaced_config_map.return_value = V1ConfigMap(data=expected.data)
+    apis.core.list_namespaced_pod.return_value.items = [make_pod(phase="Pending")]
+    apis.core.read_namespaced_pod.return_value = make_pod(phase="Pending")
+    apis.apps.list_namespaced_stateful_set.return_value.items = [make_statefulset()]
+
+    with pytest.raises(kopf.TemporaryError):
+        await sql_exporter.update_sql_exporter("ns", "c", LOGGER)
+
+    apis.apps.patch_namespaced_stateful_set.assert_not_called()
+
+
+async def test_pod_without_projected_config_does_not_hold_back_the_others(apis):
+    apis.exec.return_value = "old-hash"
+    pods = {
+        "crate-data-hot-c-0": make_pod(
+            name="crate-data-hot-c-0", image=NEW_IMAGE, config_hash=None
+        ),
+        "crate-data-hot-c-1": make_pod(name="crate-data-hot-c-1"),
+    }
+    apis.core.list_namespaced_pod.return_value.items = list(pods.values())
+    patched = []
+
+    async def patch_pod(namespace, name, body):
+        if "spec" in body:
+            patched.append(name)
+
+    async def read_pod(namespace, name):
+        if name in patched:
+            return make_pod(name=name, image=NEW_IMAGE, restart_count=1)
+        return pods[name]
+
+    apis.core.patch_namespaced_pod.side_effect = patch_pod
+    apis.core.read_namespaced_pod.side_effect = read_pod
+
+    with pytest.raises(kopf.TemporaryError):
+        await sql_exporter.update_pods("ns", "c", NEW_IMAGE, NEW_HASH, LOGGER)
+
+    assert patched == ["crate-data-hot-c-1"]
+
+
+async def test_config_map_replaced_by_an_earlier_attempt_returns_the_original(apis):
+    data = {"sql-exporter.yaml": "new", SQL_EXPORTER_CONFIG_HASH_KEY: NEW_HASH}
+    original = {"sql-exporter.yaml": "old"}
+    apis.core.read_namespaced_config_map.return_value = V1ConfigMap(
+        data=dict(data),
+        metadata=V1ObjectMeta(
+            annotations={SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION: json.dumps(original)}
+        ),
+    )
+
+    assert await sql_exporter.update_config_map("ns", "c", data, LOGGER) == original
+    apis.core.patch_namespaced_config_map.assert_not_called()
+
+
+async def test_revert_goes_back_to_the_image_recorded_by_the_interrupted_rollout(apis):
+    apis.core.read_namespaced_pod.return_value = make_pod(image="other", ready=False)
+    pod = make_pod(image="interrupted", rollout_from=OLD_IMAGE)
+
+    with pytest.raises(kopf.PermanentError):
+        await sql_exporter.update_pod("ns", pod, "other", NEW_HASH, LOGGER)
+
+    assert apis.core.patch_namespaced_pod.await_args.kwargs["body"]["spec"] == {
+        "containers": [{"name": SQL_EXPORTER_CONTAINER, "image": OLD_IMAGE}]
+    }
+
+
+async def test_exec_that_hangs_is_given_up_on():
+    async def hang(**_):
+        await asyncio.sleep(60)
+
+    core_ws = mock.Mock(connect_get_namespaced_pod_exec=hang)
+    with (
+        mock.patch.object(sql_exporter, "WsApiClient"),
+        mock.patch.object(sql_exporter, "CoreV1Api", return_value=core_ws),
+        mock.patch.object(sql_exporter, "EXEC_TIMEOUT", 0.01),
+    ):
+        assert await sql_exporter._exec("ns", "pod", ["true"], LOGGER) is None
 
 
 async def test_pods_are_updated_one_after_the_other(apis):
@@ -565,7 +659,16 @@ async def test_config_map_is_patched_and_obsolete_files_removed(apis):
     apis.core.patch_namespaced_config_map.assert_awaited_once_with(
         namespace="ns",
         name="crate-sql-exporter-c",
-        body={"data": {"gone-collector.yaml": None, **data}},
+        body={
+            "metadata": {
+                "annotations": {
+                    SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION: json.dumps(
+                        {"sql-exporter.yaml": "old", "gone-collector.yaml": "x"}
+                    )
+                }
+            },
+            "data": {"gone-collector.yaml": None, **data},
+        },
     )
 
 

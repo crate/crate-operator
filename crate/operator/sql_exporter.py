@@ -20,6 +20,7 @@
 # software solely pursuant to the terms of the relevant commercial agreement.
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -42,6 +43,7 @@ from crate.operator.constants import (
     SQL_EXPORTER_CONFIG_HASH_ANNOTATION,
     SQL_EXPORTER_CONFIG_HASH_KEY,
     SQL_EXPORTER_CONTAINER,
+    SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION,
     SQL_EXPORTER_ROLLOUT_ANNOTATION,
 )
 from crate.operator.create import get_sql_exporter_config
@@ -54,6 +56,7 @@ RETRY_DELAY = 60
 CONFIG_PROJECTION_TIMEOUT = 180
 RESTART_TIMEOUT = 300
 POLL_INTERVAL = 5
+EXEC_TIMEOUT = 30
 #: Waiting reasons of a container that will not start without outside help.
 IMAGE_PULL_FAILURES = {"ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull"}
 
@@ -62,6 +65,10 @@ _update_slots: Optional[asyncio.Semaphore] = None
 
 class _PodReplaced(Exception):
     """The pod being rolled out is gone or was recreated under the same name."""
+
+
+class _ConfigPending(kopf.TemporaryError):
+    """A pod has not received the new configuration yet."""
 
 
 def _label_selector(name: str) -> str:
@@ -103,6 +110,11 @@ async def update_sql_exporter(
     global _update_slots
     if _update_slots is None:
         _update_slots = asyncio.Semaphore(config.SQL_EXPORTER_UPDATE_CONCURRENCY)
+    # Waiting inside the handler would block the cluster's other handlers.
+    if _update_slots.locked():
+        raise kopf.TemporaryError(
+            "Waiting for other SQL exporter updates to finish.", delay=RETRY_DELAY
+        )
     # A slot is held from the ConfigMap until the pods are checked, so that
     # clusters waiting for one still run with a matching image and config.
     async with _update_slots:
@@ -126,13 +138,20 @@ async def _update_sql_exporter(
         config_hash = config_map.data[SQL_EXPORTER_CONFIG_HASH_KEY]
 
     try:
-        await update_pods(namespace, name, image, config_hash, logger)
+        waiting = await update_pods(namespace, name, image, config_hash, logger)
     except kopf.PermanentError:
         if config_map is not None and previous_data != config_map.data:
             await _restore_config_map(
                 namespace, name, previous_data or {}, config_hash, logger
             )
         raise
+    if waiting:
+        # The pod template must not get an image that no pod has run.
+        raise kopf.TemporaryError(
+            "Pods that are not running yet still have to be checked for the "
+            "SQL exporter update.",
+            delay=RETRY_DELAY,
+        )
     await update_statefulsets(namespace, name, image, config_hash, logger)
     # Pods recreated during the first pass came from the old pod template.
     # `OnDelete` leaves a pod that is not running yet on its old exporter, so
@@ -195,10 +214,19 @@ async def update_config_map(
 
         existing_data = existing.data or {}
         if existing_data == data:
-            return existing_data
+            # An earlier attempt may have replaced the data already.
+            recorded = _annotations(existing.metadata).get(
+                SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION
+            )
+            return json.loads(recorded) if recorded else existing_data
 
         body: Dict[str, Any] = {
-            "data": {**{key: None for key in existing_data if key not in data}, **data}
+            "metadata": {
+                "annotations": {
+                    SQL_EXPORTER_PREVIOUS_CONFIG_ANNOTATION: json.dumps(existing_data)
+                }
+            },
+            "data": {**{key: None for key in existing_data if key not in data}, **data},
         }
         logger.info("Updating SQL exporter ConfigMap %s", config_map_name)
         await core.patch_namespaced_config_map(
@@ -264,11 +292,19 @@ async def update_pods(
         )
 
     waiting = False
+    pending: Optional[_ConfigPending] = None
     for pod_name in sorted(pod.metadata.name for pod in pods.items):
         # Earlier pods can take minutes, and the restart count has to be current.
         pod = await _read_pod(namespace, pod_name)
-        if pod is not None:
+        if pod is None:
+            continue
+        try:
             waiting |= await update_pod(namespace, pod, image, config_hash, logger)
+        except _ConfigPending as e:
+            # One pod that cannot be checked must not hold back the others.
+            pending = e
+    if pending is not None:
+        raise pending
     return waiting
 
 
@@ -309,13 +345,13 @@ async def update_pod(
             await _patch_pod(namespace, pod_name, _rollout_done_patch(None))
             return False
 
-        old_image = container.image
+        old_image = unverified_from or container.image
         projected = True
         if config_hash is not None and stale_config:
             projected = await _wait_for_projected_config(
                 namespace, pod_name, config_hash, logger
             )
-        config_pending = kopf.TemporaryError(
+        config_pending = _ConfigPending(
             f"Pod {pod_name} has not received the new SQL exporter configuration yet.",
             delay=RETRY_DELAY,
         )
@@ -441,16 +477,22 @@ async def _exec(
     async with WsApiClient() as ws_api_client:
         core_ws = CoreV1Api(ws_api_client)
         try:
-            return await core_ws.connect_get_namespaced_pod_exec(
-                namespace=namespace,
-                name=pod_name,
-                command=command,
-                container=SQL_EXPORTER_CONTAINER,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
+            return await asyncio.wait_for(
+                core_ws.connect_get_namespaced_pod_exec(
+                    namespace=namespace,
+                    name=pod_name,
+                    command=command,
+                    container=SQL_EXPORTER_CONTAINER,
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                ),
+                EXEC_TIMEOUT,
             )
+        except asyncio.TimeoutError:
+            logger.warning("Exec into SQL exporter of pod %s timed out.", pod_name)
+            return None
         except (ApiException, WSServerHandshakeError) as e:
             logger.warning(
                 "Exec into SQL exporter of pod %s failed. Status: %s",

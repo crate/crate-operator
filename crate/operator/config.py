@@ -427,15 +427,19 @@ class Config:
             "SQL_EXPORTER_AUTO_UPDATE", default=str(self.SQL_EXPORTER_AUTO_UPDATE)
         )
         self.SQL_EXPORTER_AUTO_UPDATE = sql_exporter_auto_update.lower() == "true"
-        self.SQL_EXPORTER_UPDATE_CONCURRENCY = max(
-            1,
-            int(
-                self.env(
-                    "SQL_EXPORTER_UPDATE_CONCURRENCY",
-                    default=str(self.SQL_EXPORTER_UPDATE_CONCURRENCY),
-                )
-            ),
+        sql_exporter_concurrency = self.env(
+            "SQL_EXPORTER_UPDATE_CONCURRENCY",
+            default=str(self.SQL_EXPORTER_UPDATE_CONCURRENCY),
         )
+        try:
+            self.SQL_EXPORTER_UPDATE_CONCURRENCY = int(sql_exporter_concurrency)
+        except ValueError:
+            self.SQL_EXPORTER_UPDATE_CONCURRENCY = 0
+        if self.SQL_EXPORTER_UPDATE_CONCURRENCY < 1:
+            raise ConfigurationError(
+                f"Invalid {self._prefix}SQL_EXPORTER_UPDATE_CONCURRENCY="
+                f"'{sql_exporter_concurrency}'. Needs to be a positive integer."
+            )
 
         self.GC_SENTRY_DSN = self.env("GC_SENTRY_DSN", default=self.GC_SENTRY_DSN)
 
